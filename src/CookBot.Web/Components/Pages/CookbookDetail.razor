@@ -1,0 +1,119 @@
+@page "/cookbooks/{CookbookId:int}"
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - @(_cookbook?.Name ?? "Cookbook")</PageTitle>
+
+@if (_cookbook != null)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" />
+        <MudText Typo="Typo.h4" Style="font-weight: 600;">@_cookbook.Name</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="NewRecipe">
+            New Recipe
+        </MudButton>
+    </MudStack>
+
+    @if (!string.IsNullOrEmpty(_cookbook.Description))
+    {
+        <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">@_cookbook.Description</MudText>
+    }
+
+    @if (_cookbook.Recipes.Any())
+    {
+        <MudGrid>
+            @foreach (var recipe in _cookbook.Recipes.OrderByDescending(r => r.UpdatedAt))
+            {
+                var recipeId = recipe.Id;
+                <MudItem xs="12" sm="6" md="4">
+                    <MudCard Elevation="2" Style="border-radius: 12px; cursor: pointer;"
+                             @onclick="() => ViewRecipe(recipeId)">
+                        <MudCardHeader>
+                            <CardHeaderContent>
+                                <MudText Typo="Typo.h6">@recipe.Name</MudText>
+                            </CardHeaderContent>
+                            <CardHeaderActions>
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                               Size="Size.Small"
+                                               OnClick="@(() => DeleteRecipe(recipe))" />
+                            </CardHeaderActions>
+                        </MudCardHeader>
+                        <MudCardContent>
+                            <MudStack Row="true" Spacing="2">
+                                @if (recipe.PrepTimeMinutes.HasValue)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">
+                                        Prep: @(recipe.PrepTimeMinutes)m
+                                    </MudChip>
+                                }
+                                @if (recipe.CookTimeMinutes.HasValue)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Text">
+                                        Cook: @(recipe.CookTimeMinutes)m
+                                    </MudChip>
+                                }
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
+                                    @recipe.Servings servings
+                                </MudChip>
+                            </MudStack>
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+    else
+    {
+        <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
+            <MudIcon Icon="@Icons.Material.Filled.Restaurant" Size="Size.Large" Color="Color.Secondary" />
+            <MudText Typo="Typo.h6" Class="mt-4">No recipes yet</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Add your first recipe to this cookbook.</MudText>
+        </MudPaper>
+    }
+}
+else if (_loaded)
+{
+    <MudText>Cookbook not found.</MudText>
+}
+
+@code {
+    [Parameter] public int CookbookId { get; set; }
+    private Cookbook? _cookbook;
+    private bool _loaded;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _cookbook = await DbContext.Cookbooks
+                .Include(c => c.Recipes)
+                .FirstOrDefaultAsync(c => c.Id == CookbookId);
+            _loaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private void GoBack() => Navigation.NavigateTo("/cookbooks");
+    private void NewRecipe() => Navigation.NavigateTo($"/cookbooks/{CookbookId}/recipes/new");
+    private void ViewRecipe(int id) => Navigation.NavigateTo($"/recipes/{id}");
+
+    private async Task DeleteRecipe(Recipe recipe)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete Recipe",
+            $"Delete \"{recipe.Name}\"? This cannot be undone.",
+            yesText: "Delete", cancelText: "Cancel");
+        if (confirm == true)
+        {
+            DbContext.Recipes.Remove(recipe);
+            await DbContext.SaveChangesAsync();
+            _cookbook!.Recipes.Remove(recipe);
+            Snackbar.Add("Recipe deleted.", Severity.Info);
+        }
+    }
+}

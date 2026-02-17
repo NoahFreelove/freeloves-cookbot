@@ -1,0 +1,226 @@
+@page "/cookbooks/{CookbookId:int}/recipes/new"
+@page "/recipes/{RecipeId:int}/edit"
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
+@inject CookBot.Application.Services.RecipeService RecipeService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - @(_isEdit ? "Edit" : "New") Recipe</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" />
+    <MudText Typo="Typo.h4" Style="font-weight: 600;">@(_isEdit ? "Edit" : "New") Recipe</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" OnClick="InsertTemplate" StartIcon="@Icons.Material.Filled.Description">
+        Insert Template
+    </MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveRecipe"
+               StartIcon="@Icons.Material.Filled.Save" Disabled="@_saving">
+        @(_saving ? "Saving..." : "Save")
+    </MudButton>
+</MudStack>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
+            <MudText Typo="Typo.subtitle1" Class="mb-2" Style="font-weight: 600;">Editor</MudText>
+            <MudTextField @bind-Value="_rawContent" T="string" Variant="Variant.Outlined"
+                          Lines="30" Immediate="true" DebounceInterval="500"
+                          OnDebounceIntervalElapsed="ParseContent"
+                          Style="font-family: 'Courier New', monospace; font-size: 14px;"
+                          Placeholder="Paste or write your recipe here..." />
+            @if (_errors.Any())
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
+            <MudText Typo="Typo.subtitle1" Class="mb-2" Style="font-weight: 600;">Preview</MudText>
+            @if (_parsed != null)
+            {
+                <MudText Typo="Typo.h5" Class="mb-2">@_parsed.Name</MudText>
+                <MudStack Row="true" Spacing="2" Class="mb-3">
+                    @if (_parsed.PrepTimeMinutes.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
+                            Prep: @(_parsed.PrepTimeMinutes)m
+                        </MudChip>
+                    }
+                    @if (_parsed.CookTimeMinutes.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Filled">
+                            Cook: @(_parsed.CookTimeMinutes)m
+                        </MudChip>
+                    }
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled">
+                        @_parsed.Servings servings
+                    </MudChip>
+                </MudStack>
+
+                @if (_parsed.Tags.Any())
+                {
+                    <MudStack Row="true" Spacing="1" Class="mb-3" Wrap="Wrap.Wrap">
+                        @foreach (var tag in _parsed.Tags)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">@tag</MudChip>
+                        }
+                    </MudStack>
+                }
+
+                <MudText Typo="Typo.subtitle2" Class="mb-2" Style="font-weight: 600;">Ingredients</MudText>
+                <MudList T="string" Dense="true" Class="mb-4">
+                    @foreach (var ing in _parsed.Ingredients)
+                    {
+                        <MudListItem>
+                            <MudText>
+                                <b>@ing.Amount @ing.Unit</b> @ing.Name
+                                @if (!string.IsNullOrEmpty(ing.Note))
+                                {
+                                    <span style="color: #888;"> (@ing.Note)</span>
+                                }
+                            </MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+
+                <MudDivider Class="mb-3" />
+                <div class="recipe-body">
+                    @((MarkupString)_renderedHtml)
+                </div>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Start typing to see a live preview...
+                </MudText>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter] public int CookbookId { get; set; }
+    [Parameter] public int RecipeId { get; set; }
+
+    private string _rawContent = "";
+    private CookBot.Domain.Interfaces.ParsedRecipe? _parsed;
+    private List<string> _errors = new();
+    private string _renderedHtml = "";
+    private bool _isEdit;
+    private bool _saving;
+    private Recipe? _existingRecipe;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && RecipeId > 0)
+        {
+            _isEdit = true;
+            _existingRecipe = await DbContext.Recipes
+                .Include(r => r.Cookbook)
+                .FirstOrDefaultAsync(r => r.Id == RecipeId);
+            if (_existingRecipe != null)
+            {
+                CookbookId = _existingRecipe.CookbookId;
+                _rawContent = _existingRecipe.RawContent;
+                ParseContent(_rawContent);
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void ParseContent(string content)
+    {
+        _rawContent = content;
+        _errors.Clear();
+        _parsed = null;
+        _renderedHtml = "";
+
+        if (string.IsNullOrWhiteSpace(content)) return;
+
+        if (Parser.TryParse(content, out var parsed, out var errors))
+        {
+            _parsed = parsed;
+            _renderedHtml = RenderMarkdown(_parsed!.MarkdownBody, _parsed.Ingredients);
+        }
+        else
+        {
+            _errors = errors;
+        }
+    }
+
+    private string RenderMarkdown(string markdown, List<CookBot.Domain.Interfaces.ParsedIngredient> ingredients)
+    {
+        var html = Markdig.Markdown.ToHtml(markdown);
+        foreach (var ing in ingredients)
+        {
+            html = html.Replace(
+                $"href=\"#{ing.LocalId}\"",
+                $"class=\"ingredient-ref\" title=\"{ing.Amount} {ing.Unit} {ing.Name}\" style=\"color: #E65100; font-weight: 600; text-decoration: none; border-bottom: 1px dashed #E65100; cursor: help;\"");
+        }
+        return html;
+    }
+
+    private void InsertTemplate()
+    {
+        _rawContent = "---\nname: \"My Recipe\"\nservings: 4\nprepTime: 15\ncookTime: 30\ntags: []\ningredients:\n  - id: 1\n    name: \"ingredient name\"\n    amount: 1\n    unit: \"cups\"\n---\n\n## Instructions\n\n1. First step using [ingredient name](#1)\n";
+        ParseContent(_rawContent);
+    }
+
+    private async Task SaveRecipe()
+    {
+        if (string.IsNullOrWhiteSpace(_rawContent))
+        {
+            Snackbar.Add("Recipe content is empty.", Severity.Warning);
+            return;
+        }
+
+        if (!Parser.TryParse(_rawContent, out _, out var errors))
+        {
+            foreach (var error in errors)
+                Snackbar.Add(error, Severity.Error);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            if (_isEdit && _existingRecipe != null)
+            {
+                await RecipeService.UpdateFromRawAsync(_existingRecipe.Id, _rawContent);
+                Snackbar.Add("Recipe updated!", Severity.Success);
+            }
+            else
+            {
+                await RecipeService.CreateFromRawAsync(CookbookId, _rawContent);
+                Snackbar.Add("Recipe created!", Severity.Success);
+            }
+            Navigation.NavigateTo($"/cookbooks/{CookbookId}");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving recipe: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        if (CookbookId > 0)
+            Navigation.NavigateTo($"/cookbooks/{CookbookId}");
+        else
+            Navigation.NavigateTo("/cookbooks");
+    }
+}

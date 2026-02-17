@@ -1,0 +1,101 @@
+@page "/"
+@inject CurrentUserService UserService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - Home</PageTitle>
+
+@if (_user != null)
+{
+    <MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">
+        Welcome back, @_user.DisplayName!
+    </MudText>
+
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.MenuBook" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Class="mt-2">@_cookbookCount</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Cookbooks</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.Restaurant" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Class="mt-2">@_recipeCount</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Recipes</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.Kitchen" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Class="mt-2">@_pantryCount</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Pantry Items</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Class="mt-2">@_groceryListCount</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Grocery Lists</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.h5" Class="mt-8 mb-4" Style="font-weight: 600;">Quick Actions</MudText>
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                       StartIcon="@Icons.Material.Filled.Add" Href="/cookbooks"
+                       Style="height: 60px; border-radius: 12px;">
+                New Recipe
+            </MudButton>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true"
+                       StartIcon="@Icons.Material.Filled.AutoAwesome" Href="/ai"
+                       Style="height: 60px; border-radius: 12px;">
+                Ask AI Chef
+            </MudButton>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
+                       StartIcon="@Icons.Material.Filled.Kitchen" Href="/pantry"
+                       Style="height: 60px; border-radius: 12px;">
+                Manage Pantry
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+}
+else
+{
+    <MudText Typo="Typo.h4" Class="mb-4">Welcome to CookBot!</MudText>
+    <MudText Typo="Typo.body1">Select a user from the top bar or create a new one to get started.</MudText>
+}
+
+@code {
+    private User? _user;
+    private int _cookbookCount;
+    private int _recipeCount;
+    private int _pantryCount;
+    private int _groceryListCount;
+
+    [Inject] private CookBot.Infrastructure.Data.CookBotDbContext DbContext { get; set; } = null!;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserService.InitializeAsync();
+            _user = await UserService.GetCurrentUserAsync();
+            if (_user != null)
+            {
+                _cookbookCount = await DbContext.Cookbooks.CountAsync(c => c.UserId == _user.Id);
+                _recipeCount = await DbContext.Recipes.CountAsync(r => r.Cookbook.UserId == _user.Id);
+                _pantryCount = await DbContext.PantryItems.CountAsync(p => p.UserId == _user.Id);
+                _groceryListCount = await DbContext.GroceryLists.CountAsync(g => g.UserId == _user.Id);
+            }
+            StateHasChanged();
+        }
+    }
+}

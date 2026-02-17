@@ -1,0 +1,100 @@
+@page "/recipes/{RecipeId:int}/made"
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Application.Services.PantryService PantryService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - I Made This!</PageTitle>
+
+@if (_recipe != null)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="GoBack" />
+        <MudText Typo="Typo.h4" Style="font-weight: 600;">I Made This!</MudText>
+    </MudStack>
+
+    <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px; max-width: 600px;">
+        <MudText Typo="Typo.h5" Class="mb-4">@_recipe.Name</MudText>
+
+        <MudNumericField @bind-Value="_servingsMultiplier" Label="Servings multiplier"
+                         Variant="Variant.Outlined" Min="0.25" Max="10" Step="0.25"
+                         HelperText="@($"Original: {_recipe.Servings} servings. Adjust if you made more or less.")"
+                         Class="mb-4" />
+
+        <MudText Typo="Typo.subtitle2" Class="mb-2" Style="font-weight: 600;">
+            Ingredients to deduct from pantry:
+        </MudText>
+
+        <MudList T="string" Dense="true" Class="mb-4">
+            @foreach (var ri in _recipe.RecipeIngredients.OrderBy(r => r.RecipeLocalId))
+            {
+                var scaled = Math.Round(ri.Amount * _servingsMultiplier, 2);
+                <MudListItem>
+                    <MudText>
+                        <b>@scaled @CookBot.Application.Services.UnitParser.ToDisplayString(ri.Unit)</b>
+                        @ri.Ingredient.Name
+                    </MudText>
+                </MudListItem>
+            }
+        </MudList>
+
+        @if (_deducted)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">
+                Pantry updated! @_deductedCount ingredient(s) deducted.
+            </MudAlert>
+        }
+
+        <MudStack Row="true" Spacing="2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.CheckCircle"
+                       OnClick="DeductFromPantry" Disabled="@_deducted">
+                Deduct from Pantry
+            </MudButton>
+            <MudButton Variant="Variant.Text" OnClick="GoBack">Cancel</MudButton>
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public int RecipeId { get; set; }
+    private Recipe? _recipe;
+    private double _servingsMultiplier = 1.0;
+    private bool _deducted;
+    private int _deductedCount;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _recipe = await DbContext.Recipes
+                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                .FirstOrDefaultAsync(r => r.Id == RecipeId);
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeductFromPantry()
+    {
+        await UserService.InitializeAsync();
+        if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
+
+        var userId = UserService.CurrentUserId.Value;
+        _deductedCount = 0;
+
+        foreach (var ri in _recipe.RecipeIngredients)
+        {
+            var scaledAmount = ri.Amount * _servingsMultiplier;
+            await PantryService.DeductAsync(userId, ri.IngredientId, scaledAmount, ri.Unit);
+            _deductedCount++;
+        }
+
+        _deducted = true;
+        Snackbar.Add($"Deducted {_deductedCount} ingredients from pantry!", Severity.Success);
+    }
+
+    private void GoBack() => Navigation.NavigateTo($"/recipes/{RecipeId}");
+}

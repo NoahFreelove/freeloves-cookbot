@@ -1,0 +1,53 @@
+## .NET / C#
+bin/
+obj/
+publish/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+*.cache
+*.userosscache
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.sln.docstates
+
+## ASP.NET
+wwwroot/lib/
+
+## Entity Framework
+*.db
+*.db-shm
+*.db-wal
+
+## Secrets
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+bld/
+[Bb]uild[Ll]og.*
+
+## NuGet
+*.nupkg
+**/packages/*
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Misc
+*.swp
+*~

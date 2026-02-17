@@ -1,0 +1,312 @@
+@page "/ai"
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Domain.Interfaces.IAiService AiService
+@inject CookBot.Application.Services.PromptBuilderService PromptBuilder
+@inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - AI Assistant</PageTitle>
+
+<MudGrid>
+    <MudItem xs="12" md="3">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: calc(100vh - 180px); overflow-y: auto;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                <MudText Typo="Typo.h6">Conversations</MudText>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="NewConversation" />
+            </MudStack>
+            <MudList T="int" Dense="true" @bind-SelectedValue="_selectedConversationId">
+                @foreach (var conv in _conversations)
+                {
+                    <MudListItem Value="@conv.Id" OnClick="@(() => LoadConversation(conv))">
+                        <MudStack Row="true" AlignItems="AlignItems.Center">
+                            <MudText Typo="Typo.body2" Style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                @conv.Title
+                            </MudText>
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                           OnClick="@(() => DeleteConversation(conv))" />
+                        </MudStack>
+                    </MudListItem>
+                }
+            </MudList>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="9">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: calc(100vh - 180px); display: flex; flex-direction: column;">
+            <div style="flex: 1; overflow-y: auto; padding-right: 8px;" @ref="_chatContainer">
+                @if (!_messages.Any())
+                {
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Primary" />
+                        <MudText Typo="Typo.h6" Class="mt-4">Ask me anything about cooking!</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                            I can suggest recipes, help with substitutions, explain techniques, and more.
+                        </MudText>
+                    </div>
+                }
+                @foreach (var msg in _messages)
+                {
+                    <div class="d-flex @(msg.Role == "user" ? "justify-end" : "justify-start") mb-3">
+                        <MudPaper Class="pa-3" Elevation="1"
+                                  Style="@($"max-width: 80%; border-radius: 12px; {(msg.Role == "user" ? "background: #E65100; color: white;" : "background: #FFF3E0;")}")">
+                            @if (msg.Role == "assistant")
+                            {
+                                <div class="recipe-body">@((MarkupString)RenderContent(msg.Content))</div>
+                                @if (HasRecipe(msg.Content))
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Save" Class="mt-2"
+                                               OnClick="@(() => SaveRecipeFromMessage(msg.Content))">
+                                        Save Recipe to Cookbook
+                                    </MudButton>
+                                }
+                            }
+                            else
+                            {
+                                <MudText>@msg.Content</MudText>
+                            }
+                        </MudPaper>
+                    </div>
+                }
+                @if (_isStreaming)
+                {
+                    <div class="d-flex justify-start mb-3">
+                        <MudPaper Class="pa-3" Elevation="1" Style="max-width: 80%; border-radius: 12px; background: #FFF3E0;">
+                            <div class="recipe-body">@((MarkupString)RenderContent(_streamingContent))</div>
+                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
+                        </MudPaper>
+                    </div>
+                }
+            </div>
+
+            <MudDivider Class="my-2" />
+            <MudStack Row="true" Spacing="2">
+                <MudTextField @bind-Value="_userInput" Label="Ask CookBot..." Variant="Variant.Outlined"
+                              Immediate="true" OnKeyDown="HandleKeyDown" Disabled="@_isStreaming"
+                              Style="flex: 1;" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Send"
+                           OnClick="SendMessage" Disabled="@(_isStreaming || string.IsNullOrWhiteSpace(_userInput))">
+                    Send
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<AiConversation> _conversations = new();
+    private List<CookBot.Domain.Interfaces.AiMessage> _messages = new();
+    private AiConversation? _currentConversation;
+    private int _selectedConversationId;
+    private string _userInput = "";
+    private string _streamingContent = "";
+    private bool _isStreaming;
+    private ElementReference _chatContainer;
+    private string _systemPrompt = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserService.InitializeAsync();
+            await LoadConversations();
+            await BuildSystemPrompt();
+            StateHasChanged();
+        }
+    }
+
+    private async Task BuildSystemPrompt()
+    {
+        var user = await UserService.GetCurrentUserAsync();
+        if (user?.Profile != null)
+        {
+            var pantry = await DbContext.PantryItems
+                .Include(p => p.Ingredient)
+                .Where(p => p.UserId == user.Id)
+                .ToListAsync();
+            _systemPrompt = PromptBuilder.BuildSystemPrompt(user.Profile, pantry);
+        }
+    }
+
+    private async Task LoadConversations()
+    {
+        if (UserService.CurrentUserId is int userId)
+        {
+            _conversations = await DbContext.AiConversations
+                .Where(c => c.UserId == userId)
+                .OrderByDescending(c => c.UpdatedAt)
+                .ToListAsync();
+        }
+    }
+
+    private void LoadConversation(AiConversation conv)
+    {
+        _currentConversation = conv;
+        _selectedConversationId = conv.Id;
+        _messages = System.Text.Json.JsonSerializer.Deserialize<List<CookBot.Domain.Interfaces.AiMessage>>(conv.MessagesJson) ?? new();
+    }
+
+    private async Task NewConversation()
+    {
+        _currentConversation = null;
+        _messages.Clear();
+        _selectedConversationId = 0;
+        await Task.CompletedTask;
+    }
+
+    private async Task DeleteConversation(AiConversation conv)
+    {
+        DbContext.AiConversations.Remove(conv);
+        await DbContext.SaveChangesAsync();
+        _conversations.Remove(conv);
+        if (_currentConversation?.Id == conv.Id)
+        {
+            _currentConversation = null;
+            _messages.Clear();
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_isStreaming && !string.IsNullOrWhiteSpace(_userInput))
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput) || _isStreaming) return;
+
+        var userMsg = _userInput.Trim();
+        _userInput = "";
+        _messages.Add(new CookBot.Domain.Interfaces.AiMessage { Role = "user", Content = userMsg });
+
+        _isStreaming = true;
+        _streamingContent = "";
+        StateHasChanged();
+
+        try
+        {
+            var apiKey = (await UserService.GetCurrentUserAsync())?.Profile?.AiApiKey;
+
+            await foreach (var chunk in AiService.StreamMessageAsync(_systemPrompt, _messages, apiKey))
+            {
+                _streamingContent += chunk;
+                StateHasChanged();
+            }
+
+            _messages.Add(new CookBot.Domain.Interfaces.AiMessage { Role = "assistant", Content = _streamingContent });
+            await SaveConversation();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"AI Error: {ex.Message}", Severity.Error);
+            _messages.RemoveAt(_messages.Count - 1);
+        }
+        finally
+        {
+            _isStreaming = false;
+            _streamingContent = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveConversation()
+    {
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        if (_currentConversation == null)
+        {
+            var title = _messages.First().Content;
+            if (title.Length > 50) title = title[..50] + "...";
+
+            _currentConversation = new AiConversation
+            {
+                UserId = UserService.CurrentUserId.Value,
+                Title = title,
+            };
+            DbContext.AiConversations.Add(_currentConversation);
+        }
+
+        _currentConversation.MessagesJson = System.Text.Json.JsonSerializer.Serialize(_messages);
+        _currentConversation.UpdatedAt = DateTime.UtcNow;
+        await DbContext.SaveChangesAsync();
+        await LoadConversations();
+        _selectedConversationId = _currentConversation.Id;
+    }
+
+    private string RenderContent(string content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        return Markdig.Markdown.ToHtml(content);
+    }
+
+    private bool HasRecipe(string content)
+    {
+        var recipeContent = ExtractRecipeContent(content);
+        return recipeContent != null;
+    }
+
+    private string? ExtractRecipeContent(string content)
+    {
+        var startIdx = content.IndexOf("```recipe");
+        if (startIdx < 0) startIdx = content.IndexOf("---\nname:");
+        if (startIdx < 0) return null;
+
+        string recipeText;
+        if (content[startIdx..].StartsWith("```recipe"))
+        {
+            var endIdx = content.IndexOf("```", startIdx + 9);
+            if (endIdx < 0) return null;
+            recipeText = content[(startIdx + 9)..endIdx].Trim();
+        }
+        else
+        {
+            recipeText = content[startIdx..];
+        }
+
+        return Parser.TryParse(recipeText, out _, out _) ? recipeText : null;
+    }
+
+    private async Task SaveRecipeFromMessage(string content)
+    {
+        var recipeContent = ExtractRecipeContent(content);
+        if (recipeContent == null)
+        {
+            Snackbar.Add("Could not find a valid recipe in this message.", Severity.Warning);
+            return;
+        }
+
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        var cookbooks = await DbContext.Cookbooks
+            .Where(c => c.UserId == UserService.CurrentUserId.Value)
+            .ToListAsync();
+
+        if (!cookbooks.Any())
+        {
+            Snackbar.Add("Create a cookbook first!", Severity.Warning);
+            return;
+        }
+
+        var parameters = new DialogParameters<SaveRecipeDialog>
+        {
+            { x => x.Cookbooks, cookbooks },
+            { x => x.RecipeContent, recipeContent },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<SaveRecipeDialog>("Save Recipe", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled)
+        {
+            Snackbar.Add("Recipe saved to cookbook!", Severity.Success);
+        }
+    }
+}

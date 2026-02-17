@@ -1,0 +1,172 @@
+@page "/grocery-lists"
+@page "/grocery-lists/from-recipe/{RecipeId:int}"
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Application.Services.GroceryListService GroceryListService
+@inject CookBot.Application.Services.PantryService PantryService
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - Grocery Lists</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">Grocery Lists</MudText>
+
+@if (_generatingFromRecipe && _recipe != null)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">
+        Generating shopping list for <b>@_recipe.Name</b>...
+    </MudAlert>
+}
+
+@if (_groceryLists.Any())
+{
+    @foreach (var list in _groceryLists)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudText Typo="Typo.h6">@list.Name</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2">
+                    @list.CreatedAt.ToString("MMM dd, yyyy")
+                </MudText>
+                <MudSpacer />
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.ShoppingBag"
+                           OnClick="@(() => MarkPurchased(list))">
+                    I bought these
+                </MudButton>
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                               OnClick="@(() => DeleteList(list))" />
+            </MudStack>
+            <MudList T="string" Dense="true">
+                @foreach (var item in list.Items.OrderBy(i => i.Ingredient.Category).ThenBy(i => i.Ingredient.Name))
+                {
+                    <MudListItem>
+                        <MudStack Row="true" AlignItems="AlignItems.Center">
+                            <MudCheckBox T="bool" Value="@item.IsPurchased"
+                                         ValueChanged="@(v => TogglePurchased(item, v))"
+                                         Color="Color.Primary" />
+                            <MudText Style="@(item.IsPurchased ? "text-decoration: line-through; color: #999;" : "")">
+                                <b>@item.Amount @CookBot.Application.Services.UnitParser.ToDisplayString(item.Unit)</b>
+                                @item.Ingredient.Name
+                            </MudText>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Info">
+                                @item.Ingredient.Category
+                            </MudChip>
+                        </MudStack>
+                    </MudListItem>
+                }
+            </MudList>
+        </MudPaper>
+    }
+}
+else
+{
+    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
+        <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h6" Class="mt-4">No grocery lists</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            View a recipe and click "What do I need?" to generate a shopping list.
+        </MudText>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public int RecipeId { get; set; }
+    private List<GroceryList> _groceryLists = new();
+    private Recipe? _recipe;
+    private bool _generatingFromRecipe;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserService.InitializeAsync();
+
+            if (RecipeId > 0 && UserService.CurrentUserId.HasValue)
+            {
+                _generatingFromRecipe = true;
+                _recipe = await DbContext.Recipes
+                    .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                    .FirstOrDefaultAsync(r => r.Id == RecipeId);
+
+                if (_recipe != null)
+                {
+                    var list = await GroceryListService.GenerateFromRecipeAsync(
+                        UserService.CurrentUserId.Value, _recipe);
+                    if (list.Items.Any())
+                    {
+                        Snackbar.Add($"Shopping list created with {list.Items.Count} items!", Severity.Success);
+                    }
+                    else
+                    {
+                        Snackbar.Add("You have everything you need!", Severity.Info);
+                    }
+                }
+                _generatingFromRecipe = false;
+            }
+
+            await LoadLists();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadLists()
+    {
+        if (UserService.CurrentUserId is int userId)
+        {
+            _groceryLists = await DbContext.GroceryLists
+                .Include(g => g.Items).ThenInclude(i => i.Ingredient)
+                .Where(g => g.UserId == userId)
+                .OrderByDescending(g => g.CreatedAt)
+                .ToListAsync();
+        }
+    }
+
+    private async Task TogglePurchased(GroceryListItem item, bool purchased)
+    {
+        item.IsPurchased = purchased;
+        await DbContext.SaveChangesAsync();
+    }
+
+    private async Task MarkPurchased(GroceryList list)
+    {
+        var unpurchased = list.Items.Where(i => !i.IsPurchased).ToList();
+        if (!unpurchased.Any())
+        {
+            Snackbar.Add("All items already purchased!", Severity.Info);
+            return;
+        }
+
+        foreach (var item in unpurchased)
+        {
+            item.IsPurchased = true;
+            if (UserService.CurrentUserId.HasValue)
+            {
+                await PantryService.AddOrUpdateAsync(
+                    UserService.CurrentUserId.Value,
+                    item.IngredientId,
+                    item.Amount,
+                    item.Unit,
+                    null);
+            }
+        }
+        await DbContext.SaveChangesAsync();
+        Snackbar.Add($"{unpurchased.Count} items added to pantry!", Severity.Success);
+    }
+
+    private async Task DeleteList(GroceryList list)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete List", "Delete this grocery list?",
+            yesText: "Delete", cancelText: "Cancel");
+        if (confirm == true)
+        {
+            DbContext.GroceryLists.Remove(list);
+            await DbContext.SaveChangesAsync();
+            _groceryLists.Remove(list);
+            Snackbar.Add("Grocery list deleted.", Severity.Info);
+        }
+    }
+}

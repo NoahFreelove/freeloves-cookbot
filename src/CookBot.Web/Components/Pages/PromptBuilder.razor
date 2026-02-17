@@ -1,0 +1,137 @@
+@page "/prompt-builder"
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Application.Services.PromptBuilderService PromptBuilderSvc
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - Prompt Builder</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-2" Style="font-weight: 600;">Prompt Builder</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Generate a prompt with your profile context and our recipe format, then copy it to use with any AI assistant.
+</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
+            <MudText Typo="Typo.h6" Class="mb-4">What do you want to cook?</MudText>
+
+            <MudTextField @bind-Value="_userRequest" Label="Your request" Variant="Variant.Outlined"
+                          Lines="4" Placeholder="e.g. I want a quick weeknight pasta recipe with whatever I have in my pantry"
+                          Class="mb-4" />
+
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Include in prompt:</MudText>
+            <MudStack Spacing="1" Class="mb-4">
+                <MudCheckBox @bind-Value="_includeProfile" Label="My profile (experience, units, tools, dietary prefs)"
+                             Color="Color.Primary" Dense="true" />
+                <MudCheckBox @bind-Value="_includePantry" Label="My pantry inventory"
+                             Color="Color.Primary" Dense="true" />
+            </MudStack>
+
+            @if (_includeProfile && _profile != null)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="mb-3">
+                    Profile: @_profile.ExperienceLevel, @_profile.UnitSystem units,
+                    @_toolCount tool(s), @_dietCount dietary pref(s)
+                </MudAlert>
+            }
+            @if (_includePantry)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="mb-3">
+                    Pantry: @_pantryCount item(s) will be included
+                </MudAlert>
+            }
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                       StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="GeneratePrompt"
+                       Disabled="@string.IsNullOrWhiteSpace(_userRequest)">
+                Generate Prompt
+            </MudButton>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px; position: relative;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+                <MudText Typo="Typo.h6">Generated Prompt</MudText>
+                <MudSpacer />
+                @if (!string.IsNullOrEmpty(_generatedPrompt))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyToClipboard">
+                        @(_copied ? "Copied!" : "Copy")
+                    </MudButton>
+                }
+            </MudStack>
+
+            @if (string.IsNullOrEmpty(_generatedPrompt))
+            {
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; opacity: 0.5;">
+                    <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" />
+                    <MudText Typo="Typo.body1" Class="mt-3">Your generated prompt will appear here</MudText>
+                </div>
+            }
+            else
+            {
+                <MudTextField Value="@_generatedPrompt" ReadOnly="true" Variant="Variant.Outlined"
+                              Lines="20" Style="font-family: monospace; font-size: 0.85rem;" />
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private UserProfile? _profile;
+    private List<PantryItem> _pantryItems = new();
+    private string _userRequest = "";
+    private string _generatedPrompt = "";
+    private bool _includeProfile = true;
+    private bool _includePantry = true;
+    private bool _copied;
+    private int _toolCount;
+    private int _dietCount;
+    private int _pantryCount;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserService.InitializeAsync();
+            var user = await UserService.GetCurrentUserAsync();
+            if (user?.Profile != null)
+            {
+                _profile = user.Profile;
+                _toolCount = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(_profile.KitchenToolsJson) ?? new()).Count;
+                _dietCount = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(_profile.DietaryPreferencesJson) ?? new()).Count;
+
+                _pantryItems = await DbContext.PantryItems
+                    .Include(p => p.Ingredient)
+                    .Where(p => p.UserId == user.Id)
+                    .ToListAsync();
+                _pantryCount = _pantryItems.Count;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void GeneratePrompt()
+    {
+        _generatedPrompt = PromptBuilderSvc.BuildCopyablePrompt(
+            _userRequest,
+            _includeProfile ? _profile : null,
+            _includePantry ? _pantryItems : null,
+            _includeProfile,
+            _includePantry);
+        _copied = false;
+    }
+
+    private async Task CopyToClipboard()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedPrompt);
+        _copied = true;
+        Snackbar.Add("Prompt copied to clipboard!", Severity.Success);
+        StateHasChanged();
+    }
+}

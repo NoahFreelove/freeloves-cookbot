@@ -1,0 +1,119 @@
+@page "/pantry"
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Application.Services.PantryService PantryService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - Pantry</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4" Style="font-weight: 600;">My Pantry</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+               OnClick="ShowAddDialog">Add Item</MudButton>
+</MudStack>
+
+@if (_pantryItems.Any())
+{
+    <MudDataGrid Items="@_pantryItems" Dense="true" Striped="true" Hover="true"
+                 Style="border-radius: 12px;">
+        <Columns>
+            <PropertyColumn Property="x => x.Ingredient.Name" Title="Ingredient" />
+            <PropertyColumn Property="x => x.Amount" Title="Amount" Format="F2" />
+            <TemplateColumn Title="Unit">
+                <CellTemplate>
+                    @CookBot.Application.Services.UnitParser.ToDisplayString(context.Item.Unit)
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Expiration">
+                <CellTemplate>
+                    @if (context.Item.ExpirationDate.HasValue)
+                    {
+                        var daysLeft = (context.Item.ExpirationDate.Value - DateTime.UtcNow).Days;
+                        var color = daysLeft < 0 ? Color.Error : daysLeft < 3 ? Color.Warning : Color.Success;
+                        <MudChip T="string" Size="Size.Small" Color="@color" Variant="Variant.Filled">
+                            @context.Item.ExpirationDate.Value.ToString("MMM dd")
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn>
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                   OnClick="@(() => DeleteItem(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+    </MudDataGrid>
+}
+else
+{
+    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
+        <MudIcon Icon="@Icons.Material.Filled.Kitchen" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h6" Class="mt-4">Pantry is empty</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Add ingredients to track what you have on hand.</MudText>
+    </MudPaper>
+}
+
+@code {
+    private List<PantryItem> _pantryItems = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadPantry();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadPantry()
+    {
+        await UserService.InitializeAsync();
+        if (UserService.CurrentUserId is int userId)
+        {
+            _pantryItems = await DbContext.PantryItems
+                .Include(p => p.Ingredient)
+                .Where(p => p.UserId == userId)
+                .OrderBy(p => p.Ingredient.Name)
+                .ToListAsync();
+        }
+    }
+
+    private async Task ShowAddDialog()
+    {
+        var ingredients = await DbContext.Ingredients.OrderBy(i => i.Name).ToListAsync();
+        var parameters = new DialogParameters<AddPantryItemDialog>
+        {
+            { x => x.Ingredients, ingredients },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<AddPantryItemDialog>("Add Pantry Item", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled && result.Data is AddPantryItemDialog.PantryItemResult data)
+        {
+            await PantryService.AddOrUpdateAsync(
+                UserService.CurrentUserId!.Value,
+                data.IngredientId,
+                data.Amount,
+                data.Unit,
+                data.Expiration);
+            Snackbar.Add("Pantry item added!", Severity.Success);
+            await LoadPantry();
+        }
+    }
+
+    private async Task DeleteItem(PantryItem item)
+    {
+        DbContext.PantryItems.Remove(item);
+        await DbContext.SaveChangesAsync();
+        _pantryItems.Remove(item);
+        Snackbar.Add("Item removed from pantry.", Severity.Info);
+    }
+}

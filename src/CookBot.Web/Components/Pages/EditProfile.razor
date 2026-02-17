@@ -1,0 +1,130 @@
+@page "/profile"
+@inject CurrentUserService UserService
+@inject ISnackbar Snackbar
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - Profile</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">My Profile</MudText>
+
+@if (_profile != null)
+{
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
+                <MudText Typo="Typo.h6" Class="mb-4">Cooking Preferences</MudText>
+
+                <MudSelect T="ExperienceLevel" @bind-Value="_profile.ExperienceLevel"
+                           Label="Experience Level" Variant="Variant.Outlined" Class="mb-4">
+                    @foreach (ExperienceLevel level in Enum.GetValues<ExperienceLevel>())
+                    {
+                        <MudSelectItem Value="@level">@level</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudRadioGroup T="UnitSystem" @bind-Value="_profile.UnitSystem" Class="mb-4">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2">Unit System</MudText>
+                    <MudRadio Value="UnitSystem.Canadian" Color="Color.Primary">Canadian (cups, tbsp, grams, kg, Fahrenheit)</MudRadio>
+                    <MudRadio Value="UnitSystem.Imperial" Color="Color.Primary">Imperial (cups, oz, lbs, Fahrenheit)</MudRadio>
+                    <MudRadio Value="UnitSystem.Metric" Color="Color.Primary">Metric (mL, g, kg, Celsius)</MudRadio>
+                </MudRadioGroup>
+
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Kitchen Tools</MudText>
+                <MudChipSet T="string" @bind-SelectedValues="_selectedTools" SelectionMode="SelectionMode.MultiSelection"
+                            Color="Color.Primary" Variant="Variant.Text" Class="mb-4">
+                    @foreach (var tool in _availableTools)
+                    {
+                        <MudChip Value="@tool" Text="@tool" Default="@_kitchenTools.Contains(tool)" />
+                    }
+                </MudChipSet>
+
+                <MudText Typo="Typo.subtitle1" Class="mb-2 mt-4">Dietary Preferences</MudText>
+                <MudChipSet T="string" @bind-SelectedValues="_selectedDiets" SelectionMode="SelectionMode.MultiSelection"
+                            Color="Color.Secondary" Variant="Variant.Text" Class="mb-4">
+                    @foreach (var diet in _availableDiets)
+                    {
+                        <MudChip Value="@diet" Text="@diet" Default="@_dietaryPrefs.Contains(diet)" />
+                    }
+                </MudChipSet>
+
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProfile"
+                           StartIcon="@Icons.Material.Filled.Save" Class="mt-4">
+                    Save Profile
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
+                <MudText Typo="Typo.h6" Class="mb-4">AI Settings</MudText>
+                <MudTextField @bind-Value="_profile.AiApiKey" Label="Anthropic API Key"
+                              Variant="Variant.Outlined" InputType="InputType.Password"
+                              HelperText="Your API key for Claude AI integration. Stored locally."
+                              Class="mb-4" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="SaveProfile"
+                           StartIcon="@Icons.Material.Filled.Save">
+                    Save API Key
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+else
+{
+    <MudText>Please select a user first.</MudText>
+}
+
+@code {
+    private UserProfile? _profile;
+    private HashSet<string> _kitchenTools = new();
+    private HashSet<string> _dietaryPrefs = new();
+    private IReadOnlyCollection<string> _selectedTools = new HashSet<string>();
+    private IReadOnlyCollection<string> _selectedDiets = new HashSet<string>();
+
+    private readonly string[] _availableTools =
+    {
+        "Oven", "Stovetop", "Microwave", "Air Fryer", "Slow Cooker", "Instant Pot",
+        "Stand Mixer", "Hand Mixer", "Food Processor", "Blender", "Immersion Blender",
+        "Grill", "Smoker", "Sous Vide", "Dutch Oven", "Cast Iron Skillet", "Wok",
+        "Bread Machine", "Toaster Oven", "Pressure Cooker", "Rice Cooker",
+        "Waffle Iron", "Mandoline", "Mortar and Pestle", "Pizza Stone",
+        "Springform Pan", "Muffin Tin", "Bundt Pan", "Rolling Pin",
+        "Thermometer", "Kitchen Scale", "Pasta Maker", "Ice Cream Maker",
+        "Dehydrator", "Deep Fryer", "Griddle", "Torch", "Steamer Basket"
+    };
+
+    private readonly string[] _availableDiets =
+    {
+        "Vegetarian", "Gluten Free", "High Protein", "Low Carb"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserService.InitializeAsync();
+            var user = await UserService.GetCurrentUserAsync();
+            if (user != null)
+            {
+                _profile = user.Profile;
+                _kitchenTools = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.KitchenToolsJson) ?? new();
+                _dietaryPrefs = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
+                _selectedTools = new HashSet<string>(_kitchenTools);
+                _selectedDiets = new HashSet<string>(_dietaryPrefs);
+            }
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        if (_profile == null) return;
+
+        _profile.KitchenToolsJson = System.Text.Json.JsonSerializer.Serialize(_selectedTools);
+        _profile.DietaryPreferencesJson = System.Text.Json.JsonSerializer.Serialize(_selectedDiets);
+        DbContext.UserProfiles.Update(_profile);
+        await DbContext.SaveChangesAsync();
+        Snackbar.Add("Profile saved!", Severity.Success);
+    }
+}

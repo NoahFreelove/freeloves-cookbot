@@ -1,0 +1,147 @@
+@page "/cookbooks"
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - Cookbooks</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4" Style="font-weight: 600;">My Cookbooks</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+               OnClick="ShowCreateDialog">New Cookbook</MudButton>
+</MudStack>
+
+@if (_cookbooks.Any())
+{
+    <MudGrid>
+        @foreach (var cookbook in _cookbooks)
+        {
+            var cookbookId = cookbook.Id;
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2" Style="border-radius: 12px; cursor: pointer;"
+                         @onclick="() => ViewCookbook(cookbookId)">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">@cookbook.Name</MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                           OnClick="@(() => ShowEditDialog(cookbook))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                           OnClick="@(() => DeleteCookbook(cookbook))" />
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            @(cookbook.Description ?? "No description")
+                        </MudText>
+                        <MudText Typo="Typo.caption" Class="mt-2">
+                            @cookbook.Recipes.Count recipe(s)
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+else
+{
+    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
+        <MudIcon Icon="@Icons.Material.Filled.MenuBook" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h6" Class="mt-4">No cookbooks yet</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Create your first cookbook to start adding recipes.</MudText>
+    </MudPaper>
+}
+
+@code {
+    private List<Cookbook> _cookbooks = new();
+
+    private void ViewCookbook(int id) => Navigation.NavigateTo($"/cookbooks/{id}");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadCookbooks();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCookbooks()
+    {
+        await UserService.InitializeAsync();
+        if (UserService.CurrentUserId is int userId)
+        {
+            _cookbooks = await DbContext.Cookbooks
+                .Include(c => c.Recipes)
+                .Where(c => c.UserId == userId)
+                .OrderByDescending(c => c.UpdatedAt)
+                .ToListAsync();
+        }
+    }
+
+    private async Task ShowCreateDialog()
+    {
+        var parameters = new DialogParameters<CookbookFormDialog>
+        {
+            { x => x.Name, "" },
+            { x => x.Description, "" },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CookbookFormDialog>("New Cookbook", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled && result.Data is CookbookFormDialog.CookbookFormResult data)
+        {
+            var cookbook = new Cookbook
+            {
+                UserId = UserService.CurrentUserId!.Value,
+                Name = data.Name,
+                Description = data.Description,
+            };
+            DbContext.Cookbooks.Add(cookbook);
+            await DbContext.SaveChangesAsync();
+            Snackbar.Add("Cookbook created!", Severity.Success);
+            await LoadCookbooks();
+        }
+    }
+
+    private async Task ShowEditDialog(Cookbook cookbook)
+    {
+        var parameters = new DialogParameters<CookbookFormDialog>
+        {
+            { x => x.Name, cookbook.Name },
+            { x => x.Description, cookbook.Description ?? "" },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CookbookFormDialog>("Edit Cookbook", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled && result.Data is CookbookFormDialog.CookbookFormResult data)
+        {
+            cookbook.Name = data.Name;
+            cookbook.Description = data.Description;
+            cookbook.UpdatedAt = DateTime.UtcNow;
+            await DbContext.SaveChangesAsync();
+            Snackbar.Add("Cookbook updated!", Severity.Success);
+            await LoadCookbooks();
+        }
+    }
+
+    private async Task DeleteCookbook(Cookbook cookbook)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete Cookbook",
+            $"Delete \"{cookbook.Name}\" and all its recipes? This cannot be undone.",
+            yesText: "Delete", cancelText: "Cancel");
+        if (confirm == true)
+        {
+            DbContext.Cookbooks.Remove(cookbook);
+            await DbContext.SaveChangesAsync();
+            Snackbar.Add("Cookbook deleted.", Severity.Info);
+            await LoadCookbooks();
+        }
+    }
+}

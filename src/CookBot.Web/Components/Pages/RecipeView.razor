@@ -1,0 +1,145 @@
+@page "/recipes/{RecipeId:int}"
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>CookBot - @(_recipe?.Name ?? "Recipe")</PageTitle>
+
+@if (_recipe != null)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="@(() => Navigation.NavigateTo($"/cookbooks/{_recipe.CookbookId}"))" />
+        <MudText Typo="Typo.h4" Style="font-weight: 600;">@_recipe.Name</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Edit"
+                   OnClick="@(() => Navigation.NavigateTo($"/recipes/{_recipe.Id}/edit"))">
+            Edit
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
+                   StartIcon="@Icons.Material.Filled.ShoppingCart"
+                   OnClick="GenerateGroceryList">
+            What do I need?
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.CheckCircle"
+                   OnClick="MarkAsMade">
+            I made this!
+        </MudButton>
+    </MudStack>
+
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
+                <MudStack Row="true" Spacing="2" Class="mb-3">
+                    @if (_recipe.PrepTimeMinutes.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
+                            Prep: @(_recipe.PrepTimeMinutes)m
+                        </MudChip>
+                    }
+                    @if (_recipe.CookTimeMinutes.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Filled">
+                            Cook: @(_recipe.CookTimeMinutes)m
+                        </MudChip>
+                    }
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled">
+                        @_recipe.Servings servings
+                    </MudChip>
+                </MudStack>
+
+                @if (_tags.Any())
+                {
+                    <MudStack Row="true" Spacing="1" Class="mb-4" Wrap="Wrap.Wrap">
+                        @foreach (var tag in _tags)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">@tag</MudChip>
+                        }
+                    </MudStack>
+                }
+
+                <MudText Typo="Typo.h6" Class="mb-2">Ingredients</MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var ri in _recipe.RecipeIngredients.OrderBy(i => i.RecipeLocalId))
+                    {
+                        <MudListItem>
+                            <MudText>
+                                <b>@ri.Amount @CookBot.Application.Services.UnitParser.ToDisplayString(ri.Unit)</b>
+                                @ri.Ingredient.Name
+                                @if (!string.IsNullOrEmpty(ri.Note))
+                                {
+                                    <span style="color: #888;"> (@ri.Note)</span>
+                                }
+                            </MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
+                <div class="recipe-body">
+                    @((MarkupString)_renderedHtml)
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+else if (_loaded)
+{
+    <MudText>Recipe not found.</MudText>
+}
+
+@code {
+    [Parameter] public int RecipeId { get; set; }
+    private Recipe? _recipe;
+    private bool _loaded;
+    private string _renderedHtml = "";
+    private List<string> _tags = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _recipe = await DbContext.Recipes
+                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                .Include(r => r.Cookbook)
+                .FirstOrDefaultAsync(r => r.Id == RecipeId);
+
+            if (_recipe != null)
+            {
+                _renderedHtml = RenderMarkdown(_recipe.MarkdownBody, _recipe.RecipeIngredients.ToList());
+                _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(_recipe.TagsJson) ?? new();
+            }
+            _loaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private string RenderMarkdown(string markdown, List<RecipeIngredient> ingredients)
+    {
+        var html = Markdig.Markdown.ToHtml(markdown);
+        foreach (var ing in ingredients)
+        {
+            html = html.Replace(
+                $"href=\"#{ing.RecipeLocalId}\"",
+                $"class=\"ingredient-ref\" title=\"{ing.Amount} {CookBot.Application.Services.UnitParser.ToDisplayString(ing.Unit)} {ing.Ingredient.Name}\" style=\"color: #E65100; font-weight: 600; text-decoration: none; border-bottom: 1px dashed #E65100; cursor: help;\"");
+        }
+        return html;
+    }
+
+    private void GenerateGroceryList()
+    {
+        Navigation.NavigateTo($"/grocery-lists/from-recipe/{RecipeId}");
+    }
+
+    private void MarkAsMade()
+    {
+        Navigation.NavigateTo($"/recipes/{RecipeId}/made");
+    }
+}

@@ -1,0 +1,117 @@
+@inherits LayoutComponentBase
+@inject CurrentUserService UserService
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Primary">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="@ToggleDrawer" />
+        <MudIcon Icon="@Icons.Material.Filled.RamenDining" Class="ml-2" />
+        <MudText Typo="Typo.h5" Class="ml-2" Style="font-weight: 600;">CookBot</MudText>
+        <MudSpacer />
+        @if (_users.Any())
+        {
+            <MudSelect T="int" Value="_selectedUserId" ValueChanged="OnUserChanged"
+                       Variant="Variant.Text" Dense="true" Margin="Margin.Dense"
+                       AnchorOrigin="Origin.BottomCenter" TransformOrigin="Origin.TopCenter"
+                       Class="mt-0 mr-2" Style="color: white; max-width: 180px; min-width: 120px;">
+                @foreach (var user in _users)
+                {
+                    <MudSelectItem Value="@user.Id">@user.DisplayName</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        <MudTooltip Text="Add User">
+            <MudIconButton Icon="@Icons.Material.Filled.PersonAdd" Color="Color.Inherit"
+                           OnClick="ShowAddUserDialog" />
+        </MudTooltip>
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent Class="pt-16 px-4 pb-4">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private bool _drawerOpen = true;
+    private List<User> _users = new();
+    private int _selectedUserId;
+    private MudTheme _theme = null!;
+
+    [CascadingParameter]
+    private Task<User?>? CurrentUser { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _theme = new MudTheme
+        {
+            PaletteLight = new PaletteLight
+            {
+                Primary = "#E65100",
+                Secondary = "#2E7D32",
+                AppbarBackground = "#E65100",
+                Background = "#FFF8E1",
+                Surface = "#FFFFFF",
+                DrawerBackground = "#FFF3E0",
+                DrawerText = "#3E2723",
+                TextPrimary = "#3E2723",
+                TextSecondary = "#5D4037",
+            },
+            Typography = new Typography
+            {
+                Default = new DefaultTypography
+                {
+                    FontFamily = new[] { "Inter", "Helvetica", "Arial", "sans-serif" }
+                }
+            }
+        };
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserService.InitializeAsync();
+            _users = await UserService.GetAllUsersAsync();
+            if (UserService.CurrentUserId.HasValue)
+            {
+                _selectedUserId = UserService.CurrentUserId.Value;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private void OnUserChanged(int userId)
+    {
+        _selectedUserId = userId;
+        UserService.CurrentUserId = userId;
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+
+    private async Task ShowAddUserDialog()
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<AddUserDialog>("Add User", options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled && result.Data is string name && !string.IsNullOrWhiteSpace(name))
+        {
+            var user = await UserService.CreateUserAsync(name);
+            _users = await UserService.GetAllUsersAsync();
+            _selectedUserId = user.Id;
+            UserService.CurrentUserId = user.Id;
+            StateHasChanged();
+        }
+    }
+}

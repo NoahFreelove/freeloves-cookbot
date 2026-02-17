@@ -1,0 +1,59 @@
+@inject CookBot.Application.Services.RecipeService RecipeService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Save Recipe to Cookbook</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudSelect T="int" @bind-Value="_selectedCookbookId" Label="Select Cookbook"
+                   Variant="Variant.Outlined" Class="mb-4">
+            @foreach (var cb in Cookbooks)
+            {
+                <MudSelectItem Value="@cb.Id">@cb.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(_selectedCookbookId == 0 || _saving)">
+            @(_saving ? "Saving..." : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public List<Cookbook> Cookbooks { get; set; } = new();
+    [Parameter] public string RecipeContent { get; set; } = "";
+
+    private int _selectedCookbookId;
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        if (Cookbooks.Any())
+            _selectedCookbookId = Cookbooks.First().Id;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Save()
+    {
+        _saving = true;
+        try
+        {
+            await RecipeService.CreateFromRawAsync(_selectedCookbookId, RecipeContent);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

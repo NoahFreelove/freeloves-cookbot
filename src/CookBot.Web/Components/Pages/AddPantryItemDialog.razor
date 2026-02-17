@@ -1,0 +1,83 @@
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Add Pantry Item</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudAutocomplete T="Ingredient" @bind-Value="_selectedIngredient"
+                         SearchFunc="SearchIngredients" ToStringFunc="@(i => i?.Name ?? "")"
+                         Label="Ingredient" Variant="Variant.Outlined" Class="mb-4"
+                         Dense="true" />
+        <MudTextField @bind-Value="_newIngredientName" Label="Or add new ingredient"
+                      Variant="Variant.Outlined" Class="mb-4" HelperText="Leave blank to use selection above" />
+        <MudNumericField @bind-Value="_amount" Label="Amount" Variant="Variant.Outlined"
+                         Min="0.01" Step="0.25" Class="mb-4" />
+        <MudSelect T="MeasurementUnit" @bind-Value="_unit" Label="Unit" Variant="Variant.Outlined" Class="mb-4">
+            @foreach (MeasurementUnit u in Enum.GetValues<MeasurementUnit>())
+            {
+                <MudSelectItem Value="@u">@CookBot.Application.Services.UnitParser.ToDisplayString(u)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudDatePicker @bind-Date="_expiration" Label="Expiration Date (optional)"
+                       Variant="Variant.Outlined" Clearable="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
+                   Disabled="@(!CanSubmit)">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public List<Ingredient> Ingredients { get; set; } = new();
+
+    private Ingredient? _selectedIngredient;
+    private string _newIngredientName = "";
+    private double _amount = 1;
+    private MeasurementUnit _unit = MeasurementUnit.Cup;
+    private DateTime? _expiration;
+
+    private bool CanSubmit => _selectedIngredient != null || !string.IsNullOrWhiteSpace(_newIngredientName);
+
+    private Task<IEnumerable<Ingredient>> SearchIngredients(string value, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Task.FromResult(Ingredients.AsEnumerable());
+
+        return Task.FromResult(Ingredients.Where(i =>
+            i.Name.Contains(value, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        int ingredientId;
+        if (!string.IsNullOrWhiteSpace(_newIngredientName))
+        {
+            var normalized = CookBot.Application.Services.IngredientResolver.Normalize(_newIngredientName);
+            var existing = await DbContext.Ingredients.FirstOrDefaultAsync(i => i.NormalizedName == normalized);
+            if (existing != null)
+            {
+                ingredientId = existing.Id;
+            }
+            else
+            {
+                var newIng = new Ingredient { Name = _newIngredientName, NormalizedName = normalized };
+                DbContext.Ingredients.Add(newIng);
+                await DbContext.SaveChangesAsync();
+                ingredientId = newIng.Id;
+            }
+        }
+        else
+        {
+            ingredientId = _selectedIngredient!.Id;
+        }
+
+        MudDialog.Close(DialogResult.Ok(new PantryItemResult(ingredientId, _amount, _unit, _expiration)));
+    }
+
+    public record PantryItemResult(int IngredientId, double Amount, MeasurementUnit Unit, DateTime? Expiration);
+}
