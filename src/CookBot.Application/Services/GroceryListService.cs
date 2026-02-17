@@ -60,6 +60,32 @@ public class GroceryListService
         return groceryList;
     }
 
+    public async Task<GroceryList> GenerateAllFromRecipeAsync(int userId, Recipe recipe, double scaleFactor = 1.0)
+    {
+        var groceryList = new GroceryList
+        {
+            UserId = userId,
+            Name = $"All items: {recipe.Name}",
+        };
+
+        foreach (var ri in recipe.RecipeIngredients)
+        {
+            groceryList.Items.Add(new GroceryListItem
+            {
+                IngredientId = ri.IngredientId,
+                Amount = Math.Round(ri.Amount * scaleFactor, 2),
+                Unit = ri.Unit,
+            });
+        }
+
+        if (groceryList.Items.Any())
+        {
+            return await _groceryRepo.AddAsync(groceryList);
+        }
+
+        return groceryList;
+    }
+
     public async Task DeleteAsync(GroceryList list) =>
         await _groceryRepo.DeleteAsync(list);
 }

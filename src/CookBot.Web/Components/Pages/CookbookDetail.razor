@@ -1,5 +1,6 @@
 @page "/cookbooks/{CookbookId:int}"
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CurrentUserService UserService
 @inject NavigationManager Navigation
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -12,11 +13,23 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
         <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" />
         <MudText Typo="Typo.h4" Style="font-weight: 600;">@_cookbook.Name</MudText>
+        @if (_isReadOnly)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined" Class="ml-2">
+                Read Only
+            </MudChip>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="ml-2">
+                Shared by @_cookbook.User.DisplayName
+            </MudText>
+        }
         <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                   OnClick="NewRecipe">
-            New Recipe
-        </MudButton>
+        @if (!_isReadOnly)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="NewRecipe">
+                New Recipe
+            </MudButton>
+        }
     </MudStack>
 
     @if (!string.IsNullOrEmpty(_cookbook.Description))
@@ -38,9 +51,12 @@
                                 <MudText Typo="Typo.h6">@recipe.Name</MudText>
                             </CardHeaderContent>
                             <CardHeaderActions>
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
-                                               Size="Size.Small"
-                                               OnClick="@(() => DeleteRecipe(recipe))" />
+                                @if (!_isReadOnly)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => DeleteRecipe(recipe))" />
+                                }
                             </CardHeaderActions>
                         </MudCardHeader>
                         <MudCardContent>
@@ -72,7 +88,9 @@
         <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
             <MudIcon Icon="@Icons.Material.Filled.Restaurant" Size="Size.Large" Color="Color.Secondary" />
             <MudText Typo="Typo.h6" Class="mt-4">No recipes yet</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">Add your first recipe to this cookbook.</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @(_isReadOnly ? "The owner hasn't added any recipes yet." : "Add your first recipe to this cookbook.")
+            </MudText>
         </MudPaper>
     }
 }
@@ -85,14 +103,21 @@ else if (_loaded)
     [Parameter] public int CookbookId { get; set; }
     private Cookbook? _cookbook;
     private bool _loaded;
+    private bool _isReadOnly;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            await UserService.InitializeAsync();
             _cookbook = await DbContext.Cookbooks
                 .Include(c => c.Recipes)
+                .Include(c => c.User)
                 .FirstOrDefaultAsync(c => c.Id == CookbookId);
+
+            if (_cookbook != null)
+                _isReadOnly = _cookbook.UserId != UserService.CurrentUserId;
+
             _loaded = true;
             StateHasChanged();
         }
@@ -104,6 +129,7 @@ else if (_loaded)
 
     private async Task DeleteRecipe(Recipe recipe)
     {
+        if (_isReadOnly) return;
         bool? confirm = await DialogService.ShowMessageBox(
             "Delete Recipe",
             $"Delete \"{recipe.Name}\"? This cannot be undone.",

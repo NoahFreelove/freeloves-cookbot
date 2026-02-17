@@ -1,5 +1,7 @@
 @page "/recipes/{RecipeId:int}"
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CurrentUserService UserService
+@inject CookBot.Application.Services.GroceryListService GroceryListService
 @inject NavigationManager Navigation
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -20,9 +22,14 @@
             Edit
         </MudButton>
         <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
+                   StartIcon="@Icons.Material.Filled.PlaylistAdd"
+                   OnClick="AddAllToShoppingList" Disabled="_addingToList">
+            Add all to shopping list
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary"
                    StartIcon="@Icons.Material.Filled.ShoppingCart"
-                   OnClick="GenerateGroceryList">
-            What do I need?
+                   OnClick="AddMissingToShoppingList" Disabled="_addingToList">
+            Add what I need
         </MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                    StartIcon="@Icons.Material.Filled.CheckCircle"
@@ -99,6 +106,7 @@ else if (_loaded)
     [Parameter] public int RecipeId { get; set; }
     private Recipe? _recipe;
     private bool _loaded;
+    private bool _addingToList;
     private string _renderedHtml = "";
     private List<string> _tags = new();
 
@@ -106,6 +114,7 @@ else if (_loaded)
     {
         if (firstRender)
         {
+            await UserService.InitializeAsync();
             _recipe = await DbContext.Recipes
                 .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.Cookbook)
@@ -133,9 +142,46 @@ else if (_loaded)
         return html;
     }
 
-    private void GenerateGroceryList()
+    private async Task AddAllToShoppingList()
     {
-        Navigation.NavigateTo($"/grocery-lists/from-recipe/{RecipeId}");
+        if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
+        _addingToList = true;
+        StateHasChanged();
+
+        var list = await GroceryListService.GenerateAllFromRecipeAsync(
+            UserService.CurrentUserId.Value, _recipe);
+        _addingToList = false;
+
+        if (list.Items.Any())
+        {
+            Snackbar.Add($"Added {list.Items.Count} items to shopping list!", Severity.Success);
+            Navigation.NavigateTo("/grocery-lists");
+        }
+        else
+        {
+            Snackbar.Add("This recipe has no ingredients.", Severity.Info);
+        }
+    }
+
+    private async Task AddMissingToShoppingList()
+    {
+        if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
+        _addingToList = true;
+        StateHasChanged();
+
+        var list = await GroceryListService.GenerateFromRecipeAsync(
+            UserService.CurrentUserId.Value, _recipe);
+        _addingToList = false;
+
+        if (list.Items.Any())
+        {
+            Snackbar.Add($"Added {list.Items.Count} missing items to shopping list!", Severity.Success);
+            Navigation.NavigateTo("/grocery-lists");
+        }
+        else
+        {
+            Snackbar.Add("You already have everything you need!", Severity.Info);
+        }
     }
 
     private void MarkAsMade()

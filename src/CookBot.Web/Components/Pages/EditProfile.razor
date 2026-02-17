@@ -8,11 +8,43 @@
 
 <MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">My Profile</MudText>
 
-@if (_profile != null)
+@if (_user != null && _profile != null)
 {
     <MudGrid>
         <MudItem xs="12" md="6">
             <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
+                <MudText Typo="Typo.h6" Class="mb-4">Account</MudText>
+
+                <MudTextField @bind-Value="_user.DisplayName" Label="Display Name"
+                              Variant="Variant.Outlined" Class="mb-4" />
+
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Account Password</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                    @if (_hasPassword)
+                    {
+                        @:This account is password-protected.
+                    }
+                    else
+                    {
+                        @:No password set. Anyone can switch to this account.
+                    }
+                </MudText>
+                <MudTextField @bind-Value="_newPassword" Label="@(_hasPassword ? "New Password" : "Set Password")"
+                              Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-2" />
+                <MudStack Row="true" Spacing="2" Class="mb-4">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               OnClick="SetPassword"
+                               Disabled="@string.IsNullOrWhiteSpace(_newPassword)">
+                        @(_hasPassword ? "Change Password" : "Set Password")
+                    </MudButton>
+                    @if (_hasPassword)
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                   OnClick="RemovePassword">Remove Password</MudButton>
+                    }
+                </MudStack>
+
+                <MudDivider Class="mb-4" />
                 <MudText Typo="Typo.h6" Class="mb-4">Cooking Preferences</MudText>
 
                 <MudSelect T="ExperienceLevel" @bind-Value="_profile.ExperienceLevel"
@@ -76,11 +108,14 @@ else
 }
 
 @code {
+    private User? _user;
     private UserProfile? _profile;
     private HashSet<string> _kitchenTools = new();
     private HashSet<string> _dietaryPrefs = new();
     private IReadOnlyCollection<string> _selectedTools = new HashSet<string>();
     private IReadOnlyCollection<string> _selectedDiets = new HashSet<string>();
+    private string _newPassword = "";
+    private bool _hasPassword;
 
     private readonly string[] _availableTools =
     {
@@ -104,10 +139,11 @@ else
         if (firstRender)
         {
             await UserService.InitializeAsync();
-            var user = await UserService.GetCurrentUserAsync();
-            if (user != null)
+            _user = await UserService.GetCurrentUserAsync();
+            if (_user != null)
             {
-                _profile = user.Profile;
+                _profile = _user.Profile;
+                _hasPassword = _user.PasswordHash != null;
                 _kitchenTools = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.KitchenToolsJson) ?? new();
                 _dietaryPrefs = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
                 _selectedTools = new HashSet<string>(_kitchenTools);
@@ -119,12 +155,32 @@ else
 
     private async Task SaveProfile()
     {
-        if (_profile == null) return;
+        if (_user == null || _profile == null) return;
 
+        DbContext.Users.Update(_user);
         _profile.KitchenToolsJson = System.Text.Json.JsonSerializer.Serialize(_selectedTools);
         _profile.DietaryPreferencesJson = System.Text.Json.JsonSerializer.Serialize(_selectedDiets);
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
         Snackbar.Add("Profile saved!", Severity.Success);
+    }
+
+    private async Task SetPassword()
+    {
+        if (_user == null || string.IsNullOrWhiteSpace(_newPassword)) return;
+        _user.PasswordHash = CurrentUserService.HashPassword(_newPassword);
+        await DbContext.SaveChangesAsync();
+        _hasPassword = true;
+        _newPassword = "";
+        Snackbar.Add("Password set!", Severity.Success);
+    }
+
+    private async Task RemovePassword()
+    {
+        if (_user == null) return;
+        _user.PasswordHash = null;
+        await DbContext.SaveChangesAsync();
+        _hasPassword = false;
+        Snackbar.Add("Password removed.", Severity.Info);
     }
 }

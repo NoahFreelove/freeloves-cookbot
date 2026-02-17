@@ -1,0 +1,100 @@
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Share "@CookbookName"</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_sharedWith.Any())
+        {
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Currently shared with:</MudText>
+            <MudStack Spacing="1" Class="mb-4">
+                @foreach (var share in _sharedWith)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
+                        <MudText Typo="Typo.body2" Style="flex: 1;">@share.SharedWithUser.DisplayName</MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                       OnClick="@(() => RemoveShare(share))" />
+                    </MudStack>
+                }
+            </MudStack>
+            <MudDivider Class="mb-4" />
+        }
+
+        <MudSelect T="int" @bind-Value="_selectedUserId" Label="Share with user"
+                   Variant="Variant.Outlined" Class="mb-2">
+            @foreach (var user in _availableUsers)
+            {
+                <MudSelectItem Value="@user.Id">@user.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Close</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="AddShare"
+                   Disabled="@(_selectedUserId == 0)">Share</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public int CookbookId { get; set; }
+    [Parameter] public string CookbookName { get; set; } = "";
+
+    private List<CookbookShare> _sharedWith = new();
+    private List<User> _availableUsers = new();
+    private int _selectedUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadShares();
+    }
+
+    private async Task LoadShares()
+    {
+        _sharedWith = await DbContext.CookbookShares
+            .Include(cs => cs.SharedWithUser)
+            .Where(cs => cs.CookbookId == CookbookId)
+            .ToListAsync();
+
+        var sharedUserIds = _sharedWith.Select(s => s.SharedWithUserId).ToHashSet();
+        var ownerId = (await DbContext.Cookbooks.FindAsync(CookbookId))?.UserId ?? 0;
+        sharedUserIds.Add(ownerId);
+
+        _availableUsers = await DbContext.Users
+            .Where(u => !sharedUserIds.Contains(u.Id))
+            .OrderBy(u => u.DisplayName)
+            .ToListAsync();
+
+        _selectedUserId = _availableUsers.FirstOrDefault()?.Id ?? 0;
+    }
+
+    private void Cancel() => MudDialog.Close();
+
+    private async Task AddShare()
+    {
+        if (_selectedUserId == 0) return;
+
+        DbContext.CookbookShares.Add(new CookbookShare
+        {
+            CookbookId = CookbookId,
+            SharedWithUserId = _selectedUserId,
+        });
+        await DbContext.SaveChangesAsync();
+        Snackbar.Add("Cookbook shared!", Severity.Success);
+        await LoadShares();
+        StateHasChanged();
+    }
+
+    private async Task RemoveShare(CookbookShare share)
+    {
+        DbContext.CookbookShares.Remove(share);
+        await DbContext.SaveChangesAsync();
+        Snackbar.Add("Share removed.", Severity.Info);
+        await LoadShares();
+        StateHasChanged();
+    }
+}

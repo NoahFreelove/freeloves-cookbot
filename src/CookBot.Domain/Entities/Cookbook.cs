@@ -11,4 +11,5 @@ public class Cookbook
 
     public User User { get; set; } = null!;
     public ICollection<Recipe> Recipes { get; set; } = new List<Recipe>();
+    public ICollection<CookbookShare> Shares { get; set; } = new List<CookbookShare>();
 }

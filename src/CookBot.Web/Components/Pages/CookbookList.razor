@@ -29,6 +29,8 @@
                             <MudText Typo="Typo.h6">@cookbook.Name</MudText>
                         </CardHeaderContent>
                         <CardHeaderActions>
+                            <MudIconButton Icon="@Icons.Material.Filled.Share" Size="Size.Small"
+                                           OnClick="@(() => ShowShareDialog(cookbook))" />
                             <MudIconButton Icon="@Icons.Material.Filled.Edit"
                                            OnClick="@(() => ShowEditDialog(cookbook))" />
                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
@@ -57,8 +59,46 @@ else
     </MudPaper>
 }
 
+@if (_sharedCookbooks.Any())
+{
+    <MudText Typo="Typo.h5" Class="mt-8 mb-4" Style="font-weight: 600;">Shared with Me</MudText>
+    <MudGrid>
+        @foreach (var share in _sharedCookbooks)
+        {
+            var cookbookId = share.Cookbook.Id;
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2" Style="border-radius: 12px; cursor: pointer; border-left: 4px solid #2E7D32;"
+                         @onclick="() => ViewCookbook(cookbookId)">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">@share.Cookbook.Name</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                by @share.Cookbook.User.DisplayName
+                            </MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined">
+                                Read Only
+                            </MudChip>
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            @(share.Cookbook.Description ?? "No description")
+                        </MudText>
+                        <MudText Typo="Typo.caption" Class="mt-2">
+                            @share.Cookbook.Recipes.Count recipe(s)
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
 @code {
     private List<Cookbook> _cookbooks = new();
+    private List<CookbookShare> _sharedCookbooks = new();
 
     private void ViewCookbook(int id) => Navigation.NavigateTo($"/cookbooks/{id}");
 
@@ -80,6 +120,13 @@ else
                 .Include(c => c.Recipes)
                 .Where(c => c.UserId == userId)
                 .OrderByDescending(c => c.UpdatedAt)
+                .ToListAsync();
+
+            _sharedCookbooks = await DbContext.CookbookShares
+                .Include(cs => cs.Cookbook).ThenInclude(c => c.User)
+                .Include(cs => cs.Cookbook).ThenInclude(c => c.Recipes)
+                .Where(cs => cs.SharedWithUserId == userId)
+                .OrderByDescending(cs => cs.SharedAt)
                 .ToListAsync();
         }
     }
@@ -143,5 +190,17 @@ else
             Snackbar.Add("Cookbook deleted.", Severity.Info);
             await LoadCookbooks();
         }
+    }
+
+    private async Task ShowShareDialog(Cookbook cookbook)
+    {
+        var parameters = new DialogParameters<ShareCookbookDialog>
+        {
+            { x => x.CookbookId, cookbook.Id },
+            { x => x.CookbookName, cookbook.Name },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        await DialogService.ShowAsync<ShareCookbookDialog>("Share Cookbook", parameters, options);
+        await LoadCookbooks();
     }
 }

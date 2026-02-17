@@ -2,6 +2,7 @@
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
@@ -81,11 +82,22 @@
     {
         if (firstRender)
         {
-            await UserService.InitializeAsync();
             _users = await UserService.GetAllUsersAsync();
-            if (UserService.CurrentUserId.HasValue)
+
+            var stored = await JS.InvokeAsync<string?>("sessionStorage.getItem", "cookbot_current_user");
+            if (stored != null && int.TryParse(stored, out var savedId) && _users.Any(u => u.Id == savedId))
             {
-                _selectedUserId = UserService.CurrentUserId.Value;
+                UserService.CurrentUserId = savedId;
+                _selectedUserId = savedId;
+            }
+            else
+            {
+                await UserService.InitializeAsync();
+                if (UserService.CurrentUserId.HasValue)
+                {
+                    _selectedUserId = UserService.CurrentUserId.Value;
+                    await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", _selectedUserId.ToString());
+                }
             }
             StateHasChanged();
         }
@@ -93,10 +105,30 @@
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
-    private void OnUserChanged(int userId)
+    private async Task OnUserChanged(int userId)
     {
+        if (await UserService.UserHasPasswordAsync(userId))
+        {
+            var user = _users.First(u => u.Id == userId);
+            var parameters = new DialogParameters<PasswordPromptDialog>
+            {
+                { x => x.UserId, userId },
+                { x => x.UserName, user.DisplayName },
+            };
+            var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true };
+            var dialog = await DialogService.ShowAsync<PasswordPromptDialog>("Password Required", parameters, options);
+            var result = await dialog.Result;
+            if (result == null || result.Canceled)
+            {
+                _selectedUserId = UserService.CurrentUserId ?? _selectedUserId;
+                StateHasChanged();
+                return;
+            }
+        }
+
         _selectedUserId = userId;
         UserService.CurrentUserId = userId;
+        await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", userId.ToString());
         Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
     }
 
@@ -111,6 +143,7 @@
             _users = await UserService.GetAllUsersAsync();
             _selectedUserId = user.Id;
             UserService.CurrentUserId = user.Id;
+            await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", user.Id.ToString());
             StateHasChanged();
         }
     }
