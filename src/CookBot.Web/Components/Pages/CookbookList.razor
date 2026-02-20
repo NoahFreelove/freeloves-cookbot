@@ -102,10 +102,13 @@ else
 
     private void ViewCookbook(int id) => Navigation.NavigateTo($"/cookbooks/{id}");
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
+            _loadedUserId = UserService.CurrentUserId.Value;
             await LoadCookbooks();
             StateHasChanged();
         }
@@ -113,7 +116,6 @@ else
 
     private async Task LoadCookbooks()
     {
-        await UserService.InitializeAsync();
         if (UserService.CurrentUserId is int userId)
         {
             _cookbooks = await DbContext.Cookbooks

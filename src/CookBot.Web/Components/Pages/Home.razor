@@ -82,17 +82,20 @@ else
 
     [Inject] private CookBot.Infrastructure.Data.CookBotDbContext DbContext { get; set; } = null!;
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
-            await UserService.InitializeAsync();
+            _loadedUserId = UserService.CurrentUserId.Value;
             _user = await UserService.GetCurrentUserAsync();
             if (_user != null)
             {
                 _cookbookCount = await DbContext.Cookbooks.CountAsync(c => c.UserId == _user.Id);
                 _recipeCount = await DbContext.Recipes.CountAsync(r => r.Cookbook.UserId == _user.Id);
-                _pantryCount = await DbContext.PantryItems.CountAsync(p => p.UserId == _user.Id);
+                _pantryCount = await DbContext.PantryItems.CountAsync(p => p.Pantry.OwnerId == _user.Id ||
+                    DbContext.PantryMembers.Any(pm => pm.PantryId == p.PantryId && pm.UserId == _user.Id));
                 _groceryListCount = await DbContext.GroceryLists.CountAsync(g => g.UserId == _user.Id);
             }
             StateHasChanged();

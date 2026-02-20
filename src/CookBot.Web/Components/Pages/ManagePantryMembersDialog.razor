@@ -1,0 +1,95 @@
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject CookBot.Application.Services.PantryService PantryService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Manage Members - "@PantryName"</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_members.Any())
+        {
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Current members:</MudText>
+            <MudStack Spacing="1" Class="mb-4">
+                @foreach (var member in _members)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
+                        <MudText Typo="Typo.body2" Style="flex: 1;">@member.User.DisplayName</MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                       OnClick="@(() => RemoveMember(member))" />
+                    </MudStack>
+                }
+            </MudStack>
+            <MudDivider Class="mb-4" />
+        }
+
+        <MudSelect T="int" @bind-Value="_selectedUserId" Label="Add member"
+                   Variant="Variant.Outlined" Class="mb-2">
+            @foreach (var user in _availableUsers)
+            {
+                <MudSelectItem Value="@user.Id">@user.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="AddMember"
+                   Disabled="@(_selectedUserId == 0)">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public int PantryId { get; set; }
+    [Parameter] public string PantryName { get; set; } = "";
+    [Parameter] public int OwnerUserId { get; set; }
+
+    private List<PantryMember> _members = new();
+    private List<User> _availableUsers = new();
+    private int _selectedUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMembers();
+    }
+
+    private async Task LoadMembers()
+    {
+        _members = await DbContext.PantryMembers
+            .Include(pm => pm.User)
+            .Where(pm => pm.PantryId == PantryId)
+            .ToListAsync();
+
+        var memberUserIds = _members.Select(m => m.UserId).ToHashSet();
+        memberUserIds.Add(OwnerUserId);
+
+        _availableUsers = await DbContext.Users
+            .Where(u => !memberUserIds.Contains(u.Id))
+            .OrderBy(u => u.DisplayName)
+            .ToListAsync();
+
+        _selectedUserId = _availableUsers.FirstOrDefault()?.Id ?? 0;
+    }
+
+    private async Task AddMember()
+    {
+        if (_selectedUserId == 0) return;
+
+        await PantryService.AddMemberAsync(PantryId, _selectedUserId);
+        Snackbar.Add("Member added!", Severity.Success);
+        await LoadMembers();
+        StateHasChanged();
+    }
+
+    private async Task RemoveMember(PantryMember member)
+    {
+        await PantryService.RemoveMemberAsync(PantryId, member.UserId);
+        Snackbar.Add("Member removed.", Severity.Info);
+        await LoadMembers();
+        StateHasChanged();
+    }
+
+    private void Close() => MudDialog.Close();
+}

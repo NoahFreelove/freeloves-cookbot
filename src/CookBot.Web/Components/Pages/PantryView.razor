@@ -9,85 +9,153 @@
 <PageTitle>CookBot - Pantry</PageTitle>
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-    <MudText Typo="Typo.h4" Style="font-weight: 600;">My Pantry</MudText>
+    <MudText Typo="Typo.h4" Style="font-weight: 600;">My Pantries</MudText>
     <MudSpacer />
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.GroupAdd"
+               OnClick="ShowCreateSharedPantryDialog">Create Shared Pantry</MudButton>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
                OnClick="ShowAddDialog">Add Item</MudButton>
 </MudStack>
 
-@if (_pantryItems.Any())
+@if (_pantries.Any())
 {
-    <MudDataGrid Items="@_pantryItems" Dense="true" Striped="true" Hover="true"
-                 Style="border-radius: 12px;">
-        <Columns>
-            <PropertyColumn Property="x => x.Ingredient.Name" Title="Ingredient" />
-            <PropertyColumn Property="x => x.Amount" Title="Amount" Format="F2" />
-            <TemplateColumn Title="Unit">
-                <CellTemplate>
-                    @CookBot.Application.Services.UnitParser.ToDisplayString(context.Item.Unit)
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Expiration">
-                <CellTemplate>
-                    @if (context.Item.ExpirationDate.HasValue)
-                    {
-                        var daysLeft = (context.Item.ExpirationDate.Value - DateTime.UtcNow).Days;
-                        var color = daysLeft < 0 ? Color.Error : daysLeft < 3 ? Color.Warning : Color.Success;
-                        <MudChip T="string" Size="Size.Small" Color="@color" Variant="Variant.Filled">
-                            @context.Item.ExpirationDate.Value.ToString("MMM dd")
-                        </MudChip>
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
-                    }
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn>
-                <CellTemplate>
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
-                                   OnClick="@(() => DeleteItem(context.Item))" />
-                </CellTemplate>
-            </TemplateColumn>
-        </Columns>
-    </MudDataGrid>
+    <MudTabs @bind-ActivePanelIndex="_activePantryIndex" Rounded="true" ApplyEffectsToContainer="true"
+             PanelClass="pa-4" Elevation="2" Style="border-radius: 12px;">
+        @foreach (var pantry in _pantries)
+        {
+            <MudTabPanel Text="@pantry.Name" Icon="@(pantry.IsPersonal ? Icons.Material.Filled.Person : Icons.Material.Filled.Group)">
+                @if (!pantry.IsPersonal && pantry.OwnerId == UserService.CurrentUserId)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Shared pantry</MudText>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.People"
+                                   OnClick="@(() => ShowManageMembersDialog(pantry))">
+                            Manage Members
+                        </MudButton>
+                    </MudStack>
+                }
+                @if (_pantryItems.Any())
+                {
+                    <MudDataGrid Items="@_pantryItems" Dense="true" Striped="true" Hover="true"
+                                 Style="border-radius: 12px;">
+                        <Columns>
+                            <PropertyColumn Property="x => x.Ingredient.Name" Title="Ingredient" />
+                            <PropertyColumn Property="x => x.Amount" Title="Amount" Format="F2" />
+                            <TemplateColumn Title="Unit">
+                                <CellTemplate>
+                                    @CookBot.Application.Services.UnitParser.ToDisplayString(context.Item.Unit)
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn Title="Expiration">
+                                <CellTemplate>
+                                    @if (context.Item.ExpirationDate.HasValue)
+                                    {
+                                        var daysLeft = (context.Item.ExpirationDate.Value - DateTime.UtcNow).Days;
+                                        var color = daysLeft < 0 ? Color.Error : daysLeft < 3 ? Color.Warning : Color.Success;
+                                        <MudChip T="string" Size="Size.Small" Color="@color" Variant="Variant.Filled">
+                                            @context.Item.ExpirationDate.Value.ToString("MMM dd")
+                                        </MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
+                                    }
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn>
+                                <CellTemplate>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                                   OnClick="@(() => DeleteItem(context.Item))" />
+                                </CellTemplate>
+                            </TemplateColumn>
+                        </Columns>
+                    </MudDataGrid>
+                }
+                else
+                {
+                    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
+                        <MudIcon Icon="@Icons.Material.Filled.Kitchen" Size="Size.Large" Color="Color.Secondary" />
+                        <MudText Typo="Typo.h6" Class="mt-4">Pantry is empty</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Add ingredients to track what you have on hand.</MudText>
+                    </MudPaper>
+                }
+            </MudTabPanel>
+        }
+    </MudTabs>
 }
 else
 {
     <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
         <MudIcon Icon="@Icons.Material.Filled.Kitchen" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h6" Class="mt-4">Pantry is empty</MudText>
-        <MudText Typo="Typo.body2" Color="Color.Secondary">Add ingredients to track what you have on hand.</MudText>
+        <MudText Typo="Typo.h6" Class="mt-4">No pantries yet</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Loading...</MudText>
     </MudPaper>
 }
 
 @code {
+    private List<Pantry> _pantries = new();
     private List<PantryItem> _pantryItems = new();
+    private int _activePantryIndex;
+    private int _previousPantryIndex = -1;
+    private int? _loadedUserId;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue)
         {
-            await LoadPantry();
+            var userId = UserService.CurrentUserId.Value;
+            if (_loadedUserId != userId)
+            {
+                _loadedUserId = userId;
+                await PantryService.EnsurePersonalPantryAsync(userId);
+                await LoadPantries();
+                _activePantryIndex = 0;
+                await LoadPantryItems();
+                _previousPantryIndex = _activePantryIndex;
+                StateHasChanged();
+                return;
+            }
+        }
+
+        if (_activePantryIndex != _previousPantryIndex)
+        {
+            _previousPantryIndex = _activePantryIndex;
+            await LoadPantryItems();
             StateHasChanged();
         }
     }
 
-    private async Task LoadPantry()
+    private async Task LoadPantries()
     {
-        await UserService.InitializeAsync();
         if (UserService.CurrentUserId is int userId)
         {
+            _pantries = await PantryService.GetAccessiblePantriesAsync(userId);
+        }
+    }
+
+    private async Task LoadPantryItems()
+    {
+        if (_pantries.Any() && _activePantryIndex >= 0 && _activePantryIndex < _pantries.Count)
+        {
+            var pantry = _pantries[_activePantryIndex];
             _pantryItems = await DbContext.PantryItems
                 .Include(p => p.Ingredient)
-                .Where(p => p.UserId == userId)
+                .Where(p => p.PantryId == pantry.Id)
                 .OrderBy(p => p.Ingredient.Name)
                 .ToListAsync();
+        }
+        else
+        {
+            _pantryItems = new();
         }
     }
 
     private async Task ShowAddDialog()
     {
+        if (!_pantries.Any()) return;
+
         var ingredients = await DbContext.Ingredients.OrderBy(i => i.Name).ToListAsync();
         var parameters = new DialogParameters<AddPantryItemDialog>
         {
@@ -98,14 +166,15 @@ else
         var result = await dialog.Result;
         if (result != null && !result.Canceled && result.Data is AddPantryItemDialog.PantryItemResult data)
         {
+            var pantry = _pantries[_activePantryIndex];
             await PantryService.AddOrUpdateAsync(
-                UserService.CurrentUserId!.Value,
+                pantry.Id,
                 data.IngredientId,
                 data.Amount,
                 data.Unit,
                 data.Expiration);
             Snackbar.Add("Pantry item added!", Severity.Success);
-            await LoadPantry();
+            await LoadPantryItems();
         }
     }
 
@@ -115,5 +184,37 @@ else
         await DbContext.SaveChangesAsync();
         _pantryItems.Remove(item);
         Snackbar.Add("Item removed from pantry.", Severity.Info);
+    }
+
+    private async Task ShowCreateSharedPantryDialog()
+    {
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        var parameters = new DialogParameters<CreateSharedPantryDialog>
+        {
+            { x => x.OwnerUserId, UserService.CurrentUserId.Value },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CreateSharedPantryDialog>("Create Shared Pantry", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled)
+        {
+            await LoadPantries();
+            _activePantryIndex = _pantries.Count - 1;
+            await LoadPantryItems();
+            _previousPantryIndex = _activePantryIndex;
+        }
+    }
+
+    private async Task ShowManageMembersDialog(Pantry pantry)
+    {
+        var parameters = new DialogParameters<ManagePantryMembersDialog>
+        {
+            { x => x.PantryId, pantry.Id },
+            { x => x.PantryName, pantry.Name },
+            { x => x.OwnerUserId, pantry.OwnerId },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        await DialogService.ShowAsync<ManagePantryMembersDialog>("Manage Members", parameters, options);
     }
 }

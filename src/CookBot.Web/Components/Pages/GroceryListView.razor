@@ -78,13 +78,15 @@ else
     private Recipe? _recipe;
     private bool _generatingFromRecipe;
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
-            await UserService.InitializeAsync();
+            _loadedUserId = UserService.CurrentUserId.Value;
 
-            if (RecipeId > 0 && UserService.CurrentUserId.HasValue)
+            if (RecipeId > 0)
             {
                 _generatingFromRecipe = true;
                 _recipe = await DbContext.Recipes
@@ -139,18 +141,18 @@ else
             return;
         }
 
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        var personalPantry = await PantryService.EnsurePersonalPantryAsync(UserService.CurrentUserId.Value);
         foreach (var item in unpurchased)
         {
             item.IsPurchased = true;
-            if (UserService.CurrentUserId.HasValue)
-            {
-                await PantryService.AddOrUpdateAsync(
-                    UserService.CurrentUserId.Value,
-                    item.IngredientId,
-                    item.Amount,
-                    item.Unit,
-                    null);
-            }
+            await PantryService.AddOrUpdateAsync(
+                personalPantry.Id,
+                item.IngredientId,
+                item.Amount,
+                item.Unit,
+                null);
         }
         await DbContext.SaveChangesAsync();
         Snackbar.Add($"{unpurchased.Count} items added to pantry!", Severity.Success);

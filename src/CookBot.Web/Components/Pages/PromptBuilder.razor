@@ -2,6 +2,7 @@
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilderSvc
+@inject CookBot.Application.Services.PantryService PantryService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -94,11 +95,13 @@
     private int _dietCount;
     private int _pantryCount;
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
-            await UserService.InitializeAsync();
+            _loadedUserId = UserService.CurrentUserId.Value;
             var user = await UserService.GetCurrentUserAsync();
             if (user?.Profile != null)
             {
@@ -106,10 +109,12 @@
                 _toolCount = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(_profile.KitchenToolsJson) ?? new()).Count;
                 _dietCount = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(_profile.DietaryPreferencesJson) ?? new()).Count;
 
-                _pantryItems = await DbContext.PantryItems
-                    .Include(p => p.Ingredient)
-                    .Where(p => p.UserId == user.Id)
-                    .ToListAsync();
+                _pantryItems = await PantryService.GetAllUserAccessibleItemsAsync(user.Id);
+                // Load Ingredient navigation property for items from repository
+                var ingredientIds = _pantryItems.Select(p => p.IngredientId).Distinct().ToList();
+                var ingredients = await DbContext.Ingredients.Where(i => ingredientIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
+                foreach (var item in _pantryItems)
+                    item.Ingredient ??= ingredients.GetValueOrDefault(item.IngredientId)!;
                 _pantryCount = _pantryItems.Count;
             }
             StateHasChanged();

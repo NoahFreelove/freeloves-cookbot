@@ -79,16 +79,15 @@
 
     private async Task DeductFromPantry()
     {
-        await UserService.InitializeAsync();
         if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
 
-        var userId = UserService.CurrentUserId.Value;
+        var personalPantry = await PantryService.EnsurePersonalPantryAsync(UserService.CurrentUserId.Value);
         _deductedCount = 0;
 
         foreach (var ri in _recipe.RecipeIngredients)
         {
             var scaledAmount = ri.Amount * _servingsMultiplier;
-            await PantryService.DeductAsync(userId, ri.IngredientId, scaledAmount, ri.Unit);
+            await PantryService.DeductAsync(personalPantry.Id, ri.IngredientId, scaledAmount, ri.Unit);
             _deductedCount++;
         }
 

@@ -3,6 +3,7 @@
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IAiService AiService
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilder
+@inject CookBot.Application.Services.PantryService PantryService
 @inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -110,11 +111,13 @@
     private ElementReference _chatContainer;
     private string _systemPrompt = "";
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
-            await UserService.InitializeAsync();
+            _loadedUserId = UserService.CurrentUserId.Value;
             await LoadConversations();
             await BuildSystemPrompt();
             StateHasChanged();
@@ -126,11 +129,13 @@
         var user = await UserService.GetCurrentUserAsync();
         if (user?.Profile != null)
         {
-            var pantry = await DbContext.PantryItems
-                .Include(p => p.Ingredient)
-                .Where(p => p.UserId == user.Id)
-                .ToListAsync();
-            _systemPrompt = PromptBuilder.BuildSystemPrompt(user.Profile, pantry);
+            var pantryItems = await PantryService.GetAllUserAccessibleItemsAsync(user.Id);
+            // Load Ingredient navigation property for items from repository
+            var ingredientIds = pantryItems.Select(p => p.IngredientId).Distinct().ToList();
+            var ingredients = await DbContext.Ingredients.Where(i => ingredientIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
+            foreach (var item in pantryItems)
+                item.Ingredient ??= ingredients.GetValueOrDefault(item.IngredientId)!;
+            _systemPrompt = PromptBuilder.BuildSystemPrompt(user.Profile, pantryItems);
         }
     }
 

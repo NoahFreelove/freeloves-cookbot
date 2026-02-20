@@ -110,11 +110,13 @@ else if (_loaded)
     private string _renderedHtml = "";
     private List<string> _tags = new();
 
+    private bool _initialized;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!_initialized && UserService.CurrentUserId.HasValue)
         {
-            await UserService.InitializeAsync();
+            _initialized = true;
             _recipe = await DbContext.Recipes
                 .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.Cookbook)

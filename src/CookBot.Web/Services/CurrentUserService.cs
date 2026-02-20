@@ -37,6 +37,15 @@ public class CurrentUserService
             Profile = new UserProfile()
         };
         _context.Users.Add(user);
+
+        var personalPantry = new Pantry
+        {
+            Owner = user,
+            Name = "Personal Pantry",
+            IsPersonal = true,
+        };
+        _context.Pantries.Add(personalPantry);
+
         await _context.SaveChangesAsync();
         return user;
     }

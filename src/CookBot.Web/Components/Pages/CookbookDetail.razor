@@ -105,11 +105,13 @@ else if (_loaded)
     private bool _loaded;
     private bool _isReadOnly;
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
-            await UserService.InitializeAsync();
+            _loadedUserId = UserService.CurrentUserId.Value;
             _cookbook = await DbContext.Cookbooks
                 .Include(c => c.Recipes)
                 .Include(c => c.User)

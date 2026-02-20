@@ -14,6 +14,8 @@ public class CookBotDbContext : DbContext
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<RecipeIngredient> RecipeIngredients => Set<RecipeIngredient>();
     public DbSet<PantryItem> PantryItems => Set<PantryItem>();
+    public DbSet<Pantry> Pantries => Set<Pantry>();
+    public DbSet<PantryMember> PantryMembers => Set<PantryMember>();
     public DbSet<GroceryList> GroceryLists => Set<GroceryList>();
     public DbSet<GroceryListItem> GroceryListItems => Set<GroceryListItem>();
     public DbSet<AiConversation> AiConversations => Set<AiConversation>();

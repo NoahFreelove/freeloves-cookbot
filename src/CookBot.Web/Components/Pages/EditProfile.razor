@@ -134,11 +134,13 @@ else
         "Vegetarian", "Gluten Free", "High Protein", "Low Carb"
     };
 
+    private int? _loadedUserId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
-            await UserService.InitializeAsync();
+            _loadedUserId = UserService.CurrentUserId.Value;
             _user = await UserService.GetCurrentUserAsync();
             if (_user != null)
             {

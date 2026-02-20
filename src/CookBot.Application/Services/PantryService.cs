@@ -25,22 +25,69 @@ public class IngredientStatus
 public class PantryService
 {
     private readonly IRepository<PantryItem> _pantryRepo;
+    private readonly IRepository<Pantry> _pantryEntityRepo;
+    private readonly IRepository<PantryMember> _memberRepo;
     private readonly IRepository<Ingredient> _ingredientRepo;
     private readonly IUnitConverter _unitConverter;
 
-    public PantryService(IRepository<PantryItem> pantryRepo, IRepository<Ingredient> ingredientRepo, IUnitConverter unitConverter)
+    public PantryService(
+        IRepository<PantryItem> pantryRepo,
+        IRepository<Pantry> pantryEntityRepo,
+        IRepository<PantryMember> memberRepo,
+        IRepository<Ingredient> ingredientRepo,
+        IUnitConverter unitConverter)
     {
         _pantryRepo = pantryRepo;
+        _pantryEntityRepo = pantryEntityRepo;
+        _memberRepo = memberRepo;
         _ingredientRepo = ingredientRepo;
         _unitConverter = unitConverter;
     }
 
-    public async Task<IReadOnlyList<PantryItem>> GetUserPantryAsync(int userId) =>
-        await _pantryRepo.FindAsync(p => p.UserId == userId);
+    public async Task<IReadOnlyList<PantryItem>> GetPantryItemsAsync(int pantryId) =>
+        await _pantryRepo.FindAsync(p => p.PantryId == pantryId);
 
-    public async Task AddOrUpdateAsync(int userId, int ingredientId, double amount, MeasurementUnit unit, DateTime? expiration)
+    public async Task<Pantry?> GetPersonalPantryAsync(int userId)
     {
-        var existing = (await _pantryRepo.FindAsync(p => p.UserId == userId && p.IngredientId == ingredientId)).FirstOrDefault();
+        var pantries = await _pantryEntityRepo.FindAsync(p => p.OwnerId == userId && p.IsPersonal);
+        return pantries.FirstOrDefault();
+    }
+
+    public async Task<List<Pantry>> GetAccessiblePantriesAsync(int userId)
+    {
+        var owned = await _pantryEntityRepo.FindAsync(p => p.OwnerId == userId);
+        var memberships = await _memberRepo.FindAsync(m => m.UserId == userId);
+        var memberPantryIds = memberships.Select(m => m.PantryId).ToHashSet();
+
+        var memberPantries = new List<Pantry>();
+        foreach (var id in memberPantryIds)
+        {
+            var pantry = await _pantryEntityRepo.GetByIdAsync(id);
+            if (pantry != null)
+                memberPantries.Add(pantry);
+        }
+
+        return owned.Concat(memberPantries.Where(p => !owned.Any(o => o.Id == p.Id)))
+            .OrderByDescending(p => p.IsPersonal)
+            .ThenBy(p => p.Name)
+            .ToList();
+    }
+
+    public async Task<List<PantryItem>> GetAllUserAccessibleItemsAsync(int userId)
+    {
+        var pantries = await GetAccessiblePantriesAsync(userId);
+        var allItems = new List<PantryItem>();
+        foreach (var pantry in pantries)
+        {
+            var items = await _pantryRepo.FindAsync(p => p.PantryId == pantry.Id);
+            allItems.AddRange(items);
+        }
+        return allItems;
+    }
+
+    public async Task AddOrUpdateAsync(int pantryId, int ingredientId, double amount, MeasurementUnit unit, DateTime? expiration)
+    {
+        var existing = (await _pantryRepo.FindAsync(p => p.PantryId == pantryId && p.IngredientId == ingredientId)).FirstOrDefault();
         if (existing != null)
         {
             if (_unitConverter.CanConvert(unit, existing.Unit))
@@ -60,7 +107,7 @@ public class PantryService
         {
             await _pantryRepo.AddAsync(new PantryItem
             {
-                UserId = userId,
+                PantryId = pantryId,
                 IngredientId = ingredientId,
                 Amount = amount,
                 Unit = unit,
@@ -69,9 +116,9 @@ public class PantryService
         }
     }
 
-    public async Task DeductAsync(int userId, int ingredientId, double amount, MeasurementUnit unit)
+    public async Task DeductAsync(int pantryId, int ingredientId, double amount, MeasurementUnit unit)
     {
-        var item = (await _pantryRepo.FindAsync(p => p.UserId == userId && p.IngredientId == ingredientId)).FirstOrDefault();
+        var item = (await _pantryRepo.FindAsync(p => p.PantryId == pantryId && p.IngredientId == ingredientId)).FirstOrDefault();
         if (item == null) return;
 
         double deductAmount = amount;
@@ -91,41 +138,55 @@ public class PantryService
 
     public async Task<List<IngredientStatus>> CheckAvailabilityForRecipeAsync(int userId, ICollection<RecipeIngredient> recipeIngredients)
     {
-        var pantryItems = await _pantryRepo.FindAsync(p => p.UserId == userId);
+        var allItems = await GetAllUserAccessibleItemsAsync(userId);
         var result = new List<IngredientStatus>();
 
         foreach (var ri in recipeIngredients)
         {
-            var pantryItem = pantryItems.FirstOrDefault(p => p.IngredientId == ri.IngredientId);
+            var matchingItems = allItems.Where(p => p.IngredientId == ri.IngredientId).ToList();
             var status = new IngredientStatus
             {
                 RecipeIngredient = ri,
-                PantryItem = pantryItem,
+                PantryItem = matchingItems.FirstOrDefault(),
                 NeededAmount = ri.Amount,
             };
 
-            if (pantryItem == null)
+            if (!matchingItems.Any())
             {
                 status.Availability = IngredientAvailability.Missing;
                 status.MissingAmount = ri.Amount;
             }
-            else if (!_unitConverter.CanConvert(ri.Unit, pantryItem.Unit))
-            {
-                status.Availability = IngredientAvailability.IncompatibleUnits;
-            }
             else
             {
-                var availableInRecipeUnits = _unitConverter.Convert(pantryItem.Amount, pantryItem.Unit, ri.Unit);
-                status.AvailableAmount = availableInRecipeUnits;
+                double totalAvailable = 0;
+                bool anyCompatible = false;
 
-                if (availableInRecipeUnits >= ri.Amount)
+                foreach (var pantryItem in matchingItems)
                 {
-                    status.Availability = IngredientAvailability.Available;
+                    if (_unitConverter.CanConvert(pantryItem.Unit, ri.Unit))
+                    {
+                        totalAvailable += _unitConverter.Convert(pantryItem.Amount, pantryItem.Unit, ri.Unit);
+                        anyCompatible = true;
+                    }
+                }
+
+                if (!anyCompatible)
+                {
+                    status.Availability = IngredientAvailability.IncompatibleUnits;
                 }
                 else
                 {
-                    status.Availability = IngredientAvailability.PartiallyAvailable;
-                    status.MissingAmount = ri.Amount - availableInRecipeUnits;
+                    status.AvailableAmount = totalAvailable;
+
+                    if (totalAvailable >= ri.Amount)
+                    {
+                        status.Availability = IngredientAvailability.Available;
+                    }
+                    else
+                    {
+                        status.Availability = IngredientAvailability.PartiallyAvailable;
+                        status.MissingAmount = ri.Amount - totalAvailable;
+                    }
                 }
             }
 
@@ -133,5 +194,47 @@ public class PantryService
         }
 
         return result;
+    }
+
+    public async Task<Pantry> CreateSharedPantryAsync(int ownerUserId, string name)
+    {
+        return await _pantryEntityRepo.AddAsync(new Pantry
+        {
+            Name = name,
+            OwnerId = ownerUserId,
+            IsPersonal = false,
+        });
+    }
+
+    public async Task AddMemberAsync(int pantryId, int userId)
+    {
+        var existing = (await _memberRepo.FindAsync(m => m.PantryId == pantryId && m.UserId == userId)).FirstOrDefault();
+        if (existing != null) return;
+
+        await _memberRepo.AddAsync(new PantryMember
+        {
+            PantryId = pantryId,
+            UserId = userId,
+        });
+    }
+
+    public async Task RemoveMemberAsync(int pantryId, int userId)
+    {
+        var member = (await _memberRepo.FindAsync(m => m.PantryId == pantryId && m.UserId == userId)).FirstOrDefault();
+        if (member != null)
+            await _memberRepo.DeleteAsync(member);
+    }
+
+    public async Task<Pantry> EnsurePersonalPantryAsync(int userId)
+    {
+        var existing = await GetPersonalPantryAsync(userId);
+        if (existing != null) return existing;
+
+        return await _pantryEntityRepo.AddAsync(new Pantry
+        {
+            Name = "Personal Pantry",
+            OwnerId = userId,
+            IsPersonal = true,
+        });
     }
 }

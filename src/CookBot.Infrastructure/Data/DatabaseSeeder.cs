@@ -11,9 +11,26 @@ public static class DatabaseSeeder
         await context.Database.MigrateAsync();
 
         if (await context.Users.AnyAsync())
+        {
+            // Ensure all existing users have a personal pantry
+            var usersWithoutPantry = await context.Users
+                .Where(u => !context.Pantries.Any(p => p.OwnerId == u.Id && p.IsPersonal))
+                .ToListAsync();
+            foreach (var user in usersWithoutPantry)
+            {
+                context.Pantries.Add(new Pantry
+                {
+                    Owner = user,
+                    Name = "Personal Pantry",
+                    IsPersonal = true,
+                });
+            }
+            if (usersWithoutPantry.Any())
+                await context.SaveChangesAsync();
             return;
+        }
 
-        var user = new User
+        var defaultUser = new User
         {
             DisplayName = "Home Chef",
             Profile = new UserProfile
@@ -22,11 +39,19 @@ public static class DatabaseSeeder
                 UnitSystem = UnitSystem.Canadian,
             }
         };
-        context.Users.Add(user);
+        context.Users.Add(defaultUser);
+
+        var personalPantry = new Pantry
+        {
+            Owner = defaultUser,
+            Name = "Personal Pantry",
+            IsPersonal = true,
+        };
+        context.Pantries.Add(personalPantry);
 
         var defaultCookbook = new Cookbook
         {
-            User = user,
+            User = defaultUser,
             Name = "My Recipes",
             Description = "Default cookbook"
         };

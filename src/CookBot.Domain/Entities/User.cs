@@ -10,7 +10,8 @@ public class User
 
     public UserProfile Profile { get; set; } = null!;
     public ICollection<Cookbook> Cookbooks { get; set; } = new List<Cookbook>();
-    public ICollection<PantryItem> PantryItems { get; set; } = new List<PantryItem>();
     public ICollection<GroceryList> GroceryLists { get; set; } = new List<GroceryList>();
     public ICollection<AiConversation> AiConversations { get; set; } = new List<AiConversation>();
+    public ICollection<Pantry> OwnedPantries { get; set; } = new List<Pantry>();
+    public ICollection<PantryMember> PantryMemberships { get; set; } = new List<PantryMember>();
 }
