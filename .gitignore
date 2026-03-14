@@ -51,3 +51,5 @@ artifacts/
 ## Misc
 *.swp
 *~
+.superpowers/
+docs/*
