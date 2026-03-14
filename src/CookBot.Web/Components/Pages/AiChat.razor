@@ -2,6 +2,8 @@
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IAiService AiService
+@using CookBot.Application.Services
+@using CookBot.Infrastructure.AI
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilder
 @inject CookBot.Application.Services.PantryService PantryService
 @inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
@@ -12,9 +14,22 @@
 
 <PageTitle>CookBot - AI Assistant</PageTitle>
 
-<MudGrid>
-    <MudItem xs="12" md="3">
-        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: calc(100vh - 180px); overflow-y: auto;">
+<UserGuard>
+@if (_profile?.AiEnabled == false)
+{
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
+        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">AI features are disabled.</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+            Enable AI in your <MudLink Href="/profile">Profile Settings</MudLink> to use the assistant.
+        </MudText>
+    </div>
+}
+else
+{
+<div style="display: flex; gap: 24px; height: calc(100vh - 180px);">
+    <div style="width: 25%; min-width: 250px; flex-shrink: 0;">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: 100%; overflow-y: auto; box-sizing: border-box;">
             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
                 <MudText Typo="Typo.h6">Conversations</MudText>
                 <MudSpacer />
@@ -34,12 +49,53 @@
                     </MudListItem>
                 }
             </MudList>
-        </MudPaper>
-    </MudItem>
 
-    <MudItem xs="12" md="9">
-        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: calc(100vh - 180px); display: flex; flex-direction: column;">
-            <div style="flex: 1; overflow-y: auto; padding-right: 8px;" @ref="_chatContainer">
+            <MudDivider Class="my-3" />
+            <MudExpansionPanels Elevation="0">
+                <MudExpansionPanel Text="System Prompt" Dense="true" Style="background: transparent;">
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-2">
+                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="@(() => InsertToken("{{experience_level}}"))">+ Experience</MudChip>
+                        <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="@(() => InsertToken("{{unit_system}}"))">+ Units</MudChip>
+                        <MudChip T="string" Color="Color.Warning" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="@(() => InsertToken("{{equipment}}"))">+ Equipment</MudChip>
+                        <MudChip T="string" Style="background-color: var(--mud-palette-tertiary); color: white;" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="@(() => InsertToken("{{dietary_preferences}}"))">+ Diet</MudChip>
+                        <MudChip T="string" Color="Color.Secondary" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="@(() => InsertToken("{{pantry}}"))">+ Pantry</MudChip>
+                        <MudChip T="string" Color="Color.Error" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="@(() => InsertToken("{{recipe_format}}"))">+ Recipe Fmt</MudChip>
+                    </MudStack>
+
+                    <MudTextField @bind-Value="_promptTemplate" Variant="Variant.Outlined"
+                                  Lines="10" Class="mb-2" Style="font-family: monospace; font-size: 11px;" />
+
+                    @if (_promptTemplate?.Contains("{{recipe_format}}") != true)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            Missing recipe_format token.
+                        </MudAlert>
+                    }
+
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   OnClick="SavePromptTemplate" StartIcon="@Icons.Material.Filled.Save">
+                            Save
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                   OnClick="ResetPromptTemplate" StartIcon="@Icons.Material.Filled.RestartAlt">
+                            Reset
+                        </MudButton>
+                    </MudStack>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        </MudPaper>
+    </div>
+
+    <div style="flex: 1; min-width: 0;">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+            <div style="flex: 1; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column;" @ref="_chatContainer">
                 @if (!_messages.Any())
                 {
                     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
@@ -50,6 +106,7 @@
                         </MudText>
                     </div>
                 }
+                <div style="flex: 1;"></div>
                 @foreach (var msg in _messages)
                 {
                     <div class="d-flex @(msg.Role == "user" ? "justify-end" : "justify-start") mb-3">
@@ -97,10 +154,13 @@
                 </MudButton>
             </MudStack>
         </MudPaper>
-    </MudItem>
-</MudGrid>
+    </div>
+</div>
+}
+</UserGuard>
 
 @code {
+    private UserProfile? _profile;
     private List<AiConversation> _conversations = new();
     private List<CookBot.Domain.Interfaces.AiMessage> _messages = new();
     private AiConversation? _currentConversation;
@@ -110,6 +170,7 @@
     private bool _isStreaming;
     private ElementReference _chatContainer;
     private string _systemPrompt = "";
+    private string _promptTemplate = PromptBuilderService.DefaultTemplate;
 
     private int? _loadedUserId;
 
@@ -118,6 +179,9 @@
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
             _loadedUserId = UserService.CurrentUserId.Value;
+            var user = await UserService.GetCurrentUserAsync();
+            _profile = user?.Profile;
+            _promptTemplate = _profile?.AiSystemPromptTemplate ?? PromptBuilderService.DefaultTemplate;
             await LoadConversations();
             await BuildSystemPrompt();
             StateHasChanged();
@@ -126,16 +190,17 @@
 
     private async Task BuildSystemPrompt()
     {
-        var user = await UserService.GetCurrentUserAsync();
-        if (user?.Profile != null)
+        if (_profile != null)
         {
-            var pantryItems = await PantryService.GetAllUserAccessibleItemsAsync(user.Id);
+            var user = await UserService.GetCurrentUserAsync();
+            var pantryItems = await PantryService.GetAllUserAccessibleItemsAsync(user!.Id);
             // Load Ingredient navigation property for items from repository
             var ingredientIds = pantryItems.Select(p => p.IngredientId).Distinct().ToList();
             var ingredients = await DbContext.Ingredients.Where(i => ingredientIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
             foreach (var item in pantryItems)
                 item.Ingredient ??= ingredients.GetValueOrDefault(item.IngredientId)!;
-            _systemPrompt = PromptBuilder.BuildSystemPrompt(user.Profile, pantryItems);
+            var template = _profile.AiSystemPromptTemplate ?? CookBot.Application.Services.PromptBuilderService.DefaultTemplate;
+            _systemPrompt = PromptBuilder.ResolveTemplate(template, _profile, pantryItems);
         }
     }
 
@@ -199,9 +264,10 @@
 
         try
         {
-            var apiKey = (await UserService.GetCurrentUserAsync())?.Profile?.AiApiKey;
+            var apiKey = _profile?.AiApiKey;
+            var modelId = _profile?.AiModel;
 
-            await foreach (var chunk in AiService.StreamMessageAsync(_systemPrompt, _messages, apiKey))
+            await foreach (var chunk in AiService.StreamMessageAsync(_systemPrompt, _messages, apiKey, modelId))
             {
                 _streamingContent += chunk;
                 StateHasChanged();
@@ -247,6 +313,32 @@
         _selectedConversationId = _currentConversation.Id;
     }
 
+    private void InsertToken(string token)
+    {
+        if (!_promptTemplate.EndsWith("\n"))
+            _promptTemplate += "\n";
+        _promptTemplate += token + "\n";
+        StateHasChanged();
+    }
+
+    private void ResetPromptTemplate()
+    {
+        _promptTemplate = PromptBuilderService.DefaultTemplate;
+        StateHasChanged();
+    }
+
+    private async Task SavePromptTemplate()
+    {
+        if (_profile == null) return;
+        _profile.AiSystemPromptTemplate = _promptTemplate == PromptBuilderService.DefaultTemplate
+            ? null
+            : _promptTemplate;
+        DbContext.UserProfiles.Update(_profile);
+        await DbContext.SaveChangesAsync();
+        await BuildSystemPrompt();
+        Snackbar.Add("System prompt saved!", Severity.Success);
+    }
+
     private string RenderContent(string content)
     {
         if (string.IsNullOrEmpty(content)) return "";
@@ -261,23 +353,51 @@
 
     private string? ExtractRecipeContent(string content)
     {
+        // Try ```recipe fenced block first
         var startIdx = content.IndexOf("```recipe");
-        if (startIdx < 0) startIdx = content.IndexOf("---\nname:");
-        if (startIdx < 0) return null;
-
-        string recipeText;
-        if (content[startIdx..].StartsWith("```recipe"))
+        if (startIdx >= 0)
         {
             var endIdx = content.IndexOf("```", startIdx + 9);
-            if (endIdx < 0) return null;
-            recipeText = content[(startIdx + 9)..endIdx].Trim();
-        }
-        else
-        {
-            recipeText = content[startIdx..];
+            if (endIdx >= 0)
+            {
+                var recipeText = content[(startIdx + 9)..endIdx].Trim();
+                if (Parser.TryParse(recipeText, out _, out _))
+                    return recipeText;
+            }
         }
 
-        return Parser.TryParse(recipeText, out _, out _) ? recipeText : null;
+        // Try ---\nname: YAML front-matter style
+        startIdx = content.IndexOf("---\nname:");
+        if (startIdx >= 0)
+        {
+            var recipeText = content[startIdx..];
+            if (Parser.TryParse(recipeText, out _, out _))
+                return recipeText;
+        }
+
+        // Try loose YAML-like format: has both name: and ingredients: keys
+        if (content.Contains("name:") && content.Contains("ingredients:"))
+        {
+            // Find the line starting with name: and take everything from there
+            var lines = content.Split('\n');
+            int nameLineIdx = -1;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("name:"))
+                {
+                    nameLineIdx = i;
+                    break;
+                }
+            }
+            if (nameLineIdx >= 0)
+            {
+                var recipeText = string.Join('\n', lines[nameLineIdx..]);
+                if (Parser.TryParse(recipeText, out _, out _))
+                    return recipeText;
+            }
+        }
+
+        return null;
     }
 
     private async Task SaveRecipeFromMessage(string content)

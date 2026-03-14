@@ -27,40 +27,56 @@ public class UnitConversionService : IUnitConverter
         [MeasurementUnit.Kilogram] = 1000.0,
     };
 
-    public bool IsVolume(MeasurementUnit unit) => VolumeToMl.ContainsKey(unit);
-    public bool IsWeight(MeasurementUnit unit) => WeightToGrams.ContainsKey(unit);
-
-    public bool CanConvert(MeasurementUnit from, MeasurementUnit to)
+    public bool IsVolume(string unit)
     {
-        if (from == to) return true;
-        if (IsVolume(from) && IsVolume(to)) return true;
-        if (IsWeight(from) && IsWeight(to)) return true;
+        var parsed = UnitParser.TryParse(unit);
+        return parsed.HasValue && VolumeToMl.ContainsKey(parsed.Value);
+    }
+
+    public bool IsWeight(string unit)
+    {
+        var parsed = UnitParser.TryParse(unit);
+        return parsed.HasValue && WeightToGrams.ContainsKey(parsed.Value);
+    }
+
+    public bool CanConvert(string fromUnit, string toUnit)
+    {
+        var from = UnitParser.TryParse(fromUnit);
+        var to = UnitParser.TryParse(toUnit);
+
+        if (!from.HasValue || !to.HasValue)
+            return false;
+
+        if (from.Value == to.Value) return true;
+        if (VolumeToMl.ContainsKey(from.Value) && VolumeToMl.ContainsKey(to.Value)) return true;
+        if (WeightToGrams.ContainsKey(from.Value) && WeightToGrams.ContainsKey(to.Value)) return true;
+
         return false;
     }
 
-    public double Convert(double amount, MeasurementUnit from, MeasurementUnit to)
+    public double? Convert(double amount, string fromUnit, string toUnit)
     {
-        if (from == to) return amount;
+        var from = UnitParser.TryParse(fromUnit);
+        var to = UnitParser.TryParse(toUnit);
 
-        if (IsVolume(from) && IsVolume(to))
+        if (!from.HasValue || !to.HasValue)
+            return null;
+
+        if (from.Value == to.Value)
+            return amount;
+
+        if (VolumeToMl.ContainsKey(from.Value) && VolumeToMl.ContainsKey(to.Value))
         {
-            var ml = amount * VolumeToMl[from];
-            return ml / VolumeToMl[to];
+            var ml = amount * VolumeToMl[from.Value];
+            return ml / VolumeToMl[to.Value];
         }
 
-        if (IsWeight(from) && IsWeight(to))
+        if (WeightToGrams.ContainsKey(from.Value) && WeightToGrams.ContainsKey(to.Value))
         {
-            var grams = amount * WeightToGrams[from];
-            return grams / WeightToGrams[to];
+            var grams = amount * WeightToGrams[from.Value];
+            return grams / WeightToGrams[to.Value];
         }
 
-        throw new InvalidOperationException($"Cannot convert between {from} and {to}.");
-    }
-
-    public MeasurementUnit GetBaseUnit(MeasurementUnit unit)
-    {
-        if (IsVolume(unit)) return MeasurementUnit.Milliliter;
-        if (IsWeight(unit)) return MeasurementUnit.Gram;
-        return unit;
+        return null;
     }
 }

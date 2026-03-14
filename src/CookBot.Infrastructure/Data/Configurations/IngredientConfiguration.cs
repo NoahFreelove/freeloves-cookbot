@@ -12,5 +12,9 @@ public class IngredientConfiguration : IEntityTypeConfiguration<Ingredient>
         builder.Property(i => i.Name).HasMaxLength(200).IsRequired();
         builder.Property(i => i.NormalizedName).HasMaxLength(200).IsRequired();
         builder.HasIndex(i => i.NormalizedName).IsUnique();
+
+        builder.Property(i => i.PreferredUnitsJson).HasMaxLength(500);
+        builder.Property(i => i.ExternalId).HasMaxLength(100);
+        builder.Property(i => i.NutritionalInfoJson).HasMaxLength(500);
     }
 }

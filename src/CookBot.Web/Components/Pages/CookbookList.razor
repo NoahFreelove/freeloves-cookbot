@@ -8,6 +8,7 @@
 
 <PageTitle>CookBot - Cookbooks</PageTitle>
 
+<UserGuard>
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4" Style="font-weight: 600;">My Cookbooks</MudText>
     <MudSpacer />
@@ -95,6 +96,7 @@ else
         }
     </MudGrid>
 }
+</UserGuard>
 
 @code {
     private List<Cookbook> _cookbooks = new();
@@ -135,6 +137,9 @@ else
 
     private async Task ShowCreateDialog()
     {
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
         var parameters = new DialogParameters<CookbookFormDialog>
         {
             { x => x.Name, "" },
@@ -147,7 +152,7 @@ else
         {
             var cookbook = new Cookbook
             {
-                UserId = UserService.CurrentUserId!.Value,
+                UserId = userId,
                 Name = data.Name,
                 Description = data.Description,
             };

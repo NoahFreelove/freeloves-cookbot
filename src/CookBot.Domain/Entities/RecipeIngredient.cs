@@ -1,5 +1,3 @@
-using CookBot.Domain.Enums;
-
 namespace CookBot.Domain.Entities;
 
 public class RecipeIngredient
@@ -9,7 +7,7 @@ public class RecipeIngredient
     public int IngredientId { get; set; }
     public int RecipeLocalId { get; set; }
     public double Amount { get; set; }
-    public MeasurementUnit Unit { get; set; }
+    public string Unit { get; set; } = string.Empty;
     public string? Note { get; set; }
 
     public Recipe Recipe { get; set; } = null!;

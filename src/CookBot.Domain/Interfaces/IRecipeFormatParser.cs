@@ -1,17 +1,20 @@
-using CookBot.Domain.Entities;
-
 namespace CookBot.Domain.Interfaces;
 
 public class ParsedRecipe
 {
     public string Name { get; set; } = string.Empty;
-    public int Servings { get; set; }
+    public int Servings { get; set; } = 1;
     public int? PrepTimeMinutes { get; set; }
     public int? CookTimeMinutes { get; set; }
     public List<string> Tags { get; set; } = new();
     public List<ParsedIngredient> Ingredients { get; set; } = new();
-    public string MarkdownBody { get; set; } = string.Empty;
-    public string RawContent { get; set; } = string.Empty;
+    public List<ParsedStep> Steps { get; set; } = new();
+}
+
+public class ParsedStep
+{
+    public string Text { get; set; } = string.Empty;
+    public bool IsSection { get; set; }
 }
 
 public class ParsedIngredient

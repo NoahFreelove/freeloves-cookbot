@@ -8,6 +8,7 @@
 
 <PageTitle>CookBot - Pantry</PageTitle>
 
+<UserGuard>
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4" Style="font-weight: 600;">My Pantries</MudText>
     <MudSpacer />
@@ -93,6 +94,7 @@ else
         <MudText Typo="Typo.body2" Color="Color.Secondary">Loading...</MudText>
     </MudPaper>
 }
+</UserGuard>
 
 @code {
     private List<Pantry> _pantries = new();

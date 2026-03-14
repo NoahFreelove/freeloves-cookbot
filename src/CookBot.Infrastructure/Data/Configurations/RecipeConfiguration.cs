@@ -10,8 +10,14 @@ public class RecipeConfiguration : IEntityTypeConfiguration<Recipe>
     {
         builder.HasKey(r => r.Id);
         builder.Property(r => r.Name).HasMaxLength(300).IsRequired();
-        builder.Property(r => r.RawContent).IsRequired();
         builder.Property(r => r.TagsJson).HasDefaultValue("[]");
+
+        builder.OwnsMany(r => r.Steps, steps =>
+        {
+            steps.ToJson();
+            steps.OwnsMany(s => s.Timers);
+        });
+
         builder.HasMany(r => r.RecipeIngredients).WithOne(ri => ri.Recipe).HasForeignKey(ri => ri.RecipeId).OnDelete(DeleteBehavior.Cascade);
     }
 }

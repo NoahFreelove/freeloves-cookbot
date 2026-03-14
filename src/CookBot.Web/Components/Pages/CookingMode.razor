@@ -1,0 +1,335 @@
+@page "/recipes/{RecipeId:int}/cook"
+@rendermode InteractiveServer
+@using CookBot.Application.Services
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject IJSRuntime JS
+@inject CurrentUserService UserService
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>CookBot - Cooking Mode</PageTitle>
+
+<UserGuard>
+@if (_recipe != null)
+{
+    @* Top bar *@
+    <MudPaper Class="pa-3 mb-4" Elevation="2" Style="border-radius: 12px;">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
+                       StartIcon="@Icons.Material.Filled.Close"
+                       OnClick="ExitCooking">
+                Exit Cooking
+            </MudButton>
+            <MudText Typo="Typo.h6">Step @(_currentStepIndex + 1) of @_navigableSteps.Count</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudText Typo="Typo.body2">Servings:</MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small"
+                               OnClick="DecrementServings" Disabled="_targetServings <= 1" />
+                <MudText Typo="Typo.body1"><b>@_targetServings</b></MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small"
+                               OnClick="IncrementServings" Disabled="_targetServings >= 100" />
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+
+    <MudGrid>
+        @* Main step area *@
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px; min-height: 400px;">
+
+                @if (CurrentSectionHeader != null)
+                {
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Class="mb-2">@CurrentSectionHeader</MudText>
+                }
+
+                <MudText Typo="Typo.h4" Style="font-weight: 500; line-height: 1.6;" Class="mb-4">
+                    @CurrentStep.Text
+                </MudText>
+
+                @if (CurrentStep.Timers.Any())
+                {
+                    <MudStack Row="true" Spacing="2" Class="mb-4" Wrap="Wrap.Wrap">
+                        @foreach (var timer in CurrentStep.Timers)
+                        {
+                            var timerId = $"step{CurrentStep.Order}_{timer.Label ?? timer.Duration.ToString()}_{timer.Unit}";
+                            var isActive = _activeTimers.ContainsKey(timerId);
+                            <MudButton Variant="@(isActive ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Timer"
+                                       OnClick="@(() => StartTimer(timerId, timer))"
+                                       Disabled="isActive">
+                                @(timer.Label ?? "Timer"): @timer.Duration @timer.Unit
+                                @if (isActive)
+                                {
+                                    <span class="ml-2">(@FormatTime(_activeTimers[timerId]))</span>
+                                }
+                            </MudButton>
+                        }
+                    </MudStack>
+                }
+
+                <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.ArrowBack"
+                               OnClick="PreviousStep"
+                               Disabled="_currentStepIndex == 0">
+                        Previous
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               EndIcon="@Icons.Material.Filled.ArrowForward"
+                               OnClick="NextStep"
+                               Disabled="_currentStepIndex >= _navigableSteps.Count - 1">
+                        Next
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        @* Ingredient sidebar *@
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
+                <MudText Typo="Typo.h6" Class="mb-3">Ingredients</MudText>
+                @foreach (var ri in _recipe.RecipeIngredients.OrderBy(i => i.RecipeLocalId))
+                {
+                    var isReferenced = CurrentStep.IngredientRefs.Contains(ri.RecipeLocalId);
+                    <MudStack Row="true" AlignItems="AlignItems.Center"
+                              Style="@(isReferenced ? "background: var(--mud-palette-primary-lighten); border-radius: 8px; padding: 4px 8px;" : "padding: 4px 8px;")">
+                        <MudCheckBox T="bool" Value="@_preppedIngredients.Contains(ri.Id)"
+                                     ValueChanged="@((bool v) => TogglePrepped(ri.Id, v))"
+                                     Dense="true" />
+                        <MudText Style="@(_preppedIngredients.Contains(ri.Id) ? "text-decoration: line-through; opacity: 0.6;" : "")">
+                            <b>@RecipeScalingService.FormatScaledAmount(ri.Amount, _recipe.Servings, _targetServings) @ri.Unit</b>
+                            @ri.Ingredient.Name
+                            @if (!string.IsNullOrEmpty(ri.Note))
+                            {
+                                <span style="color: #888;"> (@ri.Note)</span>
+                            }
+                        </MudText>
+                    </MudStack>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @* Active timers bottom bar *@
+    @if (_activeTimers.Any())
+    {
+        <MudPaper Class="pa-3 mt-4" Elevation="4"
+                  Style="border-radius: 12px; position: sticky; bottom: 16px; z-index: 100;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap">
+                <MudIcon Icon="@Icons.Material.Filled.Timer" />
+                <MudText Typo="Typo.body2"><b>Active Timers:</b></MudText>
+                @foreach (var kvp in _activeTimers)
+                {
+                    var id = kvp.Key;
+                    var remaining = kvp.Value;
+                    <MudChip T="string" Color="@(remaining <= 10 ? Color.Error : Color.Primary)"
+                             Variant="Variant.Filled" Size="Size.Medium"
+                             OnClose="@(() => StopTimer(id))">
+                        @GetTimerLabel(id): @FormatTime(remaining)
+                    </MudChip>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+
+    @* Completed timer alerts *@
+    @foreach (var timerId in _completedTimers)
+    {
+        <MudAlert Severity="Severity.Success" Class="mt-2"
+                  CloseIconClicked="@(() => DismissCompleted(timerId))" ShowCloseIcon="true">
+            Timer "@GetTimerLabel(timerId)" is complete!
+        </MudAlert>
+    }
+}
+else if (_loaded)
+{
+    <MudText>Recipe not found or access denied.</MudText>
+}
+</UserGuard>
+
+@code {
+    [Parameter] public int RecipeId { get; set; }
+
+    private Recipe? _recipe;
+    private bool _loaded;
+    private bool _initialized;
+    private int _currentStepIndex;
+    private int _targetServings = 1;
+    private List<RecipeStep> _navigableSteps = new();
+    private List<RecipeStep> _allSteps = new();
+    private HashSet<int> _preppedIngredients = new();
+    private Dictionary<string, int> _activeTimers = new();
+    private List<string> _completedTimers = new();
+    private DotNetObjectReference<CookingMode>? _dotNetRef;
+
+    private RecipeStep CurrentStep => _navigableSteps[_currentStepIndex];
+    private string? CurrentSectionHeader => GetSectionHeader(CurrentStep);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
+        if (!_initialized)
+        {
+            _initialized = true;
+            _recipe = await DbContext.Recipes
+                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
+                .FirstOrDefaultAsync(r => r.Id == RecipeId);
+
+            if (_recipe != null)
+            {
+                var isOwner = _recipe.Cookbook.UserId == userId;
+                var isShared = _recipe.Cookbook.Shares.Any(s => s.SharedWithUserId == userId);
+                if (!isOwner && !isShared)
+                {
+                    Navigation.NavigateTo("/cookbooks");
+                    return;
+                }
+
+                _targetServings = _recipe.Servings;
+                _allSteps = _recipe.Steps.OrderBy(s => s.Order).ToList();
+                _navigableSteps = _allSteps.Where(s => !s.IsSection).ToList();
+
+                if (!_navigableSteps.Any())
+                {
+                    Navigation.NavigateTo($"/recipes/{RecipeId}");
+                    return;
+                }
+            }
+            else
+            {
+                Navigation.NavigateTo("/cookbooks");
+                return;
+            }
+
+            _loaded = true;
+            StateHasChanged();
+        }
+
+        if (firstRender || (_initialized && _dotNetRef == null && _recipe != null))
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("CookingTimers.init", _dotNetRef);
+            await JS.InvokeVoidAsync("CookingTimers.requestNotificationPermission");
+        }
+    }
+
+    private void NextStep()
+    {
+        if (_currentStepIndex < _navigableSteps.Count - 1)
+        {
+            _currentStepIndex++;
+        }
+    }
+
+    private void PreviousStep()
+    {
+        if (_currentStepIndex > 0)
+        {
+            _currentStepIndex--;
+        }
+    }
+
+    private string? GetSectionHeader(RecipeStep currentStep)
+    {
+        var currentOrder = currentStep.Order;
+        for (int i = _allSteps.Count - 1; i >= 0; i--)
+        {
+            if (_allSteps[i].Order < currentOrder && _allSteps[i].IsSection)
+            {
+                return _allSteps[i].Text;
+            }
+        }
+        return null;
+    }
+
+    private async Task StartTimer(string timerId, StepTimer timer)
+    {
+        if (_activeTimers.ContainsKey(timerId)) return;
+
+        var durationSeconds = timer.Unit switch
+        {
+            "hr" => timer.Duration * 3600,
+            "min" => timer.Duration * 60,
+            "sec" => timer.Duration,
+            _ => timer.Duration * 60
+        };
+
+        _activeTimers[timerId] = durationSeconds;
+        await JS.InvokeVoidAsync("CookingTimers.start", timerId, durationSeconds);
+    }
+
+    private async Task StopTimer(string timerId)
+    {
+        await JS.InvokeVoidAsync("CookingTimers.stop", timerId);
+        _activeTimers.Remove(timerId);
+    }
+
+    [JSInvokable]
+    public void OnTimerTick(string timerId, int remainingSeconds)
+    {
+        if (_activeTimers.ContainsKey(timerId))
+        {
+            _activeTimers[timerId] = remainingSeconds;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public void OnTimerComplete(string timerId)
+    {
+        _activeTimers.Remove(timerId);
+        _completedTimers.Add(timerId);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void DismissCompleted(string timerId)
+    {
+        _completedTimers.Remove(timerId);
+    }
+
+    private static string FormatTime(int totalSeconds)
+    {
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return $"{minutes:D2}:{seconds:D2}";
+    }
+
+    private static string GetTimerLabel(string timerId)
+    {
+        var parts = timerId.Split('_');
+        return parts.Length > 1 ? parts[1] : timerId;
+    }
+
+    private void TogglePrepped(int ingredientId, bool isPrepped)
+    {
+        if (isPrepped)
+            _preppedIngredients.Add(ingredientId);
+        else
+            _preppedIngredients.Remove(ingredientId);
+    }
+
+    private void IncrementServings() => _targetServings++;
+    private void DecrementServings() { if (_targetServings > 1) _targetServings--; }
+
+    private void ExitCooking()
+    {
+        Navigation.NavigateTo($"/recipes/{RecipeId}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_dotNetRef != null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("CookingTimers.dispose");
+            }
+            catch (JSDisconnectedException) { }
+            _dotNetRef.Dispose();
+        }
+    }
+}

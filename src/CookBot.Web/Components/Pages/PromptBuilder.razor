@@ -9,6 +9,18 @@
 
 <PageTitle>CookBot - Prompt Builder</PageTitle>
 
+@if (_profile?.AiEnabled == false)
+{
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
+        <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">AI features are disabled.</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+            Enable AI in your <MudLink Href="/profile">Profile Settings</MudLink> to use the prompt builder.
+        </MudText>
+    </div>
+}
+else
+{
 <MudText Typo="Typo.h4" Class="mb-2" Style="font-weight: 600;">Prompt Builder</MudText>
 <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
     Generate a prompt with your profile context and our recipe format, then copy it to use with any AI assistant.
@@ -82,6 +94,7 @@
         </MudPaper>
     </MudItem>
 </MudGrid>
+}
 
 @code {
     private UserProfile? _profile;

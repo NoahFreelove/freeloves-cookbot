@@ -9,6 +9,10 @@ public class Ingredient
     public string NormalizedName { get; set; } = string.Empty;
     public IngredientCategory Category { get; set; } = IngredientCategory.Other;
 
+    public string? PreferredUnitsJson { get; set; }
+    public string? ExternalId { get; set; }
+    public string? NutritionalInfoJson { get; set; }
+
     public ICollection<RecipeIngredient> RecipeIngredients { get; set; } = new List<RecipeIngredient>();
     public ICollection<PantryItem> PantryItems { get; set; } = new List<PantryItem>();
 }

@@ -1,0 +1,68 @@
+@inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Paste Raw Recipe Text</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_rawText" T="string" Variant="Variant.Outlined"
+                      Lines="15" Label="Paste your recipe text here"
+                      Style="font-family: 'Courier New', monospace; font-size: 14px;"
+                      Placeholder="Paste or write your recipe here..." />
+        @if (_errors.Any())
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                @foreach (var error in _errors)
+                {
+                    <div>@error</div>
+                }
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
+                   Disabled="@string.IsNullOrWhiteSpace(_rawText)">Import</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private string _rawText = string.Empty;
+    private List<string> _errors = new();
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Submit()
+    {
+        _errors.Clear();
+
+        if (string.IsNullOrWhiteSpace(_rawText))
+            return;
+
+        if (Parser.TryParse(_rawText, out var parsed, out var errors))
+        {
+            MudDialog.Close(DialogResult.Ok(parsed));
+            return;
+        }
+
+        // Try to parse as numbered steps
+        var lines = _rawText.Split('\n')
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l.Trim(), @"^\d+\.\s*", ""))
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+
+        if (lines.Count > 0)
+        {
+            var partial = new CookBot.Domain.Interfaces.ParsedRecipe
+            {
+                Steps = lines.Select(l => new CookBot.Domain.Interfaces.ParsedStep { Text = l }).ToList()
+            };
+            MudDialog.Close(DialogResult.Ok(partial));
+            return;
+        }
+
+        _errors = errors;
+    }
+}

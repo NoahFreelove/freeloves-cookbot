@@ -1,5 +1,4 @@
 using CookBot.Domain.Entities;
-using CookBot.Domain.Enums;
 using CookBot.Domain.Interfaces;
 
 namespace CookBot.Application.Services;

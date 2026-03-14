@@ -38,7 +38,9 @@
     </MudDrawer>
     <MudMainContent Class="pt-16 px-4 pb-4">
         <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
-            @Body
+            <CascadingValue Value="UserService.CurrentUserId" Name="CurrentUserId">
+                @Body
+            </CascadingValue>
         </MudContainer>
     </MudMainContent>
 </MudLayout>
@@ -52,7 +54,7 @@
     [CascadingParameter]
     private Task<User?>? CurrentUser { get; set; }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _theme = new MudTheme
         {
@@ -76,30 +78,46 @@
                 }
             }
         };
+
+        // Load users during initialization so the selector renders during prerender
+        _users = await UserService.GetAllUsersAsync();
+
+        // If no users exist at all, auto-create a default one
+        if (!_users.Any())
+        {
+            await UserService.CreateUserAsync("Home Chef");
+            _users = await UserService.GetAllUsersAsync();
+        }
+
+        // Set a default user during prerender so pages don't show "no user selected"
+        // OnAfterRenderAsync will override this with the sessionStorage value if available
+        if (!UserService.CurrentUserId.HasValue && _users.Any())
+        {
+            var defaultUser = _users.First();
+            UserService.CurrentUserId = defaultUser.Id;
+            _selectedUserId = defaultUser.Id;
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            _users = await UserService.GetAllUsersAsync();
-
-            var stored = await JS.InvokeAsync<string?>("sessionStorage.getItem", "cookbot_current_user");
-            if (stored != null && int.TryParse(stored, out var savedId) && _users.Any(u => u.Id == savedId))
+            // Restore session from browser storage (JS interop only available after circuit connects)
+            try
             {
-                UserService.CurrentUserId = savedId;
-                _selectedUserId = savedId;
-            }
-            else
-            {
-                await UserService.InitializeAsync();
-                if (UserService.CurrentUserId.HasValue)
+                var stored = await JS.InvokeAsync<string?>("sessionStorage.getItem", "cookbot_current_user");
+                if (stored != null && int.TryParse(stored, out var savedId) && _users.Any(u => u.Id == savedId))
                 {
-                    _selectedUserId = UserService.CurrentUserId.Value;
-                    await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", _selectedUserId.ToString());
+                    UserService.CurrentUserId = savedId;
+                    _selectedUserId = savedId;
+                    StateHasChanged();
                 }
             }
-            StateHasChanged();
+            catch (InvalidOperationException)
+            {
+                // JS interop not available — skip session restore
+            }
         }
     }
 

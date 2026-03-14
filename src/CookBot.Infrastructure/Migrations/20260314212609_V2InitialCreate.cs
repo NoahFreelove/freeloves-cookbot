@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace CookBot.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class V2InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -19,7 +19,10 @@ namespace CookBot.Infrastructure.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     Name = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
                     NormalizedName = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-                    Category = table.Column<int>(type: "INTEGER", nullable: false)
+                    Category = table.Column<int>(type: "INTEGER", nullable: false),
+                    PreferredUnitsJson = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true),
+                    ExternalId = table.Column<string>(type: "TEXT", maxLength: 100, nullable: true),
+                    NutritionalInfoJson = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true)
                 },
                 constraints: table =>
                 {
@@ -33,6 +36,7 @@ namespace CookBot.Infrastructure.Migrations
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     DisplayName = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
+                    PasswordHash = table.Column<string>(type: "TEXT", nullable: true),
                     IdentityUserId = table.Column<string>(type: "TEXT", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
@@ -109,30 +113,22 @@ namespace CookBot.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "PantryItems",
+                name: "Pantries",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    UserId = table.Column<int>(type: "INTEGER", nullable: false),
-                    IngredientId = table.Column<int>(type: "INTEGER", nullable: false),
-                    Amount = table.Column<double>(type: "REAL", nullable: false),
-                    Unit = table.Column<int>(type: "INTEGER", nullable: false),
-                    ExpirationDate = table.Column<DateTime>(type: "TEXT", nullable: true),
-                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Name = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
+                    OwnerId = table.Column<int>(type: "INTEGER", nullable: false),
+                    IsPersonal = table.Column<bool>(type: "INTEGER", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PantryItems", x => x.Id);
+                    table.PrimaryKey("PK_Pantries", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_PantryItems_Ingredients_IngredientId",
-                        column: x => x.IngredientId,
-                        principalTable: "Ingredients",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_PantryItems_Users_UserId",
-                        column: x => x.UserId,
+                        name: "FK_Pantries_Users_OwnerId",
+                        column: x => x.OwnerId,
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -149,7 +145,10 @@ namespace CookBot.Infrastructure.Migrations
                     UnitSystem = table.Column<int>(type: "INTEGER", nullable: false),
                     KitchenToolsJson = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "[]"),
                     DietaryPreferencesJson = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "[]"),
-                    AiApiKey = table.Column<string>(type: "TEXT", nullable: true)
+                    AiApiKey = table.Column<string>(type: "TEXT", nullable: true),
+                    AiEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    AiModel = table.Column<string>(type: "TEXT", nullable: true),
+                    AiSystemPromptTemplate = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -163,6 +162,33 @@ namespace CookBot.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "CookbookShares",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    CookbookId = table.Column<int>(type: "INTEGER", nullable: false),
+                    SharedWithUserId = table.Column<int>(type: "INTEGER", nullable: false),
+                    SharedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CookbookShares", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CookbookShares_Cookbooks_CookbookId",
+                        column: x => x.CookbookId,
+                        principalTable: "Cookbooks",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_CookbookShares_Users_SharedWithUserId",
+                        column: x => x.SharedWithUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Recipes",
                 columns: table => new
                 {
@@ -170,14 +196,13 @@ namespace CookBot.Infrastructure.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     CookbookId = table.Column<int>(type: "INTEGER", nullable: false),
                     Name = table.Column<string>(type: "TEXT", maxLength: 300, nullable: false),
-                    RawContent = table.Column<string>(type: "TEXT", nullable: false),
-                    MarkdownBody = table.Column<string>(type: "TEXT", nullable: false),
                     Servings = table.Column<int>(type: "INTEGER", nullable: false),
                     PrepTimeMinutes = table.Column<int>(type: "INTEGER", nullable: true),
                     CookTimeMinutes = table.Column<int>(type: "INTEGER", nullable: true),
                     TagsJson = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "[]"),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    Steps = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -199,7 +224,7 @@ namespace CookBot.Infrastructure.Migrations
                     GroceryListId = table.Column<int>(type: "INTEGER", nullable: false),
                     IngredientId = table.Column<int>(type: "INTEGER", nullable: false),
                     Amount = table.Column<double>(type: "REAL", nullable: false),
-                    Unit = table.Column<int>(type: "INTEGER", nullable: false),
+                    Unit = table.Column<string>(type: "TEXT", maxLength: 50, nullable: false),
                     IsPurchased = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
@@ -220,6 +245,63 @@ namespace CookBot.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "PantryItems",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    PantryId = table.Column<int>(type: "INTEGER", nullable: false),
+                    IngredientId = table.Column<int>(type: "INTEGER", nullable: false),
+                    Amount = table.Column<double>(type: "REAL", nullable: false),
+                    Unit = table.Column<string>(type: "TEXT", maxLength: 50, nullable: false),
+                    ExpirationDate = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PantryItems", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PantryItems_Ingredients_IngredientId",
+                        column: x => x.IngredientId,
+                        principalTable: "Ingredients",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_PantryItems_Pantries_PantryId",
+                        column: x => x.PantryId,
+                        principalTable: "Pantries",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PantryMembers",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    PantryId = table.Column<int>(type: "INTEGER", nullable: false),
+                    UserId = table.Column<int>(type: "INTEGER", nullable: false),
+                    JoinedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PantryMembers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PantryMembers_Pantries_PantryId",
+                        column: x => x.PantryId,
+                        principalTable: "Pantries",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_PantryMembers_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "RecipeIngredients",
                 columns: table => new
                 {
@@ -229,7 +311,7 @@ namespace CookBot.Infrastructure.Migrations
                     IngredientId = table.Column<int>(type: "INTEGER", nullable: false),
                     RecipeLocalId = table.Column<int>(type: "INTEGER", nullable: false),
                     Amount = table.Column<double>(type: "REAL", nullable: false),
-                    Unit = table.Column<int>(type: "INTEGER", nullable: false),
+                    Unit = table.Column<string>(type: "TEXT", maxLength: 50, nullable: false),
                     Note = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
@@ -260,6 +342,17 @@ namespace CookBot.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_CookbookShares_CookbookId_SharedWithUserId",
+                table: "CookbookShares",
+                columns: new[] { "CookbookId", "SharedWithUserId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CookbookShares_SharedWithUserId",
+                table: "CookbookShares",
+                column: "SharedWithUserId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_GroceryListItems_GroceryListId",
                 table: "GroceryListItems",
                 column: "GroceryListId");
@@ -281,15 +374,31 @@ namespace CookBot.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_Pantries_OwnerId",
+                table: "Pantries",
+                column: "OwnerId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PantryItems_IngredientId",
                 table: "PantryItems",
                 column: "IngredientId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PantryItems_UserId_IngredientId",
+                name: "IX_PantryItems_PantryId_IngredientId",
                 table: "PantryItems",
-                columns: new[] { "UserId", "IngredientId" },
+                columns: new[] { "PantryId", "IngredientId" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PantryMembers_PantryId_UserId",
+                table: "PantryMembers",
+                columns: new[] { "PantryId", "UserId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PantryMembers_UserId",
+                table: "PantryMembers",
+                column: "UserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RecipeIngredients_IngredientId",
@@ -320,10 +429,16 @@ namespace CookBot.Infrastructure.Migrations
                 name: "AiConversations");
 
             migrationBuilder.DropTable(
+                name: "CookbookShares");
+
+            migrationBuilder.DropTable(
                 name: "GroceryListItems");
 
             migrationBuilder.DropTable(
                 name: "PantryItems");
+
+            migrationBuilder.DropTable(
+                name: "PantryMembers");
 
             migrationBuilder.DropTable(
                 name: "RecipeIngredients");
@@ -333,6 +448,9 @@ namespace CookBot.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "GroceryLists");
+
+            migrationBuilder.DropTable(
+                name: "Pantries");
 
             migrationBuilder.DropTable(
                 name: "Ingredients");

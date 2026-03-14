@@ -3,18 +3,21 @@
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
 @inject CookBot.Application.Services.RecipeService RecipeService
+@inject CurrentUserService UserService
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 @rendermode InteractiveServer
 
 <PageTitle>CookBot - @(_isEdit ? "Edit" : "New") Recipe</PageTitle>
 
+<UserGuard>
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" />
     <MudText Typo="Typo.h4" Style="font-weight: 600;">@(_isEdit ? "Edit" : "New") Recipe</MudText>
     <MudSpacer />
-    <MudButton Variant="Variant.Text" OnClick="InsertTemplate" StartIcon="@Icons.Material.Filled.Description">
-        Insert Template
+    <MudButton Variant="Variant.Text" OnClick="PasteRawText" StartIcon="@Icons.Material.Filled.ContentPaste">
+        Paste Raw Text
     </MudButton>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveRecipe"
                StartIcon="@Icons.Material.Filled.Save" Disabled="@_saving">
@@ -22,186 +25,423 @@
     </MudButton>
 </MudStack>
 
-<MudGrid>
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
-            <MudText Typo="Typo.subtitle1" Class="mb-2" Style="font-weight: 600;">Editor</MudText>
-            <MudTextField @bind-Value="_rawContent" T="string" Variant="Variant.Outlined"
-                          Lines="30" Immediate="true" DebounceInterval="500"
-                          OnDebounceIntervalElapsed="ParseContent"
-                          Style="font-family: 'Courier New', monospace; font-size: 14px;"
-                          Placeholder="Paste or write your recipe here..." />
-            @if (_errors.Any())
-            {
-                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
-                    @foreach (var error in _errors)
-                    {
-                        <div>@error</div>
-                    }
-                </MudAlert>
-            }
-        </MudPaper>
-    </MudItem>
+@* ===== Metadata Section ===== *@
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
+    <MudText Typo="Typo.subtitle1" Class="mb-3" Style="font-weight: 600;">Metadata</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_name" T="string" Label="Recipe Name" Variant="Variant.Outlined"
+                          Required="true" RequiredError="Name is required" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudNumericField @bind-Value="_servings" T="int" Label="Servings" Variant="Variant.Outlined" Min="1" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudNumericField @bind-Value="_prepTimeMinutes" T="int?" Label="Prep Time (min)" Variant="Variant.Outlined" Min="0" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudNumericField @bind-Value="_cookTimeMinutes" T="int?" Label="Cook Time (min)" Variant="Variant.Outlined" Min="0" />
+        </MudItem>
+        <MudItem xs="12">
+            <MudTextField @bind-Value="_tagsText" T="string" Label="Tags (comma-separated)" Variant="Variant.Outlined"
+                          Placeholder="e.g. italian, pasta, quick" HelperText="Separate tags with commas" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
 
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
-            <MudText Typo="Typo.subtitle1" Class="mb-2" Style="font-weight: 600;">Preview</MudText>
-            @if (_parsed != null)
-            {
-                <MudText Typo="Typo.h5" Class="mb-2">@_parsed.Name</MudText>
-                <MudStack Row="true" Spacing="2" Class="mb-3">
-                    @if (_parsed.PrepTimeMinutes.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
-                            Prep: @(_parsed.PrepTimeMinutes)m
-                        </MudChip>
-                    }
-                    @if (_parsed.CookTimeMinutes.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Filled">
-                            Cook: @(_parsed.CookTimeMinutes)m
-                        </MudChip>
-                    }
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled">
-                        @_parsed.Servings servings
-                    </MudChip>
+@* ===== Ingredients Section ===== *@
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Ingredients</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddIngredient"
+                   StartIcon="@Icons.Material.Filled.Add" Size="Size.Small">
+            Add Ingredient
+        </MudButton>
+    </MudStack>
+
+    @for (int i = 0; i < _ingredients.Count; i++)
+    {
+        var index = i;
+        var ing = _ingredients[index];
+        <MudGrid Class="mb-2" Style="align-items: center;">
+            <MudItem xs="1">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@(ing.LocalId)</MudText>
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudAutocomplete T="string" Label="Ingredient" Variant="Variant.Outlined"
+                                 Value="@ing.Name"
+                                 ValueChanged="@(v => ing.Name = v ?? string.Empty)"
+                                 SearchFunc="SearchIngredients"
+                                 CoerceText="true" CoerceValue="false" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="double" Label="Amount" Variant="Variant.Outlined"
+                                 Value="@ing.Amount"
+                                 ValueChanged="@(v => ing.Amount = v)" Min="0" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudTextField T="string" Label="Unit" Variant="Variant.Outlined"
+                              Value="@ing.Unit"
+                              ValueChanged="@(v => ing.Unit = v ?? string.Empty)" />
+            </MudItem>
+            <MudItem xs="10" md="3">
+                <MudTextField T="string" Label="Note (optional)" Variant="Variant.Outlined"
+                              Value="@ing.Note"
+                              ValueChanged="@(v => ing.Note = v)" />
+            </MudItem>
+            <MudItem xs="2" md="1">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                               OnClick="@(() => RemoveIngredient(index))" />
+            </MudItem>
+        </MudGrid>
+    }
+
+    @if (_ingredients.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="py-4" Align="Align.Center">
+            No ingredients yet. Click "Add Ingredient" to get started.
+        </MudText>
+    }
+</MudPaper>
+
+@* ===== Steps Section ===== *@
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Steps</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddStep"
+                   StartIcon="@Icons.Material.Filled.Add" Size="Size.Small">
+            Add Step
+        </MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Secondary" OnClick="AddSectionHeader"
+                   StartIcon="@Icons.Material.Filled.Title" Size="Size.Small">
+            Add Section Header
+        </MudButton>
+    </MudStack>
+
+    @for (int i = 0; i < _steps.Count; i++)
+    {
+        var index = i;
+        var step = _steps[index];
+        <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border: 1px solid #e0e0e0; border-radius: 8px;">
+            <MudStack Row="true" AlignItems="AlignItems.Start">
+                <MudStack Spacing="0" Style="min-width: 36px;" AlignItems="AlignItems.Center">
+                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small"
+                                   Disabled="@(index == 0)" OnClick="@(() => MoveStepUp(index))" />
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@(index + 1)</MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small"
+                                   Disabled="@(index == _steps.Count - 1)" OnClick="@(() => MoveStepDown(index))" />
                 </MudStack>
-
-                @if (_parsed.Tags.Any())
-                {
-                    <MudStack Row="true" Spacing="1" Class="mb-3" Wrap="Wrap.Wrap">
-                        @foreach (var tag in _parsed.Tags)
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">@tag</MudChip>
-                        }
-                    </MudStack>
-                }
-
-                <MudText Typo="Typo.subtitle2" Class="mb-2" Style="font-weight: 600;">Ingredients</MudText>
-                <MudList T="string" Dense="true" Class="mb-4">
-                    @foreach (var ing in _parsed.Ingredients)
+                <MudStack Style="flex: 1;" Spacing="1">
+                    @if (step.IsSection)
                     {
-                        <MudListItem>
-                            <MudText>
-                                <b>@ing.Amount @ing.Unit</b> @ing.Name
-                                @if (!string.IsNullOrEmpty(ing.Note))
-                                {
-                                    <span style="color: #888;"> (@ing.Note)</span>
-                                }
-                            </MudText>
-                        </MudListItem>
+                        <MudTextField @bind-Value="step.Text" T="string" Label="Section Header" Variant="Variant.Outlined"
+                                      Placeholder="e.g. For the sauce" />
                     }
-                </MudList>
-
-                <MudDivider Class="mb-3" />
-                <div class="recipe-body">
-                    @((MarkupString)_renderedHtml)
-                </div>
-            }
-            else
-            {
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Start typing to see a live preview...
-                </MudText>
-            }
+                    else
+                    {
+                        var timers = CookBot.Application.Services.TimerDetectionService.DetectTimers(step.Text ?? string.Empty);
+                        var ingredientRefs = DetectIngredientRefsInStep(step.Text ?? string.Empty);
+                        <MudTextField @bind-Value="step.Text" T="string" Label="Step Instructions" Variant="Variant.Outlined"
+                                      Lines="3" Placeholder="Describe this step..."
+                                      Immediate="true" DebounceInterval="500" />
+                        @if (timers.Any() || ingredientRefs.Any())
+                        {
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
+                                @foreach (var timer in timers)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled"
+                                             Icon="@Icons.Material.Filled.Timer">
+                                        @timer.Duration @timer.Unit
+                                    </MudChip>
+                                }
+                                @foreach (var refName in ingredientRefs)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text"
+                                             Icon="@Icons.Material.Filled.Egg">
+                                        @refName
+                                    </MudChip>
+                                }
+                            </MudStack>
+                        }
+                    }
+                </MudStack>
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                               OnClick="@(() => RemoveStep(index))" />
+            </MudStack>
         </MudPaper>
-    </MudItem>
-</MudGrid>
+    }
+
+    @if (_steps.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="py-4" Align="Align.Center">
+            No steps yet. Click "Add Step" to get started.
+        </MudText>
+    }
+</MudPaper>
+</UserGuard>
 
 @code {
     [Parameter] public int CookbookId { get; set; }
     [Parameter] public int RecipeId { get; set; }
 
-    private string _rawContent = "";
-    private CookBot.Domain.Interfaces.ParsedRecipe? _parsed;
-    private List<string> _errors = new();
-    private string _renderedHtml = "";
+    private string _name = string.Empty;
+    private int _servings = 4;
+    private int? _prepTimeMinutes;
+    private int? _cookTimeMinutes;
+    private string _tagsText = string.Empty;
+
+    private List<CookBot.Domain.Interfaces.ParsedIngredient> _ingredients = new();
+    private List<CookBot.Domain.Interfaces.ParsedStep> _steps = new();
+
+    private int _nextLocalId = 1;
     private bool _isEdit;
     private bool _saving;
     private Recipe? _existingRecipe;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
         if (firstRender && RecipeId > 0)
         {
             _isEdit = true;
             _existingRecipe = await DbContext.Recipes
                 .Include(r => r.Cookbook)
+                .Include(r => r.Steps.OrderBy(s => s.Order))
+                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
                 .FirstOrDefaultAsync(r => r.Id == RecipeId);
             if (_existingRecipe != null)
             {
+                if (_existingRecipe.Cookbook.UserId != userId)
+                {
+                    Navigation.NavigateTo("/cookbooks");
+                    return;
+                }
                 CookbookId = _existingRecipe.CookbookId;
-                _rawContent = _existingRecipe.RawContent;
-                ParseContent(_rawContent);
+                PopulateFromRecipe(_existingRecipe);
             }
+            StateHasChanged();
+        }
+        else if (firstRender && CookbookId > 0)
+        {
+            var cookbook = await DbContext.Cookbooks.FindAsync(CookbookId);
+            if (cookbook == null || cookbook.UserId != userId)
+            {
+                Navigation.NavigateTo("/cookbooks");
+                return;
+            }
+        }
+    }
+
+    private void PopulateFromRecipe(Recipe recipe)
+    {
+        _name = recipe.Name;
+        _servings = recipe.Servings;
+        _prepTimeMinutes = recipe.PrepTimeMinutes;
+        _cookTimeMinutes = recipe.CookTimeMinutes;
+
+        var tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(recipe.TagsJson ?? "[]") ?? new();
+        _tagsText = string.Join(", ", tags);
+
+        _ingredients = recipe.RecipeIngredients
+            .OrderBy(ri => ri.RecipeLocalId)
+            .Select(ri => new CookBot.Domain.Interfaces.ParsedIngredient
+            {
+                LocalId = ri.RecipeLocalId,
+                Name = ri.Ingredient.Name,
+                Amount = ri.Amount,
+                Unit = ri.Unit,
+                Note = ri.Note,
+            }).ToList();
+
+        _nextLocalId = _ingredients.Any() ? _ingredients.Max(i => i.LocalId) + 1 : 1;
+
+        _steps = recipe.Steps
+            .OrderBy(s => s.Order)
+            .Select(s => new CookBot.Domain.Interfaces.ParsedStep
+            {
+                Text = s.Text,
+                IsSection = s.IsSection,
+            }).ToList();
+    }
+
+    private void PopulateFromParsed(CookBot.Domain.Interfaces.ParsedRecipe parsed)
+    {
+        if (!string.IsNullOrWhiteSpace(parsed.Name))
+            _name = parsed.Name;
+        if (parsed.Servings > 0)
+            _servings = parsed.Servings;
+        _prepTimeMinutes = parsed.PrepTimeMinutes;
+        _cookTimeMinutes = parsed.CookTimeMinutes;
+
+        if (parsed.Tags.Any())
+            _tagsText = string.Join(", ", parsed.Tags);
+
+        if (parsed.Ingredients.Any())
+        {
+            _ingredients = parsed.Ingredients.Select(i => new CookBot.Domain.Interfaces.ParsedIngredient
+            {
+                LocalId = i.LocalId > 0 ? i.LocalId : _nextLocalId++,
+                Name = i.Name,
+                Amount = i.Amount,
+                Unit = i.Unit,
+                Note = i.Note,
+            }).ToList();
+            _nextLocalId = _ingredients.Max(i => i.LocalId) + 1;
+        }
+
+        if (parsed.Steps.Any())
+        {
+            _steps = parsed.Steps.Select(s => new CookBot.Domain.Interfaces.ParsedStep
+            {
+                Text = s.Text,
+                IsSection = s.IsSection,
+            }).ToList();
+        }
+    }
+
+    // --- Ingredient operations ---
+
+    private void AddIngredient()
+    {
+        _ingredients.Add(new CookBot.Domain.Interfaces.ParsedIngredient
+        {
+            LocalId = _nextLocalId++,
+            Amount = 1,
+            Unit = string.Empty,
+            Name = string.Empty,
+        });
+    }
+
+    private void RemoveIngredient(int index)
+    {
+        if (index >= 0 && index < _ingredients.Count)
+            _ingredients.RemoveAt(index);
+    }
+
+    private async Task<IEnumerable<string>> SearchIngredients(string value, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length < 2)
+            return Array.Empty<string>();
+
+        var normalized = value.ToLowerInvariant();
+        return await DbContext.Ingredients
+            .Where(i => i.NormalizedName.Contains(normalized))
+            .OrderBy(i => i.Name)
+            .Take(10)
+            .Select(i => i.Name)
+            .ToListAsync(ct);
+    }
+
+    // --- Step operations ---
+
+    private void AddStep()
+    {
+        _steps.Add(new CookBot.Domain.Interfaces.ParsedStep { Text = string.Empty, IsSection = false });
+    }
+
+    private void AddSectionHeader()
+    {
+        _steps.Add(new CookBot.Domain.Interfaces.ParsedStep { Text = string.Empty, IsSection = true });
+    }
+
+    private void RemoveStep(int index)
+    {
+        if (index >= 0 && index < _steps.Count)
+            _steps.RemoveAt(index);
+    }
+
+    private void MoveStepUp(int index)
+    {
+        if (index <= 0 || index >= _steps.Count) return;
+        (_steps[index], _steps[index - 1]) = (_steps[index - 1], _steps[index]);
+    }
+
+    private void MoveStepDown(int index)
+    {
+        if (index < 0 || index >= _steps.Count - 1) return;
+        (_steps[index], _steps[index + 1]) = (_steps[index + 1], _steps[index]);
+    }
+
+    private List<string> DetectIngredientRefsInStep(string stepText)
+    {
+        if (string.IsNullOrWhiteSpace(stepText) || !_ingredients.Any())
+            return new();
+
+        var lower = stepText.ToLowerInvariant();
+        return _ingredients
+            .Where(i => !string.IsNullOrWhiteSpace(i.Name) && lower.Contains(i.Name.ToLowerInvariant()))
+            .Select(i => i.Name)
+            .ToList();
+    }
+
+    // --- Paste Raw Text ---
+
+    private async Task PasteRawText()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<PasteRawTextDialog>("Paste Raw Text", options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is CookBot.Domain.Interfaces.ParsedRecipe parsed)
+        {
+            PopulateFromParsed(parsed);
             StateHasChanged();
         }
     }
 
-    private void ParseContent(string content)
-    {
-        _rawContent = content;
-        _errors.Clear();
-        _parsed = null;
-        _renderedHtml = "";
-
-        if (string.IsNullOrWhiteSpace(content)) return;
-
-        if (Parser.TryParse(content, out var parsed, out var errors))
-        {
-            _parsed = parsed;
-            _renderedHtml = RenderMarkdown(_parsed!.MarkdownBody, _parsed.Ingredients);
-        }
-        else
-        {
-            _errors = errors;
-        }
-    }
-
-    private string RenderMarkdown(string markdown, List<CookBot.Domain.Interfaces.ParsedIngredient> ingredients)
-    {
-        var html = Markdig.Markdown.ToHtml(markdown);
-        foreach (var ing in ingredients)
-        {
-            html = html.Replace(
-                $"href=\"#{ing.LocalId}\"",
-                $"class=\"ingredient-ref\" title=\"{ing.Amount} {ing.Unit} {ing.Name}\" style=\"color: #E65100; font-weight: 600; text-decoration: none; border-bottom: 1px dashed #E65100; cursor: help;\"");
-        }
-        return html;
-    }
-
-    private void InsertTemplate()
-    {
-        _rawContent = "---\nname: \"My Recipe\"\nservings: 4\nprepTime: 15\ncookTime: 30\ntags: []\ningredients:\n  - id: 1\n    name: \"ingredient name\"\n    amount: 1\n    unit: \"cups\"\n---\n\n## Instructions\n\n1. First step using [ingredient name](#1)\n";
-        ParseContent(_rawContent);
-    }
+    // --- Save ---
 
     private async Task SaveRecipe()
     {
-        if (string.IsNullOrWhiteSpace(_rawContent))
+        if (string.IsNullOrWhiteSpace(_name))
         {
-            Snackbar.Add("Recipe content is empty.", Severity.Warning);
+            Snackbar.Add("Recipe name is required.", Severity.Warning);
             return;
         }
 
-        if (!Parser.TryParse(_rawContent, out _, out var errors))
+        if (!_ingredients.Any())
         {
-            foreach (var error in errors)
-                Snackbar.Add(error, Severity.Error);
+            Snackbar.Add("Add at least one ingredient.", Severity.Warning);
+            return;
+        }
+
+        if (!_steps.Any())
+        {
+            Snackbar.Add("Add at least one step.", Severity.Warning);
             return;
         }
 
         _saving = true;
         try
         {
+            var userId = UserService.CurrentUserId!.Value;
+
+            var parsed = new CookBot.Domain.Interfaces.ParsedRecipe
+            {
+                Name = _name,
+                Servings = _servings,
+                PrepTimeMinutes = _prepTimeMinutes,
+                CookTimeMinutes = _cookTimeMinutes,
+                Tags = _tagsText
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .ToList(),
+                Ingredients = _ingredients.ToList(),
+                Steps = _steps.ToList(),
+            };
+
             if (_isEdit && _existingRecipe != null)
             {
-                await RecipeService.UpdateFromRawAsync(_existingRecipe.Id, _rawContent);
+                await RecipeService.UpdateAsync(_existingRecipe.Id, userId, parsed);
                 Snackbar.Add("Recipe updated!", Severity.Success);
             }
             else
             {
-                await RecipeService.CreateFromRawAsync(CookbookId, _rawContent);
+                await RecipeService.CreateAsync(CookbookId, userId, parsed);
                 Snackbar.Add("Recipe created!", Severity.Success);
             }
             Navigation.NavigateTo($"/cookbooks/{CookbookId}");

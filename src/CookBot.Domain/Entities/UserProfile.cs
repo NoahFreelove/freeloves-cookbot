@@ -11,6 +11,9 @@ public class UserProfile
     public string KitchenToolsJson { get; set; } = "[]";
     public string DietaryPreferencesJson { get; set; } = "[]";
     public string? AiApiKey { get; set; }
+    public bool AiEnabled { get; set; } = true;
+    public string? AiModel { get; set; }
+    public string? AiSystemPromptTemplate { get; set; }
 
     public User User { get; set; } = null!;
 }

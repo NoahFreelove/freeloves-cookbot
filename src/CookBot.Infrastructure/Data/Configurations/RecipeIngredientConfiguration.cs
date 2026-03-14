@@ -9,6 +9,11 @@ public class RecipeIngredientConfiguration : IEntityTypeConfiguration<RecipeIngr
     public void Configure(EntityTypeBuilder<RecipeIngredient> builder)
     {
         builder.HasKey(ri => ri.Id);
+
+        builder.Property(ri => ri.Unit)
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.HasOne(ri => ri.Ingredient).WithMany(i => i.RecipeIngredients).HasForeignKey(ri => ri.IngredientId).OnDelete(DeleteBehavior.Restrict);
     }
 }

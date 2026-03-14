@@ -1,4 +1,5 @@
 @page "/recipes/{RecipeId:int}"
+@using CookBot.Application.Services
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CurrentUserService UserService
 @inject CookBot.Application.Services.GroceryListService GroceryListService
@@ -9,6 +10,7 @@
 
 <PageTitle>CookBot - @(_recipe?.Name ?? "Recipe")</PageTitle>
 
+<UserGuard>
 @if (_recipe != null)
 {
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
@@ -16,6 +18,11 @@
                        OnClick="@(() => Navigation.NavigateTo($"/cookbooks/{_recipe.CookbookId}"))" />
         <MudText Typo="Typo.h4" Style="font-weight: 600;">@_recipe.Name</MudText>
         <MudSpacer />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                   Href="@($"/recipes/{RecipeId}/cook")">
+            Start Cooking
+        </MudButton>
         <MudButton Variant="Variant.Outlined" Color="Color.Primary"
                    StartIcon="@Icons.Material.Filled.Edit"
                    OnClick="@(() => Navigation.NavigateTo($"/recipes/{_recipe.Id}/edit"))">
@@ -70,12 +77,14 @@
                 }
 
                 <MudText Typo="Typo.h6" Class="mb-2">Ingredients</MudText>
+                <MudNumericField @bind-Value="_targetServings" Label="Servings" Min="1" Max="100"
+                    Variant="Variant.Outlined" Class="mt-2 mb-3" Style="max-width: 150px;" />
                 <MudList T="string" Dense="true">
                     @foreach (var ri in _recipe.RecipeIngredients.OrderBy(i => i.RecipeLocalId))
                     {
                         <MudListItem>
                             <MudText>
-                                <b>@ri.Amount @CookBot.Application.Services.UnitParser.ToDisplayString(ri.Unit)</b>
+                                <b>@RecipeScalingService.FormatScaledAmount(ri.Amount, _recipe.Servings, _targetServings) @ri.Unit</b>
                                 @ri.Ingredient.Name
                                 @if (!string.IsNullOrEmpty(ri.Note))
                                 {
@@ -90,9 +99,26 @@
 
         <MudItem xs="12" md="8">
             <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-                <div class="recipe-body">
-                    @((MarkupString)_renderedHtml)
-                </div>
+                <MudText Typo="Typo.h6" Class="mb-3">Steps</MudText>
+                @foreach (var step in _recipe.Steps.OrderBy(s => s.Order))
+                {
+                    @if (step.IsSection)
+                    {
+                        <MudText Typo="Typo.h6" Class="mt-4 mb-2">@step.Text</MudText>
+                    }
+                    else
+                    {
+                        <MudPaper Class="pa-3 mb-2" Elevation="0" Outlined="true">
+                            <MudText>@step.Text</MudText>
+                            @foreach (var timer in step.Timers)
+                            {
+                                <MudChip T="string" Color="Color.Primary" Size="Size.Small" Class="mt-1">
+                                    @timer.Duration @timer.Unit
+                                </MudChip>
+                            }
+                        </MudPaper>
+                    }
+                }
             </MudPaper>
         </MudItem>
     </MudGrid>
@@ -101,47 +127,48 @@ else if (_loaded)
 {
     <MudText>Recipe not found.</MudText>
 }
+</UserGuard>
 
 @code {
     [Parameter] public int RecipeId { get; set; }
     private Recipe? _recipe;
     private bool _loaded;
     private bool _addingToList;
-    private string _renderedHtml = "";
+    private int _targetServings = 1;
     private List<string> _tags = new();
 
     private bool _initialized;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!_initialized && UserService.CurrentUserId.HasValue)
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
+        if (!_initialized)
         {
             _initialized = true;
             _recipe = await DbContext.Recipes
                 .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-                .Include(r => r.Cookbook)
+                .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
                 .FirstOrDefaultAsync(r => r.Id == RecipeId);
 
             if (_recipe != null)
             {
-                _renderedHtml = RenderMarkdown(_recipe.MarkdownBody, _recipe.RecipeIngredients.ToList());
-                _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(_recipe.TagsJson) ?? new();
+                var isOwner = _recipe.Cookbook.UserId == userId;
+                var isShared = _recipe.Cookbook.Shares.Any(s => s.SharedWithUserId == userId);
+                if (!isOwner && !isShared)
+                {
+                    _recipe = null;
+                }
+                else
+                {
+                    _targetServings = _recipe.Servings;
+                    _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(_recipe.TagsJson) ?? new();
+                }
             }
             _loaded = true;
             StateHasChanged();
         }
-    }
-
-    private string RenderMarkdown(string markdown, List<RecipeIngredient> ingredients)
-    {
-        var html = Markdig.Markdown.ToHtml(markdown);
-        foreach (var ing in ingredients)
-        {
-            html = html.Replace(
-                $"href=\"#{ing.RecipeLocalId}\"",
-                $"class=\"ingredient-ref\" title=\"{ing.Amount} {CookBot.Application.Services.UnitParser.ToDisplayString(ing.Unit)} {ing.Ingredient.Name}\" style=\"color: #E65100; font-weight: 600; text-decoration: none; border-bottom: 1px dashed #E65100; cursor: help;\"");
-        }
-        return html;
     }
 
     private async Task AddAllToShoppingList()

@@ -13,12 +13,8 @@
                       Variant="Variant.Outlined" Class="mb-4" HelperText="Leave blank to use selection above" />
         <MudNumericField @bind-Value="_amount" Label="Amount" Variant="Variant.Outlined"
                          Min="0.01" Step="0.25" Class="mb-4" />
-        <MudSelect T="MeasurementUnit" @bind-Value="_unit" Label="Unit" Variant="Variant.Outlined" Class="mb-4">
-            @foreach (MeasurementUnit u in Enum.GetValues<MeasurementUnit>())
-            {
-                <MudSelectItem Value="@u">@CookBot.Application.Services.UnitParser.ToDisplayString(u)</MudSelectItem>
-            }
-        </MudSelect>
+        <MudAutocomplete T="string" @bind-Value="_unit" Label="Unit" Variant="Variant.Outlined" Class="mb-4"
+                         SearchFunc="SearchUnits" CoerceValue="true" />
         <MudDatePicker @bind-Date="_expiration" Label="Expiration Date (optional)"
                        Variant="Variant.Outlined" Clearable="true" />
     </DialogContent>
@@ -36,8 +32,24 @@
     private Ingredient? _selectedIngredient;
     private string _newIngredientName = "";
     private double _amount = 1;
-    private MeasurementUnit _unit = MeasurementUnit.Cup;
+    private string _unit = "cup";
     private DateTime? _expiration;
+
+    private static readonly string[] CommonUnits = new[]
+    {
+        "tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon",
+        "ml", "liter", "oz", "lb", "g", "kg", "pinch", "dash",
+        "piece", "slice", "clove", "bunch", "can", "bottle", "bag"
+    };
+
+    private Task<IEnumerable<string>> SearchUnits(string value, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Task.FromResult(CommonUnits.AsEnumerable());
+
+        return Task.FromResult(CommonUnits.Where(u =>
+            u.Contains(value, StringComparison.OrdinalIgnoreCase)));
+    }
 
     private bool CanSubmit => _selectedIngredient != null || !string.IsNullOrWhiteSpace(_newIngredientName);
 
@@ -79,5 +91,5 @@
         MudDialog.Close(DialogResult.Ok(new PantryItemResult(ingredientId, _amount, _unit, _expiration)));
     }
 
-    public record PantryItemResult(int IngredientId, double Amount, MeasurementUnit Unit, DateTime? Expiration);
+    public record PantryItemResult(int IngredientId, double Amount, string Unit, DateTime? Expiration);
 }

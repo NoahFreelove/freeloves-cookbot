@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CookBot.Infrastructure.Migrations
 {
     [DbContext(typeof(CookBotDbContext))]
-    [Migration("20260218003101_AddSharedPantries")]
-    partial class AddSharedPantries
+    [Migration("20260314212609_V2InitialCreate")]
+    partial class V2InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -150,8 +150,10 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<bool>("IsPurchased")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("Unit")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
@@ -171,6 +173,10 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<int>("Category")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -179,6 +185,14 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<string>("NormalizedName")
                         .IsRequired()
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NutritionalInfoJson")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreferredUnitsJson")
+                        .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -234,8 +248,10 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<int>("PantryId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("Unit")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -290,10 +306,6 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("MarkdownBody")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -301,10 +313,6 @@ namespace CookBot.Infrastructure.Migrations
 
                     b.Property<int?>("PrepTimeMinutes")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("RawContent")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
 
                     b.Property<int>("Servings")
                         .HasColumnType("INTEGER");
@@ -346,8 +354,10 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<int>("RecipeLocalId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("Unit")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
@@ -390,6 +400,15 @@ namespace CookBot.Infrastructure.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("AiApiKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("AiEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AiModel")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AiSystemPromptTemplate")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DietaryPreferencesJson")
@@ -549,7 +568,76 @@ namespace CookBot.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.OwnsMany("CookBot.Domain.Entities.RecipeStep", "Steps", b1 =>
+                        {
+                            b1.Property<int>("RecipeId")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAddOrUpdate()
+                                .HasColumnType("INTEGER");
+
+                            b1.PrimitiveCollection<string>("IngredientRefs")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<bool>("IsSection")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<int>("Order")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<string>("Text")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.HasKey("RecipeId", "__synthesizedOrdinal");
+
+                            b1.ToTable("Recipes");
+
+                            b1
+                                .ToJson("Steps")
+                                .HasColumnType("TEXT");
+
+                            b1.WithOwner()
+                                .HasForeignKey("RecipeId");
+
+                            b1.OwnsMany("CookBot.Domain.Entities.StepTimer", "Timers", b2 =>
+                                {
+                                    b2.Property<int>("RecipeStepRecipeId")
+                                        .HasColumnType("INTEGER");
+
+                                    b2.Property<int>("RecipeStep__synthesizedOrdinal")
+                                        .HasColumnType("INTEGER");
+
+                                    b2.Property<int>("__synthesizedOrdinal")
+                                        .ValueGeneratedOnAddOrUpdate()
+                                        .HasColumnType("INTEGER");
+
+                                    b2.Property<int>("Duration")
+                                        .HasColumnType("INTEGER");
+
+                                    b2.Property<string>("Label")
+                                        .HasColumnType("TEXT");
+
+                                    b2.Property<string>("Unit")
+                                        .IsRequired()
+                                        .HasColumnType("TEXT");
+
+                                    b2.HasKey("RecipeStepRecipeId", "RecipeStep__synthesizedOrdinal", "__synthesizedOrdinal");
+
+                                    b2.ToTable("Recipes");
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("RecipeStepRecipeId", "RecipeStep__synthesizedOrdinal");
+                                });
+
+                            b1.Navigation("Timers");
+                        });
+
                     b.Navigation("Cookbook");
+
+                    b.Navigation("Steps");
                 });
 
             modelBuilder.Entity("CookBot.Domain.Entities.RecipeIngredient", b =>

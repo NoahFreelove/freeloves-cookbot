@@ -1,7 +1,11 @@
 @page "/profile"
+@using CookBot.Domain.Interfaces
+@using CookBot.Infrastructure.AI
 @inject CurrentUserService UserService
 @inject ISnackbar Snackbar
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject IAiService AiService
+@inject NavigationManager Navigation
 @rendermode InteractiveServer
 
 <PageTitle>CookBot - Profile</PageTitle>
@@ -89,15 +93,48 @@
 
         <MudItem xs="12" md="6">
             <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-                <MudText Typo="Typo.h6" Class="mb-4">AI Settings</MudText>
-                <MudTextField @bind-Value="_profile.AiApiKey" Label="Anthropic API Key"
-                              Variant="Variant.Outlined" InputType="InputType.Password"
-                              HelperText="Your API key for Claude AI integration. Stored locally."
-                              Class="mb-4" />
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="SaveProfile"
-                           StartIcon="@Icons.Material.Filled.Save">
-                    Save API Key
-                </MudButton>
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+                    <MudText Typo="Typo.h6">AI Assistant</MudText>
+                    <MudSwitch T="bool" Value="_profile.AiEnabled" ValueChanged="OnAiEnabledChanged"
+                               Color="Color.Primary" Label="@(_profile.AiEnabled ? "On" : "Off")" />
+                </MudStack>
+
+                @if (!_profile.AiEnabled)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        Enable to access AI cooking assistant, recipe generation, and smart features.
+                    </MudText>
+                }
+                else
+                {
+                    <MudTextField @bind-Value="_profile.AiApiKey" Label="Anthropic API Key"
+                                  Variant="Variant.Outlined" InputType="InputType.Password"
+                                  HelperText="Your API key for Claude AI integration. Stored locally."
+                                  Class="mb-4" />
+
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
+                        <MudSelect T="string" @bind-Value="_selectedModelId" Label="Model"
+                                   Variant="Variant.Outlined" Style="flex: 1;">
+                            @foreach (var model in _availableModels)
+                            {
+                                <MudSelectItem Value="@model.Id">@model.DisplayName</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                   OnClick="FetchModels" Disabled="@(string.IsNullOrWhiteSpace(_profile.AiApiKey) || _isFetchingModels)"
+                                   StartIcon="@(_isFetchingModels ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Refresh)">
+                            @(_isFetchingModels ? "Fetching..." : "Fetch Models")
+                        </MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
+                        Curated list shown by default. Click "Fetch Models" to load all available models from Anthropic.
+                    </MudText>
+
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAiSettings"
+                               StartIcon="@Icons.Material.Filled.Save" Class="mt-2">
+                        Save AI Settings
+                    </MudButton>
+                }
             </MudPaper>
         </MudItem>
     </MudGrid>
@@ -116,6 +153,9 @@ else
     private IReadOnlyCollection<string> _selectedDiets = new HashSet<string>();
     private string _newPassword = "";
     private bool _hasPassword;
+    private List<AiModelInfo> _availableModels = AnthropicAiService.CuratedModels;
+    private bool _isFetchingModels;
+    private string _selectedModelId = AnthropicAiService.DefaultModelId;
 
     private readonly string[] _availableTools =
     {
@@ -150,6 +190,7 @@ else
                 _dietaryPrefs = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
                 _selectedTools = new HashSet<string>(_kitchenTools);
                 _selectedDiets = new HashSet<string>(_dietaryPrefs);
+                _selectedModelId = _profile.AiModel ?? AnthropicAiService.DefaultModelId;
             }
             StateHasChanged();
         }
@@ -184,5 +225,48 @@ else
         await DbContext.SaveChangesAsync();
         _hasPassword = false;
         Snackbar.Add("Password removed.", Severity.Info);
+    }
+
+    private async Task FetchModels()
+    {
+        if (string.IsNullOrWhiteSpace(_profile?.AiApiKey)) return;
+        _isFetchingModels = true;
+        StateHasChanged();
+        try
+        {
+            var models = await AiService.ListModelsAsync(_profile.AiApiKey);
+            if (models.Any())
+            {
+                _availableModels = models;
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to fetch models: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isFetchingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnAiEnabledChanged(bool value)
+    {
+        if (_profile == null) return;
+        _profile.AiEnabled = value;
+        DbContext.UserProfiles.Update(_profile);
+        await DbContext.SaveChangesAsync();
+        // Force reload so NavMenu picks up the change
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+
+    private async Task SaveAiSettings()
+    {
+        if (_profile == null) return;
+        _profile.AiModel = _selectedModelId;
+        DbContext.UserProfiles.Update(_profile);
+        await DbContext.SaveChangesAsync();
+        Snackbar.Add("AI settings saved!", Severity.Success);
     }
 }

@@ -9,6 +9,11 @@ public class GroceryListItemConfiguration : IEntityTypeConfiguration<GroceryList
     public void Configure(EntityTypeBuilder<GroceryListItem> builder)
     {
         builder.HasKey(i => i.Id);
+
+        builder.Property(i => i.Unit)
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.HasOne(i => i.Ingredient).WithMany().HasForeignKey(i => i.IngredientId).OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -32,7 +32,7 @@ app.MapRazorComponents<App>()
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<CookBotDbContext>();
-    await DatabaseSeeder.SeedAsync(context);
+    await DatabaseSeeder.SeedAsync(context, app.Environment.ContentRootPath);
 }
 
 app.Run();

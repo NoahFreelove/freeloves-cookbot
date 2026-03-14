@@ -9,26 +9,32 @@ public class RecipeService
     private readonly IRecipeFormatParser _parser;
     private readonly IRepository<Recipe> _recipeRepo;
     private readonly IRepository<Ingredient> _ingredientRepo;
+    private readonly IRepository<Cookbook> _cookbookRepo;
 
     public RecipeService(
         IRecipeFormatParser parser,
         IRepository<Recipe> recipeRepo,
-        IRepository<Ingredient> ingredientRepo)
+        IRepository<Ingredient> ingredientRepo,
+        IRepository<Cookbook> cookbookRepo)
     {
         _parser = parser;
         _recipeRepo = recipeRepo;
         _ingredientRepo = ingredientRepo;
+        _cookbookRepo = cookbookRepo;
     }
 
-    public async Task<Recipe> CreateFromRawAsync(int cookbookId, string rawContent)
+    public async Task<Recipe> CreateAsync(int cookbookId, int userId, ParsedRecipe parsed)
     {
-        var parsed = _parser.Parse(rawContent);
+        var cookbook = await _cookbookRepo.GetByIdAsync(cookbookId)
+            ?? throw new InvalidOperationException("Cookbook not found.");
+
+        if (cookbook.UserId != userId)
+            throw new UnauthorizedAccessException("You do not own this cookbook.");
+
         var recipe = new Recipe
         {
             CookbookId = cookbookId,
             Name = parsed.Name,
-            RawContent = rawContent,
-            MarkdownBody = parsed.MarkdownBody,
             Servings = parsed.Servings,
             PrepTimeMinutes = parsed.PrepTimeMinutes,
             CookTimeMinutes = parsed.CookTimeMinutes,
@@ -43,23 +49,46 @@ public class RecipeService
                 IngredientId = ingredient.Id,
                 RecipeLocalId = pi.LocalId,
                 Amount = pi.Amount,
-                Unit = UnitParser.Parse(pi.Unit),
+                Unit = pi.Unit,
                 Note = pi.Note,
             });
+        }
+
+        int order = 0;
+        foreach (var ps in parsed.Steps)
+        {
+            var step = new RecipeStep
+            {
+                Order = order++,
+                Text = ps.Text,
+                IsSection = ps.IsSection,
+                Timers = ps.IsSection ? new() : TimerDetectionService.DetectTimers(ps.Text),
+                IngredientRefs = ps.IsSection ? new() : IngredientRefDetectionService.DetectRefs(ps.Text, parsed.Ingredients),
+            };
+            recipe.Steps.Add(step);
         }
 
         return await _recipeRepo.AddAsync(recipe);
     }
 
-    public async Task<Recipe> UpdateFromRawAsync(int recipeId, string rawContent)
+    public async Task<Recipe> CreateFromTextAsync(int cookbookId, int userId, string rawInput)
+    {
+        var parsed = _parser.Parse(rawInput);
+        return await CreateAsync(cookbookId, userId, parsed);
+    }
+
+    public async Task<Recipe> UpdateAsync(int recipeId, int userId, ParsedRecipe parsed)
     {
         var recipe = await _recipeRepo.GetByIdAsync(recipeId)
             ?? throw new InvalidOperationException("Recipe not found.");
 
-        var parsed = _parser.Parse(rawContent);
+        var cookbook = await _cookbookRepo.GetByIdAsync(recipe.CookbookId)
+            ?? throw new InvalidOperationException("Cookbook not found.");
+
+        if (cookbook.UserId != userId)
+            throw new UnauthorizedAccessException("You do not own this cookbook.");
+
         recipe.Name = parsed.Name;
-        recipe.RawContent = rawContent;
-        recipe.MarkdownBody = parsed.MarkdownBody;
         recipe.Servings = parsed.Servings;
         recipe.PrepTimeMinutes = parsed.PrepTimeMinutes;
         recipe.CookTimeMinutes = parsed.CookTimeMinutes;
@@ -76,17 +105,43 @@ public class RecipeService
                 IngredientId = ingredient.Id,
                 RecipeLocalId = pi.LocalId,
                 Amount = pi.Amount,
-                Unit = UnitParser.Parse(pi.Unit),
+                Unit = pi.Unit,
                 Note = pi.Note,
             });
+        }
+
+        recipe.Steps.Clear();
+        int order = 0;
+        foreach (var ps in parsed.Steps)
+        {
+            var step = new RecipeStep
+            {
+                Order = order++,
+                Text = ps.Text,
+                IsSection = ps.IsSection,
+                Timers = ps.IsSection ? new() : TimerDetectionService.DetectTimers(ps.Text),
+                IngredientRefs = ps.IsSection ? new() : IngredientRefDetectionService.DetectRefs(ps.Text, parsed.Ingredients),
+            };
+            recipe.Steps.Add(step);
         }
 
         await _recipeRepo.UpdateAsync(recipe);
         return recipe;
     }
 
-    public async Task DeleteAsync(Recipe recipe) =>
+    public async Task DeleteAsync(int recipeId, int userId)
+    {
+        var recipe = await _recipeRepo.GetByIdAsync(recipeId)
+            ?? throw new InvalidOperationException("Recipe not found.");
+
+        var cookbook = await _cookbookRepo.GetByIdAsync(recipe.CookbookId)
+            ?? throw new InvalidOperationException("Cookbook not found.");
+
+        if (cookbook.UserId != userId)
+            throw new UnauthorizedAccessException("You do not own this cookbook.");
+
         await _recipeRepo.DeleteAsync(recipe);
+    }
 
     private async Task<Ingredient> ResolveIngredientAsync(string name)
     {

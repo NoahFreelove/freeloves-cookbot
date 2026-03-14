@@ -1,4 +1,6 @@
 @inject CookBot.Application.Services.RecipeService RecipeService
+@inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
+@inject CurrentUserService UserService
 @inject ISnackbar Snackbar
 
 <MudDialog>
@@ -44,7 +46,14 @@
         _saving = true;
         try
         {
-            await RecipeService.CreateFromRawAsync(_selectedCookbookId, RecipeContent);
+            if (!Parser.TryParse(RecipeContent, out var parsed, out var errors) || parsed == null)
+            {
+                Snackbar.Add($"Invalid recipe format: {string.Join(", ", errors)}", Severity.Error);
+                return;
+            }
+            var userId = UserService.CurrentUserId
+                ?? throw new InvalidOperationException("Not logged in.");
+            await RecipeService.CreateAsync(_selectedCookbookId, userId, parsed);
             MudDialog.Close(DialogResult.Ok(true));
         }
         catch (Exception ex)

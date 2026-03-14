@@ -7,13 +7,65 @@ namespace CookBot.Application.Services;
 
 public class PromptBuilderService
 {
+    public static readonly string DefaultTemplate = string.Join("\n", new[]
+    {
+        "You are CookBot, an expert AI cooking assistant. You help users discover, create, and refine recipes.",
+        "",
+        "{{experience_level}}",
+        "",
+        "{{unit_system}}",
+        "",
+        "{{equipment}}",
+        "Only suggest recipes the user can make with their available equipment.",
+        "",
+        "{{dietary_preferences}}",
+        "All recipes MUST comply with these dietary requirements.",
+        "",
+        "{{pantry}}",
+        "",
+        "{{recipe_format}}"
+    });
+
     public string BuildSystemPrompt(UserProfile profile, IEnumerable<PantryItem>? pantryItems = null)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("You are CookBot, an expert AI cooking assistant. You help users discover, create, and refine recipes.");
-        sb.AppendLine();
+        return ResolveTemplate(DefaultTemplate, profile, pantryItems);
+    }
 
-        // Experience level adaptation
+    public string ResolveTemplate(string template, UserProfile profile, IEnumerable<PantryItem>? pantryItems = null)
+    {
+        var tokenMap = new Dictionary<string, string>
+        {
+            ["{{experience_level}}"] = ResolveExperienceLevel(profile),
+            ["{{unit_system}}"] = ResolveUnitSystem(profile),
+            ["{{equipment}}"] = ResolveEquipment(profile),
+            ["{{dietary_preferences}}"] = ResolveDietaryPreferences(profile),
+            ["{{pantry}}"] = ResolvePantry(pantryItems),
+            ["{{recipe_format}}"] = ResolveRecipeFormat()
+        };
+
+        var result = template;
+        foreach (var (token, value) in tokenMap)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                result = result.Replace(token + "\n", "");
+                result = result.Replace(token, "");
+            }
+            else
+            {
+                result = result.Replace(token, value);
+            }
+        }
+
+        while (result.Contains("\n\n\n"))
+            result = result.Replace("\n\n\n", "\n\n");
+
+        return result.Trim();
+    }
+
+    private string ResolveExperienceLevel(UserProfile profile)
+    {
+        var sb = new StringBuilder();
         sb.AppendLine($"The user's experience level is: {profile.ExperienceLevel}.");
         switch (profile.ExperienceLevel)
         {
@@ -30,7 +82,12 @@ public class PromptBuilderService
                 sb.AppendLine("Use professional culinary terminology. Discuss plating, technique refinement, and flavor chemistry.");
                 break;
         }
+        return sb.ToString().TrimEnd();
+    }
 
+    private string ResolveUnitSystem(UserProfile profile)
+    {
+        var sb = new StringBuilder();
         switch (profile.UnitSystem)
         {
             case UnitSystem.Canadian:
@@ -49,39 +106,40 @@ public class PromptBuilderService
                 sb.AppendLine("Use cups, tablespoons, teaspoons, fluid ounces for volume. Ounces and pounds for weight. Fahrenheit for temperatures.");
                 break;
         }
-        sb.AppendLine();
+        return sb.ToString().TrimEnd();
+    }
 
-        // Kitchen tools
+    private string ResolveEquipment(UserProfile profile)
+    {
         var tools = JsonSerializer.Deserialize<List<string>>(profile.KitchenToolsJson) ?? new();
-        if (tools.Any())
-        {
-            sb.AppendLine($"Available kitchen tools: {string.Join(", ", tools)}.");
-            sb.AppendLine("Only suggest recipes the user can make with their available equipment.");
-        }
+        if (!tools.Any()) return "";
+        return $"Available kitchen tools: {string.Join(", ", tools)}.";
+    }
 
-        // Dietary preferences
+    private string ResolveDietaryPreferences(UserProfile profile)
+    {
         var diets = JsonSerializer.Deserialize<List<string>>(profile.DietaryPreferencesJson) ?? new();
-        if (diets.Any())
-        {
-            sb.AppendLine($"Dietary preferences/restrictions: {string.Join(", ", diets)}.");
-            sb.AppendLine("All recipe suggestions MUST comply with these dietary requirements.");
-        }
+        if (!diets.Any()) return "";
+        return $"Dietary preferences/restrictions: {string.Join(", ", diets)}.";
+    }
 
-        // Pantry inventory
-        if (pantryItems?.Any() == true)
+    private string ResolvePantry(IEnumerable<PantryItem>? pantryItems)
+    {
+        if (pantryItems?.Any() != true) return "";
+        var sb = new StringBuilder();
+        sb.AppendLine("Current pantry inventory:");
+        foreach (var item in pantryItems)
         {
-            sb.AppendLine();
-            sb.AppendLine("Current pantry inventory:");
-            foreach (var item in pantryItems)
-            {
-                sb.AppendLine($"  - {item.Ingredient.Name}: {item.Amount} {UnitParser.ToDisplayString(item.Unit)}");
-            }
-            sb.AppendLine("When possible, prioritize recipes using ingredients the user already has.");
+            sb.AppendLine($"  - {item.Ingredient.Name}: {item.Amount} {UnitParser.ToDisplayString(item.Unit)}");
         }
+        sb.AppendLine("When possible, prioritize recipes using ingredients the user already has.");
+        return sb.ToString().TrimEnd();
+    }
 
-        sb.AppendLine();
-        sb.AppendLine("IMPORTANT: When providing a recipe, ALWAYS use this exact format so it can be parsed and saved:");
-        sb.AppendLine(@"```recipe
+    private string ResolveRecipeFormat()
+    {
+        return @"IMPORTANT: When providing a recipe, ALWAYS use this exact format so it can be parsed and saved:
+```recipe
 ---
 name: ""Recipe Name""
 servings: 4
@@ -98,17 +156,15 @@ ingredients:
     amount: 1
     unit: ""tbsp""
     note: ""optional note""
+steps:
+  - text: ""Step instruction with [ingredient name](#1).""
+  - section: ""Section header""
+  - text: ""Another step, bake for 25 minutes.""
 ---
+```
 
-## Instructions
-
-1. Step one using [ingredient name](#1)
-2. Step two with [another ingredient](#2)
-```");
-        sb.AppendLine();
-        sb.AppendLine("Use [ingredient name](#id) links in instructions to reference ingredients by their ID.");
-
-        return sb.ToString();
+Use [ingredient name](#id) links in step text to reference ingredients by their ID.
+If you can't follow this exact format, plain numbered steps are fine — the app will parse them.";
     }
 
     public string BuildCopyablePrompt(
@@ -181,16 +237,15 @@ ingredients:
         sb.AppendLine("    amount: 1");
         sb.AppendLine("    unit: \"tbsp\"");
         sb.AppendLine("    note: \"optional note\"");
+        sb.AppendLine("steps:");
+        sb.AppendLine("  - text: \"Step instruction with [ingredient name](#1).\"");
+        sb.AppendLine("  - section: \"Section header\"");
+        sb.AppendLine("  - text: \"Another step, bake for 25 minutes.\"");
         sb.AppendLine("---");
-        sb.AppendLine();
-        sb.AppendLine("## Instructions");
-        sb.AppendLine();
-        sb.AppendLine("1. Step one using [ingredient name](#1)");
-        sb.AppendLine("2. Step two with [another ingredient](#2)");
         sb.AppendLine("```");
         sb.AppendLine();
-        sb.AppendLine("The YAML frontmatter between `---` defines the recipe metadata and ingredients. Each ingredient has a unique `id`.");
-        sb.AppendLine("In the instructions, reference ingredients using `[display name](#id)` links.");
+        sb.AppendLine("Each ingredient has a unique `id`. Use `[display name](#id)` links in step text to reference ingredients.");
+        sb.AppendLine("If you can't follow this exact format, plain numbered steps are fine — the app will parse them.");
         sb.AppendLine();
 
         sb.AppendLine("## My Request");

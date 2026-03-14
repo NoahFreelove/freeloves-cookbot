@@ -1,5 +1,4 @@
 using CookBot.Domain.Entities;
-using CookBot.Domain.Enums;
 using CookBot.Domain.Interfaces;
 
 namespace CookBot.Application.Services;
@@ -85,14 +84,14 @@ public class PantryService
         return allItems;
     }
 
-    public async Task AddOrUpdateAsync(int pantryId, int ingredientId, double amount, MeasurementUnit unit, DateTime? expiration)
+    public async Task AddOrUpdateAsync(int pantryId, int ingredientId, double amount, string unit, DateTime? expiration)
     {
         var existing = (await _pantryRepo.FindAsync(p => p.PantryId == pantryId && p.IngredientId == ingredientId)).FirstOrDefault();
         if (existing != null)
         {
             if (_unitConverter.CanConvert(unit, existing.Unit))
             {
-                existing.Amount += _unitConverter.Convert(amount, unit, existing.Unit);
+                existing.Amount += _unitConverter.Convert(amount, unit, existing.Unit) ?? amount;
             }
             else
             {
@@ -116,7 +115,7 @@ public class PantryService
         }
     }
 
-    public async Task DeductAsync(int pantryId, int ingredientId, double amount, MeasurementUnit unit)
+    public async Task DeductAsync(int pantryId, int ingredientId, double amount, string unit)
     {
         var item = (await _pantryRepo.FindAsync(p => p.PantryId == pantryId && p.IngredientId == ingredientId)).FirstOrDefault();
         if (item == null) return;
@@ -124,7 +123,7 @@ public class PantryService
         double deductAmount = amount;
         if (_unitConverter.CanConvert(unit, item.Unit))
         {
-            deductAmount = _unitConverter.Convert(amount, unit, item.Unit);
+            deductAmount = _unitConverter.Convert(amount, unit, item.Unit) ?? amount;
         }
 
         item.Amount = Math.Max(0, item.Amount - deductAmount);
@@ -165,7 +164,7 @@ public class PantryService
                 {
                     if (_unitConverter.CanConvert(pantryItem.Unit, ri.Unit))
                     {
-                        totalAvailable += _unitConverter.Convert(pantryItem.Amount, pantryItem.Unit, ri.Unit);
+                        totalAvailable += _unitConverter.Convert(pantryItem.Amount, pantryItem.Unit, ri.Unit) ?? 0;
                         anyCompatible = true;
                     }
                 }

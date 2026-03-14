@@ -10,6 +10,11 @@ public class PantryItemConfiguration : IEntityTypeConfiguration<PantryItem>
     {
         builder.HasKey(p => p.Id);
         builder.HasIndex(p => new { p.PantryId, p.IngredientId }).IsUnique();
+
+        builder.Property(p => p.Unit)
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.HasOne(p => p.Ingredient).WithMany(i => i.PantryItems).HasForeignKey(p => p.IngredientId).OnDelete(DeleteBehavior.Restrict);
     }
 }

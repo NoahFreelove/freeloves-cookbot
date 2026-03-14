@@ -11,6 +11,7 @@
 
 <PageTitle>CookBot - Grocery Lists</PageTitle>
 
+<UserGuard>
 <MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">Grocery Lists</MudText>
 
 @if (_generatingFromRecipe && _recipe != null)
@@ -71,6 +72,7 @@ else
         </MudText>
     </MudPaper>
 }
+</UserGuard>
 
 @code {
     [Parameter] public int RecipeId { get; set; }

@@ -8,6 +8,7 @@
 
 <PageTitle>CookBot - @(_cookbook?.Name ?? "Cookbook")</PageTitle>
 
+<UserGuard>
 @if (_cookbook != null)
 {
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
@@ -98,6 +99,7 @@ else if (_loaded)
 {
     <MudText>Cookbook not found.</MudText>
 }
+</UserGuard>
 
 @code {
     [Parameter] public int CookbookId { get; set; }
@@ -109,16 +111,31 @@ else if (_loaded)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
+        if (_loadedUserId != userId)
         {
-            _loadedUserId = UserService.CurrentUserId.Value;
+            _loadedUserId = userId;
             _cookbook = await DbContext.Cookbooks
                 .Include(c => c.Recipes)
                 .Include(c => c.User)
+                .Include(c => c.Shares)
                 .FirstOrDefaultAsync(c => c.Id == CookbookId);
 
             if (_cookbook != null)
-                _isReadOnly = _cookbook.UserId != UserService.CurrentUserId;
+            {
+                var isOwner = _cookbook.UserId == userId;
+                var isShared = _cookbook.Shares.Any(s => s.SharedWithUserId == userId);
+                if (!isOwner && !isShared)
+                {
+                    _cookbook = null;
+                }
+                else
+                {
+                    _isReadOnly = !isOwner;
+                }
+            }
 
             _loaded = true;
             StateHasChanged();

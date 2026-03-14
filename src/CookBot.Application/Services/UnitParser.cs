@@ -79,39 +79,66 @@ public static class UnitParser
         ["sticks"] = MeasurementUnit.Stick,
     };
 
-    public static MeasurementUnit Parse(string unit)
+    private static readonly Dictionary<MeasurementUnit, string> DisplayNames = new()
     {
+        [MeasurementUnit.Teaspoon] = "tsp",
+        [MeasurementUnit.Tablespoon] = "tbsp",
+        [MeasurementUnit.FluidOunce] = "fl oz",
+        [MeasurementUnit.Cup] = "cups",
+        [MeasurementUnit.Pint] = "pints",
+        [MeasurementUnit.Quart] = "quarts",
+        [MeasurementUnit.Gallon] = "gallons",
+        [MeasurementUnit.Milliliter] = "mL",
+        [MeasurementUnit.Liter] = "L",
+        [MeasurementUnit.Ounce] = "oz",
+        [MeasurementUnit.Pound] = "lbs",
+        [MeasurementUnit.Gram] = "g",
+        [MeasurementUnit.Kilogram] = "kg",
+        [MeasurementUnit.Piece] = "pcs",
+        [MeasurementUnit.Dozen] = "dozen",
+        [MeasurementUnit.Pinch] = "pinch",
+        [MeasurementUnit.Dash] = "dash",
+        [MeasurementUnit.Clove] = "cloves",
+        [MeasurementUnit.Bunch] = "bunch",
+        [MeasurementUnit.Can] = "cans",
+        [MeasurementUnit.Package] = "pkg",
+        [MeasurementUnit.Slice] = "slices",
+        [MeasurementUnit.Stick] = "sticks",
+    };
+
+    /// <summary>
+    /// Attempts to parse a unit string into a MeasurementUnit enum value.
+    /// Returns null if the unit string is not recognized.
+    /// </summary>
+    public static MeasurementUnit? TryParse(string unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit))
+            return null;
+
         var trimmed = unit.Trim();
         if (UnitMap.TryGetValue(trimmed, out var result))
             return result;
-        return MeasurementUnit.Piece;
+
+        return null;
     }
 
-    public static string ToDisplayString(MeasurementUnit unit) => unit switch
+    /// <summary>
+    /// Returns a display string for the given unit input.
+    /// If the input maps to a known enum, returns the canonical display name;
+    /// otherwise returns the input as-is.
+    /// </summary>
+    public static string ToDisplayString(string unit)
     {
-        MeasurementUnit.Teaspoon => "tsp",
-        MeasurementUnit.Tablespoon => "tbsp",
-        MeasurementUnit.FluidOunce => "fl oz",
-        MeasurementUnit.Cup => "cups",
-        MeasurementUnit.Pint => "pints",
-        MeasurementUnit.Quart => "quarts",
-        MeasurementUnit.Gallon => "gallons",
-        MeasurementUnit.Milliliter => "mL",
-        MeasurementUnit.Liter => "L",
-        MeasurementUnit.Ounce => "oz",
-        MeasurementUnit.Pound => "lbs",
-        MeasurementUnit.Gram => "g",
-        MeasurementUnit.Kilogram => "kg",
-        MeasurementUnit.Piece => "pcs",
-        MeasurementUnit.Dozen => "dozen",
-        MeasurementUnit.Pinch => "pinch",
-        MeasurementUnit.Dash => "dash",
-        MeasurementUnit.Clove => "cloves",
-        MeasurementUnit.Bunch => "bunch",
-        MeasurementUnit.Can => "cans",
-        MeasurementUnit.Package => "pkg",
-        MeasurementUnit.Slice => "slices",
-        MeasurementUnit.Stick => "sticks",
-        _ => unit.ToString().ToLower()
-    };
+        var parsed = TryParse(unit);
+        if (parsed.HasValue && DisplayNames.TryGetValue(parsed.Value, out var display))
+            return display;
+
+        return unit;
+    }
+
+    [Obsolete("Use TryParse(string) instead. This method defaults unknown units to Piece.")]
+    public static MeasurementUnit Parse(string unit)
+    {
+        return TryParse(unit) ?? MeasurementUnit.Piece;
+    }
 }
