@@ -45,7 +45,7 @@
     {
         if (string.IsNullOrWhiteSpace(ApiKey))
         {
-            Snackbar.Add("Add an Anthropic API key in Profile first.", Severity.Warning);
+            Snackbar.Add("Configure API access in Profile (your own key or a shared key) first.", Severity.Warning);
             return;
         }
 

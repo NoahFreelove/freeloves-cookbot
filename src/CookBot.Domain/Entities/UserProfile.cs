@@ -15,6 +15,10 @@ public class UserProfile
     public string KitchenToolsJson { get; set; } = "[]";
     public string DietaryPreferencesJson { get; set; } = "[]";
     public string? AiApiKey { get; set; }
+    /// <summary>
+    /// When the user has no own API key but multiple people share with them, which owner's key to use for AI calls.
+    /// </summary>
+    public int? AiSharedKeyOwnerUserId { get; set; }
     public bool AiEnabled { get; set; }
     public string? AiModel { get; set; }
     public string? AiSystemPromptTemplate { get; set; }

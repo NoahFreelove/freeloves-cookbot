@@ -7,6 +7,8 @@ public class User
     public string? PasswordHash { get; set; }
     public string? IdentityUserId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>When true, this user may remove other users and their data from Manage users.</summary>
+    public bool IsCookBotAdmin { get; set; }
 
     public UserProfile Profile { get; set; } = null!;
     public ICollection<Cookbook> Cookbooks { get; set; } = new List<Cookbook>();
@@ -14,4 +16,6 @@ public class User
     public ICollection<AiConversation> AiConversations { get; set; } = new List<AiConversation>();
     public ICollection<Pantry> OwnedPantries { get; set; } = new List<Pantry>();
     public ICollection<PantryMember> PantryMemberships { get; set; } = new List<PantryMember>();
+    public ICollection<AiApiKeyShare> AiApiKeySharesOwned { get; set; } = new List<AiApiKeyShare>();
+    public ICollection<AiApiKeyShare> AiApiKeySharesReceived { get; set; } = new List<AiApiKeyShare>();
 }

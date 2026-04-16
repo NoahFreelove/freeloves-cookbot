@@ -36,12 +36,14 @@ public static class DatabaseSeeder
             }
             if (usersWithoutPantry.Any())
                 await context.SaveChangesAsync();
+            await EnsureAtLeastOneCookBotAdminAsync(context);
             return;
         }
 
         var defaultUser = new User
         {
             DisplayName = "Home Chef",
+            IsCookBotAdmin = true,
             Profile = new UserProfile
             {
                 ExperienceLevel = ExperienceLevel.Intermediate,
@@ -79,6 +81,22 @@ public static class DatabaseSeeder
             }
         }
 
+        await context.SaveChangesAsync();
+        await EnsureAtLeastOneCookBotAdminAsync(context);
+    }
+
+    /// <summary>If no admin is set (e.g. legacy DB), promote the Home Chef account or the lowest-Id user.</summary>
+    private static async Task EnsureAtLeastOneCookBotAdminAsync(CookBotDbContext context)
+    {
+        if (await context.Users.AnyAsync(u => u.IsCookBotAdmin))
+            return;
+
+        var homeChef = await context.Users
+            .Where(u => u.DisplayName == "Home Chef")
+            .OrderBy(u => u.Id)
+            .FirstOrDefaultAsync();
+        var promote = homeChef ?? await context.Users.OrderBy(u => u.Id).FirstAsync();
+        promote.IsCookBotAdmin = true;
         await context.SaveChangesAsync();
     }
 

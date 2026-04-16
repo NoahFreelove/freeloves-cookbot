@@ -3,6 +3,7 @@ using System;
 using CookBot.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,37 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CookBot.Infrastructure.Migrations
 {
     [DbContext(typeof(CookBotDbContext))]
-    partial class CookBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260416170415_UserCookBotAdminFlag")]
+    partial class UserCookBotAdminFlag
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.15");
-
-            modelBuilder.Entity("CookBot.Domain.Entities.AiApiKeyShare", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("OwnerUserId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("RecipientUserId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RecipientUserId");
-
-                    b.HasIndex("OwnerUserId", "RecipientUserId")
-                        .IsUnique();
-
-                    b.ToTable("AiApiKeyShares");
-                });
 
             modelBuilder.Entity("CookBot.Domain.Entities.AiConversation", b =>
                 {
@@ -435,9 +413,6 @@ namespace CookBot.Infrastructure.Migrations
                     b.Property<string>("AiModel")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("AiSharedKeyOwnerUserId")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("AiSystemPromptTemplate")
                         .HasColumnType("TEXT");
 
@@ -468,31 +443,10 @@ namespace CookBot.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AiSharedKeyOwnerUserId");
-
                     b.HasIndex("UserId")
                         .IsUnique();
 
                     b.ToTable("UserProfiles");
-                });
-
-            modelBuilder.Entity("CookBot.Domain.Entities.AiApiKeyShare", b =>
-                {
-                    b.HasOne("CookBot.Domain.Entities.User", "Owner")
-                        .WithMany("AiApiKeySharesOwned")
-                        .HasForeignKey("OwnerUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CookBot.Domain.Entities.User", "Recipient")
-                        .WithMany("AiApiKeySharesReceived")
-                        .HasForeignKey("RecipientUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Owner");
-
-                    b.Navigation("Recipient");
                 });
 
             modelBuilder.Entity("CookBot.Domain.Entities.AiConversation", b =>
@@ -716,11 +670,6 @@ namespace CookBot.Infrastructure.Migrations
 
             modelBuilder.Entity("CookBot.Domain.Entities.UserProfile", b =>
                 {
-                    b.HasOne("CookBot.Domain.Entities.User", null)
-                        .WithMany()
-                        .HasForeignKey("AiSharedKeyOwnerUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("CookBot.Domain.Entities.User", "User")
                         .WithOne("Profile")
                         .HasForeignKey("CookBot.Domain.Entities.UserProfile", "UserId")
@@ -763,10 +712,6 @@ namespace CookBot.Infrastructure.Migrations
 
             modelBuilder.Entity("CookBot.Domain.Entities.User", b =>
                 {
-                    b.Navigation("AiApiKeySharesOwned");
-
-                    b.Navigation("AiApiKeySharesReceived");
-
                     b.Navigation("AiConversations");
 
                     b.Navigation("Cookbooks");

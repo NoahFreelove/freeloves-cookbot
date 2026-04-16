@@ -20,6 +20,7 @@ public class CookBotDbContext : DbContext
     public DbSet<GroceryListItem> GroceryListItems => Set<GroceryListItem>();
     public DbSet<AiConversation> AiConversations => Set<AiConversation>();
     public DbSet<CookbookShare> CookbookShares => Set<CookbookShare>();
+    public DbSet<AiApiKeyShare> AiApiKeyShares => Set<AiApiKeyShare>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -28,6 +28,12 @@
                 }
             </MudSelect>
         }
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="mr-1 text-none"
+                   Style="color: white; text-transform: none;"
+                   StartIcon="@Icons.Material.Filled.ManageAccounts"
+                   OnClick="ShowAdminManageUsersDialog">
+            Manage users
+        </MudButton>
         <MudTooltip Text="Add User">
             <MudIconButton Icon="@Icons.Material.Filled.PersonAdd" Color="Color.Inherit"
                            OnClick="ShowAddUserDialog" />
@@ -85,7 +91,7 @@
         // If no users exist at all, auto-create a default one
         if (!_users.Any())
         {
-            await UserService.CreateUserAsync("Home Chef");
+            await UserService.CreateUserAsync("Home Chef", isCookBotAdmin: true);
             _users = await UserService.GetAllUsersAsync();
         }
 
@@ -93,7 +99,8 @@
         // OnAfterRenderAsync will override this with the sessionStorage value if available
         if (!UserService.CurrentUserId.HasValue && _users.Any())
         {
-            var defaultUser = _users.First();
+            var defaultUser = _users.FirstOrDefault(u => u.DisplayName == "Home Chef")
+                ?? _users.OrderBy(u => u.Id).First();
             UserService.CurrentUserId = defaultUser.Id;
             _selectedUserId = defaultUser.Id;
         }
@@ -164,5 +171,40 @@
             await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", user.Id.ToString());
             StateHasChanged();
         }
+    }
+
+    private async Task ShowAdminManageUsersDialog()
+    {
+        var parameters = new DialogParameters<AdminManageUsersDialog>
+        {
+            { x => x.OnUsersChanged, EventCallback.Factory.Create(this, HandleAdminUsersChanged) },
+        };
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        await DialogService.ShowAsync<AdminManageUsersDialog>("Manage users", parameters, options);
+    }
+
+    private async Task HandleAdminUsersChanged()
+    {
+        _users = await UserService.GetAllUsersAsync();
+        if (!_users.Any())
+        {
+            await UserService.CreateUserAsync("Home Chef", isCookBotAdmin: true);
+            _users = await UserService.GetAllUsersAsync();
+        }
+
+        if (UserService.CurrentUserId is int uid && !_users.Any(u => u.Id == uid))
+        {
+            var next = _users[0];
+            UserService.CurrentUserId = next.Id;
+            _selectedUserId = next.Id;
+            await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", next.Id.ToString());
+            Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+            return;
+        }
+
+        if (!_users.Any(u => u.Id == _selectedUserId))
+            _selectedUserId = UserService.CurrentUserId ?? _users[0].Id;
+
+        StateHasChanged();
     }
 }

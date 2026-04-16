@@ -11,6 +11,7 @@
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject IRecipeFormatParser Parser
 @inject IAiService AiService
+@inject AiApiKeyResolutionService AiKeyResolver
 @inject PromptBuilderService PromptBuilder
 @inject ISnackbar Snackbar
 @implements IAsyncDisposable
@@ -205,6 +206,7 @@ else if (_loaded)
     private DotNetObjectReference<CookingMode>? _dotNetRef;
 
     private UserProfile? _profile;
+    private EffectiveAiCredentials? _aiCredentials;
     private bool _aiCookAssistVisible;
     private string _stepAiQuestion = "";
     private string _stepAiReply = "";
@@ -248,9 +250,10 @@ else if (_loaded)
 
                 var user = await UserService.GetCurrentUserAsync();
                 _profile = user?.Profile;
+                _aiCredentials = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
                 _aiCookAssistVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled
                     && (_profile?.AiEnabled ?? false)
-                    && !string.IsNullOrWhiteSpace(_profile?.AiApiKey);
+                    && _aiCredentials != null;
             }
             else
             {
@@ -296,7 +299,7 @@ else if (_loaded)
 
     private async Task AskStepAiAsync()
     {
-        if (_recipe == null || _profile == null || string.IsNullOrWhiteSpace(_profile.AiApiKey)) return;
+        if (_recipe == null || _profile == null || _aiCredentials == null) return;
         if (string.IsNullOrWhiteSpace(_stepAiQuestion)) return;
 
         _stepAiBusy = true;
@@ -320,7 +323,7 @@ else if (_loaded)
                 new() { Role = "user", Content = userContent },
             };
 
-            var reply = await AiService.SendMessageAsync(system, messages, _profile.AiApiKey, _profile.AiModel);
+            var reply = await AiService.SendMessageAsync(system, messages, _aiCredentials.ApiKey, _aiCredentials.ModelId);
             _stepAiReply = reply.Trim();
         }
         catch (Exception ex)

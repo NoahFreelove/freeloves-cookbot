@@ -1,0 +1,99 @@
+@inject CurrentUserService UserService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Manage users</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (!_isAdmin)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Variant="Variant.Outlined">
+                To remove users, select an account that has <strong>admin</strong> permission (the <strong>Home Chef</strong> account on a typical install), then open this dialog again.
+            </MudAlert>
+        }
+        <MudText Typo="Typo.body2" Class="mb-4">
+            Removing a user deletes their cookbooks, recipes, pantries, grocery lists, conversations, and profile. This cannot be undone.
+        </MudText>
+        <MudStack Spacing="1">
+            @foreach (var user in _users)
+            {
+                <MudPaper Class="pa-2" Elevation="0" Outlined="true">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.body1">@user.DisplayName</MudText>
+                        <MudSpacer />
+                        @if (!user.IsCookBotAdmin)
+                        {
+                            <MudTooltip Text="@(_isAdmin ? "Remove this user" : "Sign in as an admin user in the header to enable removal")">
+                                <span>
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                                   Color="Color.Error"
+                                                   Disabled="@(!_isAdmin)"
+                                                   aria-label="@($"Delete user {user.DisplayName}")"
+                                                   OnClick="@(() => ConfirmDeleteUser(user))" />
+                                </span>
+                            </MudTooltip>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Admin</MudText>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public EventCallback OnUsersChanged { get; set; }
+
+    private List<User> _users = new();
+    private bool _isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = await UserService.IsCookBotAdminAsync();
+        _users = await UserService.GetAllUsersAsync();
+    }
+
+    private void Close() => MudDialog.Close();
+
+    private async Task ConfirmDeleteUser(User user)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Delete user?",
+            $"Remove \"{user.DisplayName}\" and all of their data?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+        if (confirm != true || !UserService.CurrentUserId.HasValue)
+            return;
+
+        var result = await UserService.DeleteUserAsAdminAsync(UserService.CurrentUserId.Value, user.Id);
+        switch (result)
+        {
+            case AdminDeleteUserResult.Success:
+                Snackbar.Add($"User \"{user.DisplayName}\" removed.", Severity.Info);
+                _users = await UserService.GetAllUsersAsync();
+                await OnUsersChanged.InvokeAsync();
+                break;
+            case AdminDeleteUserResult.NotAuthorized:
+                Snackbar.Add("Only an admin user can delete other users.", Severity.Error);
+                break;
+            case AdminDeleteUserResult.CannotDeleteAdminAccount:
+                Snackbar.Add("Admin accounts cannot be deleted from here.", Severity.Warning);
+                break;
+            case AdminDeleteUserResult.UserNotFound:
+                Snackbar.Add("User was already removed.", Severity.Warning);
+                _users = await UserService.GetAllUsersAsync();
+                await OnUsersChanged.InvokeAsync();
+                break;
+        }
+    }
+}

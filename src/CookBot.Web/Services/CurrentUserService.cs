@@ -6,6 +6,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CookBot.Web.Services;
 
+public enum AdminDeleteUserResult
+{
+    Success,
+    NotAuthorized,
+    CannotDeleteAdminAccount,
+    UserNotFound,
+}
+
 public class CurrentUserService
 {
     private readonly CookBotDbContext _context;
@@ -29,11 +37,22 @@ public class CurrentUserService
         return await _context.Users.OrderBy(u => u.DisplayName).ToListAsync();
     }
 
-    public async Task<User> CreateUserAsync(string displayName)
+    public async Task<bool> IsCookBotAdminAsync(int? userId = null)
+    {
+        var id = userId ?? CurrentUserId;
+        if (id == null) return false;
+        return await _context.Users.AsNoTracking()
+            .Where(u => u.Id == id)
+            .Select(u => u.IsCookBotAdmin)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<User> CreateUserAsync(string displayName, bool isCookBotAdmin = false)
     {
         var user = new User
         {
             DisplayName = displayName,
+            IsCookBotAdmin = isCookBotAdmin,
             Profile = new UserProfile()
         };
         _context.Users.Add(user);
@@ -91,5 +110,21 @@ public class CurrentUserService
         var storedKey = combined[16..];
         var hash = KeyDerivation.Pbkdf2(password, salt, KeyDerivationPrf.HMACSHA256, 100_000, 32);
         return CryptographicOperations.FixedTimeEquals(hash, storedKey);
+    }
+
+    public async Task<AdminDeleteUserResult> DeleteUserAsAdminAsync(int actingUserId, int userIdToDelete)
+    {
+        if (!await IsCookBotAdminAsync(actingUserId))
+            return AdminDeleteUserResult.NotAuthorized;
+
+        var user = await _context.Users.FindAsync(userIdToDelete);
+        if (user == null)
+            return AdminDeleteUserResult.UserNotFound;
+        if (user.IsCookBotAdmin)
+            return AdminDeleteUserResult.CannotDeleteAdminAccount;
+
+        _context.Users.Remove(user);
+        await _context.SaveChangesAsync();
+        return AdminDeleteUserResult.Success;
     }
 }

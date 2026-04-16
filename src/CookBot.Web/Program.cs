@@ -13,6 +13,8 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<AiApiKeyResolutionService>();
+builder.Services.AddScoped<AiApiKeyShareService>();
 builder.Services.Configure<CookBotSettings>(builder.Configuration.GetSection("CookBot"));
 
 var app = builder.Build();

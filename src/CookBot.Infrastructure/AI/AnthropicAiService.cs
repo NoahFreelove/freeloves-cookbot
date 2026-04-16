@@ -14,11 +14,11 @@ public class AnthropicAiService : IAiService
     public static readonly List<AiModelInfo> CuratedModels = new()
     {
         new("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (Fast)"),
-        new("claude-sonnet-4-6-20250514", "Claude Sonnet 4.6 (Balanced)"),
-        new("claude-opus-4-6-20250514", "Claude Opus 4.6 (Most Capable)")
+        new("claude-sonnet-4-6", "Claude Sonnet 4.6 (Balanced)"),
+        new("claude-opus-4-7", "Claude Opus 4.7 (Most Capable)")
     };
 
-    public const string DefaultModelId = "claude-sonnet-4-6-20250514";
+    public const string DefaultModelId = "claude-sonnet-4-6";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

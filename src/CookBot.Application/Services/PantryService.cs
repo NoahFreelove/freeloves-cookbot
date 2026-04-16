@@ -243,4 +243,15 @@ public class PantryService
             IsPersonal = true,
         });
     }
+
+    /// <summary>Deletes a pantry when <paramref name="actingUserId"/> is the owner. Members cannot delete.</summary>
+    public async Task<bool> TryDeleteOwnedPantryAsync(int pantryId, int actingUserId)
+    {
+        var pantry = await _pantryEntityRepo.GetByIdAsync(pantryId);
+        if (pantry == null || pantry.OwnerId != actingUserId)
+            return false;
+
+        await _pantryEntityRepo.DeleteAsync(pantry);
+        return true;
+    }
 }

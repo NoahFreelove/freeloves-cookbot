@@ -9,6 +9,9 @@
 @inject ISnackbar Snackbar
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IAiService AiService
+@inject AiApiKeyResolutionService AiKeyResolver
+@inject AiApiKeyShareService AiKeyShareService
+@inject IDialogService DialogService
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
 
@@ -135,33 +138,80 @@
                     }
                     else
                     {
-                        <MudTextField @bind-Value="_aiApiKeyEdit" Label="Anthropic API Key"
-                                      Variant="Variant.Outlined" InputType="InputType.Password"
-                                      HelperText="Not auto-saved. Click Save below to store in your local database."
-                                      Class="mb-4" />
-
-                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
-                            <MudSelect T="string" @bind-Value="_selectedModelId" Label="Model"
-                                       Variant="Variant.Outlined" Style="flex: 1;">
-                                @foreach (var model in _availableModels)
-                                {
-                                    <MudSelectItem Value="@model.Id">@model.DisplayName</MudSelectItem>
-                                }
-                            </MudSelect>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                       OnClick="FetchModels" Disabled="@(string.IsNullOrWhiteSpace(_aiApiKeyEdit) || _isFetchingModels)"
-                                       StartIcon="@(_isFetchingModels ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Refresh)">
-                                @(_isFetchingModels ? "Fetching..." : "Fetch Models")
+                        <MudStack Row="true" Spacing="2" Class="mb-3">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Share" OnClick="OpenSharedKeysDialog">
+                                Shared keys
                             </MudButton>
                         </MudStack>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
-                            Curated models match <code>AnthropicAiService</code> in the source tree. Use &quot;Fetch Models&quot; to refresh from the API.
-                        </MudText>
 
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAiSettings"
-                                   StartIcon="@Icons.Material.Filled.Save" Class="mt-2">
-                            Save AI settings
-                        </MudButton>
+                        @if (_usingSharedKeyOnly && !_forceShowOwnKeyFields)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                                You are using API access shared by <strong>@(_effectiveAi?.SharedFromDisplayName ?? "another user")</strong>.
+                                The key is never shown to you. Model and billing follow their Profile settings.
+                            </MudAlert>
+                            @if (_incomingShareCount > 1)
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                                    Several people share with you. Open Shared keys to choose whose key to use.
+                                </MudText>
+                            }
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Class="mb-4"
+                                       OnClick="@(() => { _forceShowOwnKeyFields = true; })">
+                                Use my own API key instead
+                            </MudButton>
+                        }
+                        else
+                        {
+                            @if (_incomingSharesButNoUsableKey)
+                            {
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                                    Someone shared access with you, but <strong>none of those accounts have a saved API key</strong> yet. They need to save a key, or enter your own below.
+                                </MudAlert>
+                            }
+                            else if (_pendingShareChoice)
+                            {
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                                    @if (_incomingUsableCount > 1)
+                                    {
+                                        @:Several people can share a key with you. Open <strong>Shared keys</strong> to choose whose key to use, or enter your own below.
+                                    }
+                                    else
+                                    {
+                                        @:Shared access could not be activated. Open <strong>Shared keys</strong> to check the offer, or enter your own key below.
+                                    }
+                                </MudAlert>
+                            }
+                            <MudTextField @bind-Value="_aiApiKeyEdit" Label="Anthropic API Key"
+                                          Variant="Variant.Outlined" InputType="InputType.Password"
+                                          HelperText="Not auto-saved. Click Save below to store in your local database."
+                                          Class="mb-4" />
+
+                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
+                                <MudSelect T="string" @bind-Value="_selectedModelId" Label="Model"
+                                           Variant="Variant.Outlined" Style="flex: 1;">
+                                    @foreach (var model in _availableModels)
+                                    {
+                                        <MudSelectItem Value="@model.Id">@model.DisplayName</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                           OnClick="FetchModels"
+                                           Disabled="@((string.IsNullOrWhiteSpace(_aiApiKeyEdit) && _effectiveAi == null) || _isFetchingModels)"
+                                           StartIcon="@(_isFetchingModels ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Refresh)">
+                                    @(_isFetchingModels ? "Fetching..." : "Fetch Models")
+                                </MudButton>
+                            </MudStack>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
+                                Curated models match <code>AnthropicAiService</code> in the source tree. Use &quot;Fetch Models&quot; to refresh from the API.
+                            </MudText>
+
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAiSettings"
+                                       StartIcon="@Icons.Material.Filled.Save" Class="mt-2">
+                                Save AI settings
+                            </MudButton>
+                        }
                     }
                 }
             </MudPaper>
@@ -186,6 +236,19 @@ else
     private List<AiModelInfo> _availableModels = AnthropicAiService.CuratedModels;
     private bool _isFetchingModels;
     private string _selectedModelId = AnthropicAiService.DefaultModelId;
+    private EffectiveAiCredentials? _effectiveAi;
+    private int _incomingShareCount;
+    private int _incomingUsableCount;
+    private bool _forceShowOwnKeyFields;
+
+    private bool _hasOwnKey => !string.IsNullOrWhiteSpace(_profile?.AiApiKey);
+    private bool _usingSharedKeyOnly => !_hasOwnKey && _effectiveAi?.SharedFromUserId != null;
+    /// <summary>Incoming shares exist but no owner currently has a key (cannot resolve).</summary>
+    private bool _incomingSharesButNoUsableKey =>
+        !_hasOwnKey && _effectiveAi == null && _incomingShareCount > 0 && _incomingUsableCount == 0;
+    /// <summary>Must pick a sharer (or fix access) in Shared keys.</summary>
+    private bool _pendingShareChoice =>
+        !_hasOwnKey && _effectiveAi == null && _incomingUsableCount >= 1;
 
     private readonly string[] _availableTools =
     {
@@ -228,8 +291,30 @@ else
                 _selectedDiets = new HashSet<string>(_dietaryPrefs);
                 _selectedModelId = _profile.AiModel ?? AnthropicAiService.DefaultModelId;
                 _aiApiKeyEdit = _profile.AiApiKey ?? "";
+                _forceShowOwnKeyFields = false;
+                _effectiveAi = await AiKeyResolver.ResolveAsync(_loadedUserId!.Value);
+                _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(_loadedUserId.Value)).Count;
+                _incomingUsableCount =
+                    (await AiKeyShareService.ListIncomingWithUsableOwnerKeyAsync(_loadedUserId.Value)).Count;
             }
             _isLoadingProfile = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenSharedKeysDialog()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<SharedKeysDialog>("Shared API keys", options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false } && _loadedUserId is int uid)
+        {
+            _user = await UserService.GetCurrentUserAsync();
+            if (_user != null)
+                _profile = _user.Profile;
+            _effectiveAi = await AiKeyResolver.ResolveAsync(uid);
+            _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(uid)).Count;
+            _incomingUsableCount = (await AiKeyShareService.ListIncomingWithUsableOwnerKeyAsync(uid)).Count;
             StateHasChanged();
         }
     }
@@ -334,12 +419,13 @@ else
 
     private async Task FetchModels()
     {
-        if (string.IsNullOrWhiteSpace(_aiApiKeyEdit)) return;
+        var key = !string.IsNullOrWhiteSpace(_aiApiKeyEdit) ? _aiApiKeyEdit.Trim() : _effectiveAi?.ApiKey;
+        if (string.IsNullOrWhiteSpace(key)) return;
         _isFetchingModels = true;
         StateHasChanged();
         try
         {
-            var models = await AiService.ListModelsAsync(_aiApiKeyEdit);
+            var models = await AiService.ListModelsAsync(key);
             if (models.Any())
             {
                 _availableModels = models;
@@ -367,11 +453,17 @@ else
 
     private async Task SaveAiSettings()
     {
-        if (_profile == null) return;
+        if (_profile == null || _user == null) return;
         _profile.AiApiKey = string.IsNullOrWhiteSpace(_aiApiKeyEdit) ? null : _aiApiKeyEdit.Trim();
         _profile.AiModel = _selectedModelId;
+        if (!string.IsNullOrWhiteSpace(_profile.AiApiKey))
+            _profile.AiSharedKeyOwnerUserId = null;
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
+        _effectiveAi = await AiKeyResolver.ResolveAsync(_user.Id);
+        _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(_user.Id)).Count;
+        _incomingUsableCount = (await AiKeyShareService.ListIncomingWithUsableOwnerKeyAsync(_user.Id)).Count;
+        _forceShowOwnKeyFields = false;
         Snackbar.Add("AI settings saved (API key and model).", Severity.Success);
     }
 }

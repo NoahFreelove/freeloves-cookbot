@@ -13,5 +13,6 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.Property(p => p.DietaryPreferencesJson).HasDefaultValue("[]");
         builder.Property(p => p.AiUnitExceptions).HasMaxLength(2000);
         builder.Property(p => p.AiEnabled).HasDefaultValue(false);
+        builder.HasOne<User>().WithMany().HasForeignKey(p => p.AiSharedKeyOwnerUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }

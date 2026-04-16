@@ -6,6 +6,7 @@
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject AiApiKeyResolutionService AiKeyResolver
 @rendermode InteractiveServer
 
 <PageTitle>CookBot - Pantry</PageTitle>
@@ -34,15 +35,25 @@
         @foreach (var pantry in _pantries)
         {
             <MudTabPanel Text="@pantry.Name" Icon="@(pantry.IsPersonal ? Icons.Material.Filled.Person : Icons.Material.Filled.Group)">
-                @if (!pantry.IsPersonal && pantry.OwnerId == UserService.CurrentUserId)
+                @if (pantry.OwnerId == UserService.CurrentUserId)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Shared pantry</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            @(pantry.IsPersonal ? "Personal pantry" : "Shared pantry")
+                        </MudText>
                         <MudSpacer />
-                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.People"
-                                   OnClick="@(() => ShowManageMembersDialog(pantry))">
-                            Manage Members
+                        @if (!pantry.IsPersonal)
+                        {
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.People"
+                                       OnClick="@(() => ShowManageMembersDialog(pantry))">
+                                Manage Members
+                            </MudButton>
+                        }
+                        <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.DeleteOutline"
+                                   OnClick="@(() => ConfirmDeletePantry(pantry))">
+                            Delete pantry
                         </MudButton>
                     </MudStack>
                 }
@@ -124,6 +135,7 @@ else
     private int? _loadedUserId;
     private bool _aiPantryToolsVisible;
     private UserProfile? _profile;
+    private EffectiveAiCredentials? _aiCredentials;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -135,7 +147,10 @@ else
                 _loadedUserId = userId;
                 var user = await UserService.GetCurrentUserAsync();
                 _profile = user?.Profile;
-                _aiPantryToolsVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled && (_profile?.AiEnabled ?? false);
+                _aiCredentials = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
+                _aiPantryToolsVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled
+                    && (_profile?.AiEnabled ?? false)
+                    && _aiCredentials != null;
                 await PantryService.EnsurePersonalPantryAsync(userId);
                 await LoadPantries();
                 _activePantryIndex = 0;
@@ -236,9 +251,9 @@ else
     private async Task ShowAiPopulateDialog()
     {
         if (!_pantries.Any() || _profile == null) return;
-        if (string.IsNullOrWhiteSpace(_profile.AiApiKey))
+        if (_aiCredentials == null)
         {
-            Snackbar.Add("Add an Anthropic API key in Profile to use AI pantry fill.", Severity.Warning);
+            Snackbar.Add("Configure API access in Profile (your own key or a shared key) to use AI pantry fill.", Severity.Warning);
             return;
         }
 
@@ -247,8 +262,8 @@ else
         {
             { x => x.PantryId, pantry.Id },
             { x => x.Profile, _profile },
-            { x => x.ApiKey, _profile.AiApiKey! },
-            { x => x.ModelId, _profile.AiModel },
+            { x => x.ApiKey, _aiCredentials.ApiKey },
+            { x => x.ModelId, _aiCredentials.ModelId },
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
         var dialog = await DialogService.ShowAsync<AiPopulatePantryDialog>("AI pantry import", parameters, options);
@@ -262,9 +277,9 @@ else
     private async Task ShowAiStandardizeDialog()
     {
         if (!_pantries.Any() || _profile == null) return;
-        if (string.IsNullOrWhiteSpace(_profile.AiApiKey))
+        if (_aiCredentials == null)
         {
-            Snackbar.Add("Add an Anthropic API key in Profile to use AI pantry tools.", Severity.Warning);
+            Snackbar.Add("Configure API access in Profile (your own key or a shared key) to use AI pantry tools.", Severity.Warning);
             return;
         }
 
@@ -280,8 +295,8 @@ else
             { x => x.PantryId, pantry.Id },
             { x => x.CurrentItems, _pantryItems },
             { x => x.Profile, _profile },
-            { x => x.ApiKey, _profile.AiApiKey! },
-            { x => x.ModelId, _profile.AiModel },
+            { x => x.ApiKey, _aiCredentials.ApiKey },
+            { x => x.ModelId, _aiCredentials.ModelId },
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
         var dialog = await DialogService.ShowAsync<AiStandardizePantryDialog>("Standardize pantry", parameters, options);
@@ -300,5 +315,35 @@ else
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
         await DialogService.ShowAsync<ManagePantryMembersDialog>("Manage Members", parameters, options);
+    }
+
+    private async Task ConfirmDeletePantry(Pantry pantry)
+    {
+        var message = pantry.IsPersonal
+            ? "Remove your personal pantry and all items? An empty personal pantry will be created again the next time you open this page."
+            : $"Delete shared pantry \"{pantry.Name}\"? All members lose access and all items are removed. This cannot be undone.";
+
+        var confirm = await DialogService.ShowMessageBox(
+            "Delete pantry?",
+            message,
+            yesText: "Delete",
+            cancelText: "Cancel");
+        if (confirm != true || !UserService.CurrentUserId.HasValue)
+            return;
+
+        var ok = await PantryService.TryDeleteOwnedPantryAsync(pantry.Id, UserService.CurrentUserId.Value);
+        if (!ok)
+        {
+            Snackbar.Add("You can only delete pantries you own.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Pantry deleted.", Severity.Success);
+        await LoadPantries();
+        if (_activePantryIndex >= _pantries.Count)
+            _activePantryIndex = Math.Max(0, _pantries.Count - 1);
+        _previousPantryIndex = -1;
+        await LoadPantryItems();
+        StateHasChanged();
     }
 }

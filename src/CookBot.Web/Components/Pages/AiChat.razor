@@ -6,6 +6,7 @@
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IAiService AiService
+@inject AiApiKeyResolutionService AiKeyResolver
 @using CookBot.Application.Services
 @using CookBot.Infrastructure.AI
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilder
@@ -39,7 +40,21 @@ else if (_profile?.AiEnabled == false)
         </MudText>
     </div>
 }
-else
+else if (_profile != null && _profile.AiEnabled && _effectiveAi == null)
+{
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
+        <MudIcon Icon="@Icons.Material.Filled.VpnKey" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">No API access configured</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+            Add your own Anthropic key in <MudLink Href="/profile">Profile</MudLink>, or ask another user on this device to share their key with you.
+        </MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" StartIcon="@Icons.Material.Filled.Share"
+                   OnClick="OpenSharedKeysDialog">
+            Shared keys
+        </MudButton>
+    </div>
+}
+else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
 {
 <div style="display: flex; gap: 24px; height: calc(100vh - 180px);">
     <div style="width: 25%; min-width: 250px; flex-shrink: 0;">
@@ -47,6 +62,11 @@ else
             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
                 <MudText Typo="Typo.h6">Conversations</MudText>
                 <MudSpacer />
+                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" Class="text-none"
+                           Style="text-transform: none; min-width: 0;"
+                           StartIcon="@Icons.Material.Filled.Share" OnClick="OpenSharedKeysDialog">
+                    Shared keys
+                </MudButton>
                 <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="NewConversation" />
             </MudStack>
             <MudList T="int" Dense="true" @bind-SelectedValue="_selectedConversationId">
@@ -185,10 +205,17 @@ else
     </div>
 </div>
 }
+else
+{
+    <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Class="pa-8">
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+    </MudStack>
+}
 </UserGuard>
 
 @code {
     private UserProfile? _profile;
+    private EffectiveAiCredentials? _effectiveAi;
     private List<AiConversation> _conversations = new();
     private List<CookBot.Domain.Interfaces.AiMessage> _messages = new();
     private AiConversation? _currentConversation;
@@ -211,9 +238,22 @@ else
             _loadedUserId = UserService.CurrentUserId.Value;
             var user = await UserService.GetCurrentUserAsync();
             _profile = user?.Profile;
+            _effectiveAi = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
             _promptTemplate = _profile?.AiSystemPromptTemplate ?? PromptBuilderService.DefaultTemplate;
             await LoadConversations();
             await BuildSystemPrompt();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenSharedKeysDialog()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<SharedKeysDialog>("Shared API keys", options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false } && UserService.CurrentUserId is int uid)
+        {
+            _effectiveAi = await AiKeyResolver.ResolveAsync(uid);
             StateHasChanged();
         }
     }
@@ -295,8 +335,8 @@ else
 
         try
         {
-            var apiKey = _profile?.AiApiKey;
-            var modelId = _profile?.AiModel;
+            var apiKey = _effectiveAi?.ApiKey;
+            var modelId = _effectiveAi?.ModelId;
 
             await foreach (var chunk in AiService.StreamMessageAsync(_systemPrompt, _messages, apiKey, modelId))
             {
