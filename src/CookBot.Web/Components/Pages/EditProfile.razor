@@ -1,7 +1,11 @@
 @page "/profile"
+@using System.Text.Json
 @using CookBot.Domain.Interfaces
 @using CookBot.Infrastructure.AI
+@using CookBot.Application.DTOs
+@implements IDisposable
 @inject CurrentUserService UserService
+@inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject ISnackbar Snackbar
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IAiService AiService
@@ -19,7 +23,10 @@
             <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
                 <MudText Typo="Typo.h6" Class="mb-4">Account</MudText>
 
-                <MudTextField @bind-Value="_user.DisplayName" Label="Display Name"
+                <MudTextField Value="@_user.DisplayName"
+                              ValueChanged="@((string v) => OnDisplayNameChanged(v))"
+                              Immediate="true" DebounceInterval="500"
+                              Label="Display Name"
                               Variant="Variant.Outlined" Class="mb-4" />
 
                 <MudText Typo="Typo.subtitle1" Class="mb-2">Account Password</MudText>
@@ -48,92 +55,114 @@
                     }
                 </MudStack>
 
-                <MudDivider Class="mb-4" />
-                <MudText Typo="Typo.h6" Class="mb-4">Cooking Preferences</MudText>
+                @if (ShowCookingPreferences)
+                {
+                    <MudDivider Class="mb-4" />
+                    <MudText Typo="Typo.h6" Class="mb-2">Cooking preferences (AI)</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
+                        Used for the assistant, prompt builder, and AI pantry tools. Saved automatically when you change something.
+                    </MudText>
 
-                <MudSelect T="ExperienceLevel" @bind-Value="_profile.ExperienceLevel"
-                           Label="Experience Level" Variant="Variant.Outlined" Class="mb-4">
-                    @foreach (ExperienceLevel level in Enum.GetValues<ExperienceLevel>())
-                    {
-                        <MudSelectItem Value="@level">@level</MudSelectItem>
-                    }
-                </MudSelect>
+                    <MudSelect T="ExperienceLevel" Value="_profile.ExperienceLevel" ValueChanged="OnExperienceLevelChanged"
+                               Label="Experience Level" Variant="Variant.Outlined" Class="mb-4">
+                        @foreach (ExperienceLevel level in Enum.GetValues<ExperienceLevel>())
+                        {
+                            <MudSelectItem Value="@level">@level</MudSelectItem>
+                        }
+                    </MudSelect>
 
-                <MudRadioGroup T="UnitSystem" @bind-Value="_profile.UnitSystem" Class="mb-4">
-                    <MudText Typo="Typo.subtitle1" Class="mb-2">Unit System</MudText>
-                    <MudRadio Value="UnitSystem.Canadian" Color="Color.Primary">Canadian (cups, tbsp, grams, kg, Fahrenheit)</MudRadio>
-                    <MudRadio Value="UnitSystem.Imperial" Color="Color.Primary">Imperial (cups, oz, lbs, Fahrenheit)</MudRadio>
-                    <MudRadio Value="UnitSystem.Metric" Color="Color.Primary">Metric (mL, g, kg, Celsius)</MudRadio>
-                </MudRadioGroup>
+                    <MudRadioGroup T="UnitSystem" Value="_profile.UnitSystem" ValueChanged="OnUnitSystemChanged" Class="mb-4">
+                        <MudText Typo="Typo.subtitle1" Class="mb-2">Unit system preset</MudText>
+                        <MudRadio Value="UnitSystem.Canadian" Color="Color.Primary">Canadian (cups, tbsp, grams, kg, Fahrenheit)</MudRadio>
+                        <MudRadio Value="UnitSystem.Imperial" Color="Color.Primary">Imperial (cups, oz, lbs, Fahrenheit)</MudRadio>
+                        <MudRadio Value="UnitSystem.Metric" Color="Color.Primary">Metric (mL, g, kg, Celsius)</MudRadio>
+                    </MudRadioGroup>
 
-                <MudText Typo="Typo.subtitle1" Class="mb-2">Kitchen Tools</MudText>
-                <MudChipSet T="string" @bind-SelectedValues="_selectedTools" SelectionMode="SelectionMode.MultiSelection"
-                            Color="Color.Primary" Variant="Variant.Text" Class="mb-4">
-                    @foreach (var tool in _availableTools)
-                    {
-                        <MudChip Value="@tool" Text="@tool" Default="@_kitchenTools.Contains(tool)" />
-                    }
-                </MudChipSet>
+                    <MudTextField Value="@(_profile.AiUnitExceptions ?? "")"
+                                  ValueChanged="@((string v) => OnAiUnitExceptionsChanged(v))"
+                                  Label="Custom unit notes for AI"
+                                  HelperText="Optional. Add exceptions to the preset (e.g. always use sticks of butter, weigh salt in grams, oven in °F only)."
+                                  Variant="Variant.Outlined" Lines="4" Class="mb-4"
+                                  Immediate="true" DebounceInterval="500" />
 
-                <MudText Typo="Typo.subtitle1" Class="mb-2 mt-4">Dietary Preferences</MudText>
-                <MudChipSet T="string" @bind-SelectedValues="_selectedDiets" SelectionMode="SelectionMode.MultiSelection"
-                            Color="Color.Secondary" Variant="Variant.Text" Class="mb-4">
-                    @foreach (var diet in _availableDiets)
-                    {
-                        <MudChip Value="@diet" Text="@diet" Default="@_dietaryPrefs.Contains(diet)" />
-                    }
-                </MudChipSet>
+                    <MudText Typo="Typo.subtitle1" Class="mb-2">Kitchen Tools</MudText>
+                    <MudChipSet T="string" SelectionMode="SelectionMode.MultiSelection"
+                                SelectedValues="_selectedTools"
+                                SelectedValuesChanged="OnToolsSelectionChanged"
+                                Color="Color.Primary" Variant="Variant.Text" Class="mb-4">
+                        @foreach (var tool in _availableTools)
+                        {
+                            <MudChip Value="@tool" Text="@tool" Default="@_kitchenTools.Contains(tool)" />
+                        }
+                    </MudChipSet>
 
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProfile"
-                           StartIcon="@Icons.Material.Filled.Save" Class="mt-4">
-                    Save Profile
-                </MudButton>
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 mt-4">Dietary Preferences</MudText>
+                    <MudChipSet T="string" SelectionMode="SelectionMode.MultiSelection"
+                                SelectedValues="_selectedDiets"
+                                SelectedValuesChanged="OnDietsSelectionChanged"
+                                Color="Color.Secondary" Variant="Variant.Text" Class="mb-4">
+                        @foreach (var diet in _availableDiets)
+                        {
+                            <MudChip Value="@diet" Text="@diet" Default="@_dietaryPrefs.Contains(diet)" />
+                        }
+                    </MudChipSet>
+                }
             </MudPaper>
         </MudItem>
 
         <MudItem xs="12" md="6">
             <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
-                    <MudText Typo="Typo.h6">AI Assistant</MudText>
-                    <MudSwitch T="bool" Value="_profile.AiEnabled" ValueChanged="OnAiEnabledChanged"
-                               Color="Color.Primary" Label="@(_profile.AiEnabled ? "On" : "Off")" />
-                </MudStack>
-
-                @if (!_profile.AiEnabled)
+                @if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
                 {
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        Enable to access AI cooking assistant, recipe generation, and smart features.
-                    </MudText>
+                    <MudText Typo="Typo.h6" Class="mb-4">Optional AI integration</MudText>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        The server has turned off optional AI features. Assistant, prompt builder, and related controls are hidden. No recipe or pantry data is sent to external services from this app unless you use other tools yourself.
+                    </MudAlert>
                 }
                 else
                 {
-                    <MudTextField @bind-Value="_profile.AiApiKey" Label="Anthropic API Key"
-                                  Variant="Variant.Outlined" InputType="InputType.Password"
-                                  HelperText="Your API key for Claude AI integration. Stored locally."
-                                  Class="mb-4" />
-
-                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
-                        <MudSelect T="string" @bind-Value="_selectedModelId" Label="Model"
-                                   Variant="Variant.Outlined" Style="flex: 1;">
-                            @foreach (var model in _availableModels)
-                            {
-                                <MudSelectItem Value="@model.Id">@model.DisplayName</MudSelectItem>
-                            }
-                        </MudSelect>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                   OnClick="FetchModels" Disabled="@(string.IsNullOrWhiteSpace(_profile.AiApiKey) || _isFetchingModels)"
-                                   StartIcon="@(_isFetchingModels ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Refresh)">
-                            @(_isFetchingModels ? "Fetching..." : "Fetch Models")
-                        </MudButton>
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+                        <MudText Typo="Typo.h6">AI Assistant</MudText>
+                        <MudSwitch T="bool" Value="_profile.AiEnabled" ValueChanged="OnAiEnabledChanged"
+                                   Color="Color.Primary" Label="@(_profile.AiEnabled ? "On" : "Off")" />
                     </MudStack>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
-                        Curated list shown by default. Click "Fetch Models" to load all available models from Anthropic.
-                    </MudText>
 
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAiSettings"
-                               StartIcon="@Icons.Material.Filled.Save" Class="mt-2">
-                        Save AI Settings
-                    </MudButton>
+                    @if (!_profile.AiEnabled)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            Enable to access the in-app assistant, prompt builder, and direct Anthropic API calls. Your API key is stored in the local database only (not encrypted unless you encrypt the database file at the host level).
+                        </MudText>
+                    }
+                    else
+                    {
+                        <MudTextField @bind-Value="_aiApiKeyEdit" Label="Anthropic API Key"
+                                      Variant="Variant.Outlined" InputType="InputType.Password"
+                                      HelperText="Not auto-saved. Click Save below to store in your local database."
+                                      Class="mb-4" />
+
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
+                            <MudSelect T="string" @bind-Value="_selectedModelId" Label="Model"
+                                       Variant="Variant.Outlined" Style="flex: 1;">
+                                @foreach (var model in _availableModels)
+                                {
+                                    <MudSelectItem Value="@model.Id">@model.DisplayName</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                       OnClick="FetchModels" Disabled="@(string.IsNullOrWhiteSpace(_aiApiKeyEdit) || _isFetchingModels)"
+                                       StartIcon="@(_isFetchingModels ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Refresh)">
+                                @(_isFetchingModels ? "Fetching..." : "Fetch Models")
+                            </MudButton>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
+                            Curated models match <code>AnthropicAiService</code> in the source tree. Use &quot;Fetch Models&quot; to refresh from the API.
+                        </MudText>
+
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAiSettings"
+                                   StartIcon="@Icons.Material.Filled.Save" Class="mt-2">
+                            Save AI settings
+                        </MudButton>
+                    }
                 }
             </MudPaper>
         </MudItem>
@@ -152,6 +181,7 @@ else
     private IReadOnlyCollection<string> _selectedTools = new HashSet<string>();
     private IReadOnlyCollection<string> _selectedDiets = new HashSet<string>();
     private string _newPassword = "";
+    private string _aiApiKeyEdit = "";
     private bool _hasPassword;
     private List<AiModelInfo> _availableModels = AnthropicAiService.CuratedModels;
     private bool _isFetchingModels;
@@ -175,37 +205,112 @@ else
     };
 
     private int? _loadedUserId;
+    private bool _isLoadingProfile;
+    private CancellationTokenSource? _prefsDebounceCts;
+
+    private bool ShowCookingPreferences =>
+        CookBotSettingsOptions.Value.AiFeaturesEnabled && (_profile?.AiEnabled ?? false);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
         {
             _loadedUserId = UserService.CurrentUserId.Value;
+            _isLoadingProfile = true;
             _user = await UserService.GetCurrentUserAsync();
             if (_user != null)
             {
                 _profile = _user.Profile;
                 _hasPassword = _user.PasswordHash != null;
-                _kitchenTools = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.KitchenToolsJson) ?? new();
-                _dietaryPrefs = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
+                _kitchenTools = JsonSerializer.Deserialize<HashSet<string>>(_profile.KitchenToolsJson) ?? new();
+                _dietaryPrefs = JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
                 _selectedTools = new HashSet<string>(_kitchenTools);
                 _selectedDiets = new HashSet<string>(_dietaryPrefs);
                 _selectedModelId = _profile.AiModel ?? AnthropicAiService.DefaultModelId;
+                _aiApiKeyEdit = _profile.AiApiKey ?? "";
             }
+            _isLoadingProfile = false;
             StateHasChanged();
         }
     }
 
-    private async Task SaveProfile()
+    public void Dispose()
     {
-        if (_user == null || _profile == null) return;
+        _prefsDebounceCts?.Cancel();
+        _prefsDebounceCts?.Dispose();
+    }
 
+    private async Task DebouncedSavePreferencesAsync()
+    {
+        if (_isLoadingProfile || _user == null || _profile == null) return;
+
+        _prefsDebounceCts?.Cancel();
+        _prefsDebounceCts?.Dispose();
+        _prefsDebounceCts = new CancellationTokenSource();
+        var token = _prefsDebounceCts.Token;
+        try
+        {
+            await Task.Delay(450, token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await PersistPreferencesAsync();
+    }
+
+    private async Task PersistPreferencesAsync()
+    {
+        if (_isLoadingProfile || _user == null || _profile == null) return;
+
+        _profile.KitchenToolsJson = JsonSerializer.Serialize(_selectedTools);
+        _profile.DietaryPreferencesJson = JsonSerializer.Serialize(_selectedDiets);
         DbContext.Users.Update(_user);
-        _profile.KitchenToolsJson = System.Text.Json.JsonSerializer.Serialize(_selectedTools);
-        _profile.DietaryPreferencesJson = System.Text.Json.JsonSerializer.Serialize(_selectedDiets);
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
-        Snackbar.Add("Profile saved!", Severity.Success);
+    }
+
+    private void OnDisplayNameChanged(string value)
+    {
+        if (_user == null || _isLoadingProfile) return;
+        _user.DisplayName = value;
+        _ = DebouncedSavePreferencesAsync();
+    }
+
+    private void OnExperienceLevelChanged(ExperienceLevel value)
+    {
+        if (_profile == null || _isLoadingProfile) return;
+        _profile.ExperienceLevel = value;
+        _ = DebouncedSavePreferencesAsync();
+    }
+
+    private void OnUnitSystemChanged(UnitSystem value)
+    {
+        if (_profile == null || _isLoadingProfile) return;
+        _profile.UnitSystem = value;
+        _ = DebouncedSavePreferencesAsync();
+    }
+
+    private void OnAiUnitExceptionsChanged(string value)
+    {
+        if (_profile == null || _isLoadingProfile) return;
+        _profile.AiUnitExceptions = string.IsNullOrWhiteSpace(value) ? null : value;
+        _ = DebouncedSavePreferencesAsync();
+    }
+
+    private void OnToolsSelectionChanged(IReadOnlyCollection<string> values)
+    {
+        if (_isLoadingProfile) return;
+        _selectedTools = values;
+        _ = DebouncedSavePreferencesAsync();
+    }
+
+    private void OnDietsSelectionChanged(IReadOnlyCollection<string> values)
+    {
+        if (_isLoadingProfile) return;
+        _selectedDiets = values;
+        _ = DebouncedSavePreferencesAsync();
     }
 
     private async Task SetPassword()
@@ -229,12 +334,12 @@ else
 
     private async Task FetchModels()
     {
-        if (string.IsNullOrWhiteSpace(_profile?.AiApiKey)) return;
+        if (string.IsNullOrWhiteSpace(_aiApiKeyEdit)) return;
         _isFetchingModels = true;
         StateHasChanged();
         try
         {
-            var models = await AiService.ListModelsAsync(_profile.AiApiKey);
+            var models = await AiService.ListModelsAsync(_aiApiKeyEdit);
             if (models.Any())
             {
                 _availableModels = models;
@@ -257,16 +362,16 @@ else
         _profile.AiEnabled = value;
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
-        // Force reload so NavMenu picks up the change
         Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
     }
 
     private async Task SaveAiSettings()
     {
         if (_profile == null) return;
+        _profile.AiApiKey = string.IsNullOrWhiteSpace(_aiApiKeyEdit) ? null : _aiApiKeyEdit.Trim();
         _profile.AiModel = _selectedModelId;
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
-        Snackbar.Add("AI settings saved!", Severity.Success);
+        Snackbar.Add("AI settings saved (API key and model).", Severity.Success);
     }
 }

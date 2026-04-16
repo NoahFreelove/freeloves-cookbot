@@ -1,5 +1,6 @@
 @rendermode InteractiveServer
 @inject CurrentUserService UserService
+@inject Microsoft.Extensions.Options.IOptions<CookBot.Application.DTOs.CookBotSettings> CookBotSettingsOptions
 
 <MudNavMenu>
     <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
@@ -22,7 +23,7 @@
         if (!UserService.CurrentUserId.HasValue) return;
 
         var user = await UserService.GetCurrentUserAsync();
-        _aiEnabled = user?.Profile?.AiEnabled ?? false;
+        _aiEnabled = CookBotSettingsOptions.Value.AiFeaturesEnabled && (user?.Profile?.AiEnabled ?? false);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -30,7 +31,7 @@
         if (!UserService.CurrentUserId.HasValue) return;
 
         var user = await UserService.GetCurrentUserAsync();
-        var newValue = user?.Profile?.AiEnabled ?? false;
+        var newValue = CookBotSettingsOptions.Value.AiFeaturesEnabled && (user?.Profile?.AiEnabled ?? false);
         if (newValue != _aiEnabled)
         {
             _aiEnabled = newValue;

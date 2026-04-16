@@ -1,0 +1,54 @@
+@using CookBot.Domain.Entities
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@rendermode InteractiveServer
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Reference a cookbook</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Inserts a token into your system prompt. When you chat, it is replaced by the recipe titles in that cookbook so the assistant knows what you have already saved.
+        </MudText>
+        @if (!_cookbooks.Any())
+        {
+            <MudText Typo="Typo.body2">No cookbooks available.</MudText>
+        }
+        else
+        {
+            <MudSelect T="int" @bind-Value="_selectedId" Label="Cookbook" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
+                @foreach (var c in _cookbooks)
+                {
+                    <MudSelectItem Value="@c.Id">@c.Name (ID @c.Id)</MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Ok" Disabled="!_cookbooks.Any()">Insert token</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public int UserId { get; set; }
+
+    private List<Cookbook> _cookbooks = new();
+    private int _selectedId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cookbooks = await DbContext.Cookbooks
+            .AsNoTracking()
+            .Where(c => c.UserId == UserId || c.Shares.Any(s => s.SharedWithUserId == UserId))
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+        _selectedId = _cookbooks.FirstOrDefault()?.Id ?? 0;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Ok() => MudDialog.Close(DialogResult.Ok(_selectedId));
+}

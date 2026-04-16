@@ -63,6 +63,27 @@ public class PromptBuilderService
         return result.Trim();
     }
 
+    /// <summary>System prompt for in-flow cooking step assistance (concise, step-focused).</summary>
+    public string BuildCookingStepAssistSystemPrompt(UserProfile profile)
+    {
+        var prefs = ResolveTemplate(
+            "{{experience_level}}\n{{unit_system}}\n{{equipment}}\n{{dietary_preferences}}",
+            profile,
+            pantryItems: null);
+
+        return $"""
+            {prefs}
+
+            You are CookBot's **live cooking assistant**. The user is actively cooking from a recipe in the app.
+
+            Each request includes the **full recipe** in CookBot YAML plus a **CURRENT STEP** section. Answer with that step in mind; use the rest of the recipe only for helpful context (timing, ingredients, order of operations).
+
+            Be **concise** (short paragraphs or bullets). Use markdown when it helps. Cover techniques, timing, doneness cues, substitutions, and food safety when relevant. If something critical is ambiguous, ask **one** focused clarifying question.
+
+            Do not dump the whole recipe back unless they explicitly ask for a recap.
+            """.Trim();
+    }
+
     private string ResolveExperienceLevel(UserProfile profile)
     {
         var sb = new StringBuilder();
@@ -106,6 +127,14 @@ public class PromptBuilderService
                 sb.AppendLine("Use cups, tablespoons, teaspoons, fluid ounces for volume. Ounces and pounds for weight. Fahrenheit for temperatures.");
                 break;
         }
+
+        if (!string.IsNullOrWhiteSpace(profile.AiUnitExceptions))
+        {
+            sb.AppendLine();
+            sb.AppendLine("User-specified unit exceptions (follow these even if they refine or partially override the preset above):");
+            sb.AppendLine(profile.AiUnitExceptions.Trim());
+        }
+
         return sb.ToString().TrimEnd();
     }
 
@@ -194,6 +223,14 @@ If you can't follow this exact format, plain numbered steps are fine — the app
                 case UnitSystem.Imperial:
                     sb.AppendLine("- Units: Imperial — use cups/tbsp/tsp/fl oz for volume, oz/lbs for weight, Fahrenheit for temperatures.");
                     break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.AiUnitExceptions))
+            {
+                sb.AppendLine("- Additional unit preferences:");
+                foreach (var line in profile.AiUnitExceptions.Trim()
+                             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    sb.AppendLine($"  - {line}");
             }
 
             var tools = JsonSerializer.Deserialize<List<string>>(profile.KitchenToolsJson) ?? new();

@@ -129,6 +129,9 @@ public static class UnitParser
     /// </summary>
     public static string ToDisplayString(string unit)
     {
+        if (unit.Equals(PantryAiImport.UnmeasuredUnit, StringComparison.OrdinalIgnoreCase))
+            return "In stock";
+
         var parsed = TryParse(unit);
         if (parsed.HasValue && DisplayNames.TryGetValue(parsed.Value, out var display))
             return display;

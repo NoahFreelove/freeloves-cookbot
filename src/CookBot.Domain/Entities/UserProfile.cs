@@ -8,10 +8,14 @@ public class UserProfile
     public int UserId { get; set; }
     public ExperienceLevel ExperienceLevel { get; set; } = ExperienceLevel.Beginner;
     public UnitSystem UnitSystem { get; set; } = UnitSystem.Imperial;
+    /// <summary>
+    /// Optional free-text unit rules for AI features (exceptions to the preset unit system).
+    /// </summary>
+    public string? AiUnitExceptions { get; set; }
     public string KitchenToolsJson { get; set; } = "[]";
     public string DietaryPreferencesJson { get; set; } = "[]";
     public string? AiApiKey { get; set; }
-    public bool AiEnabled { get; set; } = true;
+    public bool AiEnabled { get; set; }
     public string? AiModel { get; set; }
     public string? AiSystemPromptTemplate { get; set; }
 

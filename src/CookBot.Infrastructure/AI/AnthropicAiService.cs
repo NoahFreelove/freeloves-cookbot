@@ -164,10 +164,16 @@ public class AnthropicAiService : IAiService
         var sb = new StringBuilder();
         foreach (var block in content.EnumerateArray())
         {
-            if (block.TryGetProperty("type", out var type) && type.GetString() == "text"
-                && block.TryGetProperty("text", out var text))
+            var typeStr = block.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+            // Skip extended-thinking payloads; pantry import expects only the visible assistant reply.
+            if (typeStr is "thinking" or "redacted_thinking")
+                continue;
+
+            if (block.TryGetProperty("text", out var text))
             {
-                sb.Append(text.GetString());
+                var s = text.GetString();
+                if (!string.IsNullOrEmpty(s))
+                    sb.Append(s);
             }
         }
         return sb.ToString();

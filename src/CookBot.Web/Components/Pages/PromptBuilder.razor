@@ -1,4 +1,6 @@
 @page "/prompt-builder"
+@using CookBot.Application.DTOs
+@inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilderSvc
@@ -9,7 +11,17 @@
 
 <PageTitle>CookBot - Prompt Builder</PageTitle>
 
-@if (_profile?.AiEnabled == false)
+@if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
+{
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
+        <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">Prompt builder unavailable</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+            The server has disabled optional AI features (<code>CookBot:AiFeaturesEnabled</code> is false).
+        </MudText>
+    </div>
+}
+else if (_profile?.AiEnabled == false)
 {
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
         <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" Color="Color.Secondary" />

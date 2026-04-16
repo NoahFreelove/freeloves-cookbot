@@ -1,0 +1,86 @@
+@using CookBot.Application.Services
+@using CookBot.Domain.Entities
+@inject PantryAiPopulationService PantryAi
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Standardize pantry (AI)</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            All <strong>@ItemCount</strong> item(s) in this pantry are sent to the assistant. It returns a single clean list: one row per ingredient, normalized spelling, merged duplicates, and sensible units. <strong>Current rows are replaced</strong> with the result (this cannot be undone automatically).
+        </MudText>
+        @if (_busy && !string.IsNullOrEmpty(_status))
+        {
+            <MudText Typo="Typo.caption" Color="Color.Primary">@_status</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_busy">
+            @(_busy ? "Working..." : "Standardize")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public int PantryId { get; set; }
+    [Parameter] public IReadOnlyList<PantryItem> CurrentItems { get; set; } = Array.Empty<PantryItem>();
+    [Parameter] public UserProfile Profile { get; set; } = null!;
+    [Parameter] public string ApiKey { get; set; } = string.Empty;
+    [Parameter] public string? ModelId { get; set; }
+
+    private int ItemCount => CurrentItems.Count;
+
+    private bool _busy;
+    private string _status = "";
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(ApiKey))
+        {
+            Snackbar.Add("Add an Anthropic API key in Profile first.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        _status = "Calling AI…";
+        StateHasChanged();
+
+        try
+        {
+            var result = await PantryAi.StandardizePantryAsync(
+                PantryId,
+                CurrentItems,
+                ApiKey,
+                ModelId,
+                Profile.UnitSystem,
+                Profile.AiUnitExceptions);
+
+            if (!result.Success)
+            {
+                Snackbar.Add(result.Error ?? "Standardize failed.", Severity.Error);
+                return;
+            }
+
+            foreach (var line in result.Messages)
+                Snackbar.Add(line, Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+            _status = "";
+        }
+    }
+}

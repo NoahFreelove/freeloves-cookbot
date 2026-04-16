@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<CookbookService>();
         services.AddScoped<RecipeService>();
         services.AddScoped<PantryService>();
+        services.AddScoped<PantryAiPopulationService>();
         services.AddScoped<GroceryListService>();
         return services;
     }

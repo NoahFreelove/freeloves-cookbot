@@ -1,6 +1,7 @@
 @page "/"
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
+@inject Microsoft.Extensions.Options.IOptions<CookBot.Application.DTOs.CookBotSettings> CookBotSettingsOptions
 @rendermode InteractiveServer
 
 <PageTitle>CookBot - Home</PageTitle>
@@ -51,13 +52,16 @@
                 New Recipe
             </MudButton>
         </MudItem>
-        <MudItem xs="12" sm="6" md="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true"
-                       StartIcon="@Icons.Material.Filled.AutoAwesome" Href="/ai"
-                       Style="height: 60px; border-radius: 12px;">
-                Ask AI Chef
-            </MudButton>
-        </MudItem>
+        @if (_aiQuickActionVisible)
+        {
+            <MudItem xs="12" sm="6" md="4">
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome" Href="/ai"
+                           Style="height: 60px; border-radius: 12px;">
+                    Ask AI Chef
+                </MudButton>
+            </MudItem>
+        }
         <MudItem xs="12" sm="6" md="4">
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
                        StartIcon="@Icons.Material.Filled.Kitchen" Href="/pantry"
@@ -79,6 +83,7 @@ else
     private int _recipeCount;
     private int _pantryCount;
     private int _groceryListCount;
+    private bool _aiQuickActionVisible;
 
     [Inject] private CookBot.Infrastructure.Data.CookBotDbContext DbContext { get; set; } = null!;
 
@@ -97,6 +102,7 @@ else
                 _pantryCount = await DbContext.PantryItems.CountAsync(p => p.Pantry.OwnerId == _user.Id ||
                     DbContext.PantryMembers.Any(pm => pm.PantryId == p.PantryId && pm.UserId == _user.Id));
                 _groceryListCount = await DbContext.GroceryLists.CountAsync(g => g.UserId == _user.Id);
+                _aiQuickActionVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled && (_user.Profile?.AiEnabled ?? false);
             }
             StateHasChanged();
         }

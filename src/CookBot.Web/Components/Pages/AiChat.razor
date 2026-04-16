@@ -1,4 +1,8 @@
 @page "/ai"
+@using System.Text
+@using System.Text.RegularExpressions
+@using CookBot.Application.DTOs
+@inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IAiService AiService
@@ -15,7 +19,17 @@
 <PageTitle>CookBot - AI Assistant</PageTitle>
 
 <UserGuard>
-@if (_profile?.AiEnabled == false)
+@if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
+{
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
+        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Secondary" />
+        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">AI is disabled on this server</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+            The administrator set <code>CookBot:AiFeaturesEnabled</code> to false. Recipe management and cooking features still work locally.
+        </MudText>
+    </div>
+}
+else if (_profile?.AiEnabled == false)
 {
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
         <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Secondary" />
@@ -52,8 +66,18 @@ else
 
             <MudDivider Class="my-3" />
             <MudExpansionPanels Elevation="0">
-                <MudExpansionPanel Text="System Prompt" Dense="true" Style="background: transparent;">
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-2">
+                <MudExpansionPanel Dense="true" Style="background: transparent;">
+                    <TitleContent>
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Assistant instructions</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                System prompt saved on your profile. Tokens and <code>{{cookbook_recipes:ID}}</code> expand when you send a message; the editor keeps the raw template.
+                            </MudText>
+                        </MudStack>
+                    </TitleContent>
+                    <ChildContent>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">Insert placeholders (chips):</MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
                         <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small"
                                  OnClick="@(() => InsertToken("{{experience_level}}"))">+ Experience</MudChip>
                         <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Size="Size.Small"
@@ -64,12 +88,15 @@ else
                                  OnClick="@(() => InsertToken("{{dietary_preferences}}"))">+ Diet</MudChip>
                         <MudChip T="string" Color="Color.Secondary" Variant="Variant.Filled" Size="Size.Small"
                                  OnClick="@(() => InsertToken("{{pantry}}"))">+ Pantry</MudChip>
+                        <MudChip T="string" Color="Color.Info" Variant="Variant.Filled" Size="Size.Small"
+                                 OnClick="InsertCookbookReferenceTokenAsync">+ Reference cookbook</MudChip>
                         <MudChip T="string" Color="Color.Error" Variant="Variant.Filled" Size="Size.Small"
                                  OnClick="@(() => InsertToken("{{recipe_format}}"))">+ Recipe Fmt</MudChip>
                     </MudStack>
 
                     <MudTextField @bind-Value="_promptTemplate" Variant="Variant.Outlined"
-                                  Lines="10" Class="mb-2" Style="font-family: monospace; font-size: 11px;" />
+                                  Lines="18" Class="mb-2" Style="font-family: monospace; font-size: 12px;"
+                                  Label="Template" HelperText="Defines tone, constraints, and how recipes should be formatted." />
 
                     @if (_promptTemplate?.Contains("{{recipe_format}}") != true)
                     {
@@ -88,6 +115,7 @@ else
                             Reset
                         </MudButton>
                     </MudStack>
+                    </ChildContent>
                 </MudExpansionPanel>
             </MudExpansionPanels>
         </MudPaper>
@@ -174,6 +202,8 @@ else
 
     private int? _loadedUserId;
 
+    private static readonly Regex CookbookRecipeTokenRegex = new(@"\{\{cookbook_recipes:(\d+)\}\}", RegexOptions.Compiled);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
@@ -200,6 +230,7 @@ else
             foreach (var item in pantryItems)
                 item.Ingredient ??= ingredients.GetValueOrDefault(item.IngredientId)!;
             var template = _profile.AiSystemPromptTemplate ?? CookBot.Application.Services.PromptBuilderService.DefaultTemplate;
+            template = await ExpandCookbookRecipeTokensAsync(template, user!.Id);
             _systemPrompt = PromptBuilder.ResolveTemplate(template, _profile, pantryItems);
         }
     }
@@ -319,6 +350,74 @@ else
             _promptTemplate += "\n";
         _promptTemplate += token + "\n";
         StateHasChanged();
+    }
+
+    private async Task InsertCookbookReferenceTokenAsync()
+    {
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        var parameters = new DialogParameters<CookbookReferenceDialog>
+        {
+            { x => x.UserId, UserService.CurrentUserId.Value },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CookbookReferenceDialog>("Reference cookbook", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled && result.Data is int cookbookId)
+            InsertToken($"{{{{cookbook_recipes:{cookbookId}}}}}");
+    }
+
+    private async Task<string> ExpandCookbookRecipeTokensAsync(string template, int userId)
+    {
+        var matches = CookbookRecipeTokenRegex.Matches(template);
+        if (matches.Count == 0)
+            return template;
+
+        var ids = matches.Select(m => int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).Distinct().ToList();
+        var blocks = new Dictionary<int, string>();
+        foreach (var id in ids)
+            blocks[id] = await FormatCookbookRecipesForPromptAsync(userId, id);
+
+        return CookbookRecipeTokenRegex.Replace(template, m =>
+        {
+            var id = int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            return blocks.TryGetValue(id, out var b) ? b : "";
+        });
+    }
+
+    private async Task<string> FormatCookbookRecipesForPromptAsync(int userId, int cookbookId)
+    {
+        var cookbook = await DbContext.Cookbooks
+            .AsNoTracking()
+            .Include(c => c.Shares)
+            .FirstOrDefaultAsync(c => c.Id == cookbookId);
+
+        if (cookbook == null)
+            return $"(Cookbook {cookbookId} was not found.)";
+
+        var canAccess = cookbook.UserId == userId
+                        || cookbook.Shares.Any(s => s.SharedWithUserId == userId);
+        if (!canAccess)
+            return $"(Cookbook {cookbookId} is not available to this account.)";
+
+        var names = await DbContext.Recipes.AsNoTracking()
+            .Where(r => r.CookbookId == cookbookId)
+            .OrderBy(r => r.Name)
+            .Select(r => r.Name)
+            .ToListAsync();
+
+        if (names.Count == 0)
+        {
+            return
+                $"The user's cookbook \"{cookbook.Name}\" (ID {cookbook.Id}) has no saved recipes yet.";
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine(
+            $"The user already has these recipes in cookbook \"{cookbook.Name}\" (ID {cookbook.Id}). Prefer suggesting new ideas or variations that complement this collection:");
+        foreach (var n in names)
+            sb.AppendLine($"  - {n}");
+        return sb.ToString().TrimEnd();
     }
 
     private void ResetPromptTemplate()

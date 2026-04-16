@@ -84,6 +84,13 @@ public class PantryService
         return allItems;
     }
 
+    public async Task ClearPantryAsync(int pantryId)
+    {
+        var items = await _pantryRepo.FindAsync(p => p.PantryId == pantryId);
+        foreach (var item in items)
+            await _pantryRepo.DeleteAsync(item);
+    }
+
     public async Task AddOrUpdateAsync(int pantryId, int ingredientId, double amount, string unit, DateTime? expiration)
     {
         var existing = (await _pantryRepo.FindAsync(p => p.PantryId == pantryId && p.IngredientId == ingredientId)).FirstOrDefault();

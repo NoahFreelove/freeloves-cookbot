@@ -1,10 +1,18 @@
 @page "/recipes/{RecipeId:int}/cook"
 @rendermode InteractiveServer
+@using CookBot.Application.DTOs
 @using CookBot.Application.Services
+@using CookBot.Domain.Interfaces
+@using Markdig
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IJSRuntime JS
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
+@inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
+@inject IRecipeFormatParser Parser
+@inject IAiService AiService
+@inject PromptBuilderService PromptBuilder
+@inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
 <PageTitle>CookBot - Cooking Mode</PageTitle>
@@ -108,6 +116,39 @@
                     </MudStack>
                 }
             </MudPaper>
+
+            @if (_aiCookAssistVisible)
+            {
+                <MudPaper Class="pa-4 mt-4" Elevation="2" Style="border-radius: 12px;">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" />
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Ask about this step</MudText>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3">
+                        Sends this recipe (YAML, scaled to your servings) and the current step to the assistant.
+                    </MudText>
+                    <MudTextField @bind-Value="_stepAiQuestion"
+                                  Label="Question"
+                                  Placeholder="e.g. How do I know when it's reduced enough?"
+                                  Variant="Variant.Outlined"
+                                  Lines="2"
+                                  Disabled="_stepAiBusy"
+                                  Class="mb-2" />
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Secondary"
+                               StartIcon="@Icons.Material.Filled.Send"
+                               OnClick="AskStepAiAsync"
+                               Disabled="@(_stepAiBusy || string.IsNullOrWhiteSpace(_stepAiQuestion))">
+                        @(_stepAiBusy ? "Thinking…" : "Get help")
+                    </MudButton>
+                    @if (!string.IsNullOrWhiteSpace(_stepAiReply))
+                    {
+                        <MudDivider Class="my-3" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Answer</MudText>
+                        <div class="cooking-ai-reply recipe-body">@((MarkupString)RenderStepAiMarkdown(_stepAiReply))</div>
+                    }
+                </MudPaper>
+            }
         </MudItem>
     </MudGrid>
 
@@ -163,6 +204,12 @@ else if (_loaded)
     private List<string> _completedTimers = new();
     private DotNetObjectReference<CookingMode>? _dotNetRef;
 
+    private UserProfile? _profile;
+    private bool _aiCookAssistVisible;
+    private string _stepAiQuestion = "";
+    private string _stepAiReply = "";
+    private bool _stepAiBusy;
+
     private RecipeStep CurrentStep => _navigableSteps[_currentStepIndex];
     private string? CurrentSectionHeader => GetSectionHeader(CurrentStep);
 
@@ -198,6 +245,12 @@ else if (_loaded)
                     Navigation.NavigateTo($"/recipes/{RecipeId}");
                     return;
                 }
+
+                var user = await UserService.GetCurrentUserAsync();
+                _profile = user?.Profile;
+                _aiCookAssistVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled
+                    && (_profile?.AiEnabled ?? false)
+                    && !string.IsNullOrWhiteSpace(_profile?.AiApiKey);
             }
             else
             {
@@ -222,6 +275,7 @@ else if (_loaded)
         if (_currentStepIndex < _navigableSteps.Count - 1)
         {
             _currentStepIndex++;
+            ClearStepAiState();
         }
     }
 
@@ -230,8 +284,58 @@ else if (_loaded)
         if (_currentStepIndex > 0)
         {
             _currentStepIndex--;
+            ClearStepAiState();
         }
     }
+
+    private void ClearStepAiState()
+    {
+        _stepAiReply = "";
+        _stepAiQuestion = "";
+    }
+
+    private async Task AskStepAiAsync()
+    {
+        if (_recipe == null || _profile == null || string.IsNullOrWhiteSpace(_profile.AiApiKey)) return;
+        if (string.IsNullOrWhiteSpace(_stepAiQuestion)) return;
+
+        _stepAiBusy = true;
+        _stepAiReply = "";
+        StateHasChanged();
+
+        try
+        {
+            var system = PromptBuilder.BuildCookingStepAssistSystemPrompt(_profile);
+            var userContent = RecipeCookingAiContext.BuildUserMessage(
+                _recipe,
+                _targetServings,
+                _currentStepIndex,
+                _navigableSteps,
+                GetSectionHeader(CurrentStep),
+                _stepAiQuestion.Trim(),
+                Parser);
+
+            var messages = new List<AiMessage>
+            {
+                new() { Role = "user", Content = userContent },
+            };
+
+            var reply = await AiService.SendMessageAsync(system, messages, _profile.AiApiKey, _profile.AiModel);
+            _stepAiReply = reply.Trim();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _stepAiBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string RenderStepAiMarkdown(string content) =>
+        string.IsNullOrEmpty(content) ? "" : Markdown.ToHtml(content);
 
     private string? GetSectionHeader(RecipeStep currentStep)
     {
@@ -259,7 +363,11 @@ else if (_loaded)
         };
 
         _activeTimers[timerId] = durationSeconds;
-        await JS.InvokeVoidAsync("CookingTimers.start", timerId, durationSeconds);
+        var recipeName = _recipe?.Name ?? "Recipe";
+        var stepPart = $"Step {_currentStepIndex + 1}";
+        var timerPart = timer.Label ?? $"{timer.Duration} {timer.Unit}";
+        var displayLabel = $"{recipeName} — {stepPart} — {timerPart}";
+        await JS.InvokeVoidAsync("CookingTimers.start", timerId, durationSeconds, displayLabel);
     }
 
     private async Task StopTimer(string timerId)
@@ -312,8 +420,20 @@ else if (_loaded)
             _preppedIngredients.Remove(ingredientId);
     }
 
-    private void IncrementServings() => _targetServings++;
-    private void DecrementServings() { if (_targetServings > 1) _targetServings--; }
+    private void IncrementServings()
+    {
+        _targetServings++;
+        _stepAiReply = "";
+    }
+
+    private void DecrementServings()
+    {
+        if (_targetServings > 1)
+        {
+            _targetServings--;
+            _stepAiReply = "";
+        }
+    }
 
     private void ExitCooking()
     {

@@ -11,5 +11,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.HasKey(p => p.Id);
         builder.Property(p => p.KitchenToolsJson).HasDefaultValue("[]");
         builder.Property(p => p.DietaryPreferencesJson).HasDefaultValue("[]");
+        builder.Property(p => p.AiUnitExceptions).HasMaxLength(2000);
+        builder.Property(p => p.AiEnabled).HasDefaultValue(false);
     }
 }

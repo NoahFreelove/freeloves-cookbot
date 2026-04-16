@@ -1,0 +1,87 @@
+@using CookBot.Application.Services
+@using CookBot.Domain.Entities
+@inject PantryAiPopulationService PantryAi
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Fill pantry from description (AI)</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Describe what you have in plain language. The assistant replies with a JSON array (see system prompt). You can say things like “I always keep milk on hand” without a quantity — those import as <strong>in stock</strong> (not measured). Expiration can be left blank for staples or things you do not track. Items <strong>merge</strong> into this pantry (amounts add when units convert).
+        </MudText>
+        <MudTextField @bind-Value="_text" Label="What do you have?" Variant="Variant.Outlined"
+                     Lines="8" Placeholder="e.g. Half a gallon of milk expiring next Friday, 3 cloves garlic, a big bag of AP flour (about 5 lb left)..."
+                     Disabled="_busy" Class="mb-2" />
+        @if (_busy && !string.IsNullOrEmpty(_status))
+        {
+            <MudText Typo="Typo.caption" Color="Color.Primary">@_status</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="@(_busy || string.IsNullOrWhiteSpace(_text))">
+            @(_busy ? "Working..." : "Send to AI")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public int PantryId { get; set; }
+    [Parameter] public UserProfile Profile { get; set; } = null!;
+    [Parameter] public string ApiKey { get; set; } = string.Empty;
+    [Parameter] public string? ModelId { get; set; }
+
+    private string _text = "";
+    private bool _busy;
+    private string _status = "";
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(ApiKey))
+        {
+            Snackbar.Add("Add an Anthropic API key in Profile first.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        _status = "Calling AI…";
+        StateHasChanged();
+
+        try
+        {
+            var result = await PantryAi.PopulatePantryAsync(
+                PantryId,
+                _text,
+                ApiKey,
+                ModelId,
+                Profile.UnitSystem,
+                Profile.AiUnitExceptions);
+
+            if (!result.Success)
+            {
+                Snackbar.Add(result.Error ?? "AI import failed.", Severity.Error);
+                return;
+            }
+
+            foreach (var line in result.Messages)
+                Snackbar.Add(line, Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+            _status = "";
+        }
+    }
+}

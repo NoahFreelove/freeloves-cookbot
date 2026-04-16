@@ -1,7 +1,9 @@
 @page "/pantry"
+@using CookBot.Application.DTOs
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PantryService PantryService
+@inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @rendermode InteractiveServer
@@ -16,6 +18,13 @@
                OnClick="ShowCreateSharedPantryDialog">Create Shared Pantry</MudButton>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
                OnClick="ShowAddDialog">Add Item</MudButton>
+    @if (_aiPantryToolsVisible)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.AutoAwesome"
+                   OnClick="ShowAiPopulateDialog">Fill with AI</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Tertiary" StartIcon="@Icons.Material.Filled.CleaningServices"
+                   OnClick="ShowAiStandardizeDialog">Standardize pantry</MudButton>
+    }
 </MudStack>
 
 @if (_pantries.Any())
@@ -43,7 +52,18 @@
                                  Style="border-radius: 12px;">
                         <Columns>
                             <PropertyColumn Property="x => x.Ingredient.Name" Title="Ingredient" />
-                            <PropertyColumn Property="x => x.Amount" Title="Amount" Format="F2" />
+                            <TemplateColumn Title="Amount">
+                                <CellTemplate>
+                                    @if (string.Equals(context.Item.Unit, CookBot.Application.Services.PantryAiImport.UnmeasuredUnit, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">—</MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.body2">@context.Item.Amount.ToString("F2")</MudText>
+                                    }
+                                </CellTemplate>
+                            </TemplateColumn>
                             <TemplateColumn Title="Unit">
                                 <CellTemplate>
                                     @CookBot.Application.Services.UnitParser.ToDisplayString(context.Item.Unit)
@@ -102,6 +122,8 @@ else
     private int _activePantryIndex;
     private int _previousPantryIndex = -1;
     private int? _loadedUserId;
+    private bool _aiPantryToolsVisible;
+    private UserProfile? _profile;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -111,6 +133,9 @@ else
             if (_loadedUserId != userId)
             {
                 _loadedUserId = userId;
+                var user = await UserService.GetCurrentUserAsync();
+                _profile = user?.Profile;
+                _aiPantryToolsVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled && (_profile?.AiEnabled ?? false);
                 await PantryService.EnsurePersonalPantryAsync(userId);
                 await LoadPantries();
                 _activePantryIndex = 0;
@@ -206,6 +231,63 @@ else
             await LoadPantryItems();
             _previousPantryIndex = _activePantryIndex;
         }
+    }
+
+    private async Task ShowAiPopulateDialog()
+    {
+        if (!_pantries.Any() || _profile == null) return;
+        if (string.IsNullOrWhiteSpace(_profile.AiApiKey))
+        {
+            Snackbar.Add("Add an Anthropic API key in Profile to use AI pantry fill.", Severity.Warning);
+            return;
+        }
+
+        var pantry = _pantries[_activePantryIndex];
+        var parameters = new DialogParameters<AiPopulatePantryDialog>
+        {
+            { x => x.PantryId, pantry.Id },
+            { x => x.Profile, _profile },
+            { x => x.ApiKey, _profile.AiApiKey! },
+            { x => x.ModelId, _profile.AiModel },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<AiPopulatePantryDialog>("AI pantry import", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled)
+        {
+            await LoadPantryItems();
+        }
+    }
+
+    private async Task ShowAiStandardizeDialog()
+    {
+        if (!_pantries.Any() || _profile == null) return;
+        if (string.IsNullOrWhiteSpace(_profile.AiApiKey))
+        {
+            Snackbar.Add("Add an Anthropic API key in Profile to use AI pantry tools.", Severity.Warning);
+            return;
+        }
+
+        if (!_pantryItems.Any())
+        {
+            Snackbar.Add("Add items to this pantry before standardizing.", Severity.Info);
+            return;
+        }
+
+        var pantry = _pantries[_activePantryIndex];
+        var parameters = new DialogParameters<AiStandardizePantryDialog>
+        {
+            { x => x.PantryId, pantry.Id },
+            { x => x.CurrentItems, _pantryItems },
+            { x => x.Profile, _profile },
+            { x => x.ApiKey, _profile.AiApiKey! },
+            { x => x.ModelId, _profile.AiModel },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<AiStandardizePantryDialog>("Standardize pantry", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled)
+            await LoadPantryItems();
     }
 
     private async Task ShowManageMembersDialog(Pantry pantry)

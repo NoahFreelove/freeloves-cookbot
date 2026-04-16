@@ -1,4 +1,5 @@
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@using CookBot.Application.Services
 
 <MudDialog>
     <TitleContent>
@@ -11,10 +12,13 @@
                          Dense="true" />
         <MudTextField @bind-Value="_newIngredientName" Label="Or add new ingredient"
                       Variant="Variant.Outlined" Class="mb-4" HelperText="Leave blank to use selection above" />
-        <MudNumericField @bind-Value="_amount" Label="Amount" Variant="Variant.Outlined"
-                         Min="0.01" Step="0.25" Class="mb-4" />
+        <MudNumericField T="double?" @bind-Value="_amount" Label="Amount (optional)" Variant="Variant.Outlined"
+                         Step="0.25" Class="mb-4"
+                         HelperText="Leave blank to track only that you have it (in stock), not a quantity." />
         <MudAutocomplete T="string" @bind-Value="_unit" Label="Unit" Variant="Variant.Outlined" Class="mb-4"
-                         SearchFunc="SearchUnits" CoerceValue="true" />
+                         SearchFunc="SearchUnits" CoerceValue="true"
+                         Disabled="@(!_amount.HasValue)"
+                         HelperText="@(_amount.HasValue ? null : "Not used when amount is blank.")" />
         <MudDatePicker @bind-Date="_expiration" Label="Expiration Date (optional)"
                        Variant="Variant.Outlined" Clearable="true" />
     </DialogContent>
@@ -31,7 +35,7 @@
 
     private Ingredient? _selectedIngredient;
     private string _newIngredientName = "";
-    private double _amount = 1;
+    private double? _amount;
     private string _unit = "cup";
     private DateTime? _expiration;
 
@@ -51,7 +55,9 @@
             u.Contains(value, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private bool CanSubmit => _selectedIngredient != null || !string.IsNullOrWhiteSpace(_newIngredientName);
+    private bool CanSubmit =>
+        (_selectedIngredient != null || !string.IsNullOrWhiteSpace(_newIngredientName))
+        && (!_amount.HasValue || _amount.Value > 0);
 
     private Task<IEnumerable<Ingredient>> SearchIngredients(string value, CancellationToken ct)
     {
@@ -88,7 +94,20 @@
             ingredientId = _selectedIngredient!.Id;
         }
 
-        MudDialog.Close(DialogResult.Ok(new PantryItemResult(ingredientId, _amount, _unit, _expiration)));
+        double amount;
+        string unit;
+        if (!_amount.HasValue)
+        {
+            amount = 1;
+            unit = PantryAiImport.UnmeasuredUnit;
+        }
+        else
+        {
+            amount = _amount.Value;
+            unit = string.IsNullOrWhiteSpace(_unit) ? "cup" : _unit;
+        }
+
+        MudDialog.Close(DialogResult.Ok(new PantryItemResult(ingredientId, amount, unit, _expiration)));
     }
 
     public record PantryItemResult(int IngredientId, double Amount, string Unit, DateTime? Expiration);

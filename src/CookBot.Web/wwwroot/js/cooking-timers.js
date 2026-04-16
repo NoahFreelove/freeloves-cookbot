@@ -7,10 +7,11 @@ window.CookingTimers = {
         this._dotNetRef = dotNetRef;
     },
 
-    start(timerId, durationSeconds) {
+    start(timerId, durationSeconds, displayLabel) {
         const endTime = Date.now() + (durationSeconds * 1000);
         this._timers[timerId] = {
             endTime,
+            displayLabel: displayLabel || null,
             interval: setInterval(() => {
                 const remaining = Math.max(0, endTime - Date.now());
                 const secs = Math.ceil(remaining / 1000);
@@ -18,8 +19,9 @@ window.CookingTimers = {
                     this._dotNetRef.invokeMethodAsync('OnTimerTick', timerId, secs);
                 }
                 if (secs <= 0) {
+                    const label = this._timers[timerId]?.displayLabel;
                     this.stop(timerId);
-                    this._notify(timerId);
+                    this._notify(timerId, label);
                     if (this._dotNetRef) {
                         this._dotNetRef.invokeMethodAsync('OnTimerComplete', timerId);
                     }
@@ -48,7 +50,8 @@ window.CookingTimers = {
         return Notification.permission || 'denied';
     },
 
-    _notify(timerId) {
+    _notify(timerId, displayLabel) {
+        const label = displayLabel || `Timer ${timerId}`;
         // Audio alert
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -62,7 +65,7 @@ window.CookingTimers = {
 
         // Browser notification
         if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Timer Complete!', { body: `Timer ${timerId} is done.`, icon: '/favicon.ico' });
+            new Notification('Timer complete', { body: `${label} is done.`, icon: '/favicon.ico' });
         }
     },
 
