@@ -4,7 +4,7 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JS
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -16,6 +16,9 @@
         <MudIcon Icon="@Icons.Material.Filled.RamenDining" Class="ml-2" />
         <MudText Typo="Typo.h5" Class="ml-2" Style="font-weight: 600;">CookBot</MudText>
         <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit" title="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
+                       OnClick="ToggleDarkMode" />
         @if (_users.Any())
         {
             <MudSelect T="int" Value="_selectedUserId" ValueChanged="OnUserChanged"
@@ -28,16 +31,15 @@
                 }
             </MudSelect>
         }
-        <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="mr-1 text-none"
-                   Style="color: white; text-transform: none;"
-                   StartIcon="@Icons.Material.Filled.ManageAccounts"
-                   OnClick="ShowAdminManageUsersDialog">
-            Manage users
-        </MudButton>
-        <MudTooltip Text="Add User">
-            <MudIconButton Icon="@Icons.Material.Filled.PersonAdd" Color="Color.Inherit"
-                           OnClick="ShowAddUserDialog" />
-        </MudTooltip>
+        @if (_isAdmin)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="mr-1 text-none"
+                       Style="color: white; text-transform: none;"
+                       StartIcon="@Icons.Material.Filled.ManageAccounts"
+                       OnClick="ShowAdminManageUsersDialog">
+                Manage users
+            </MudButton>
+        }
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
         <NavMenu />
@@ -55,6 +57,8 @@
     private bool _drawerOpen = true;
     private List<User> _users = new();
     private int _selectedUserId;
+    private bool _isAdmin;
+    private bool _isDarkMode;
     private MudTheme _theme = null!;
 
     [CascadingParameter]
@@ -75,6 +79,18 @@
                 DrawerText = "#3E2723",
                 TextPrimary = "#3E2723",
                 TextSecondary = "#5D4037",
+            },
+            PaletteDark = new PaletteDark
+            {
+                Primary = "#FF8A50",
+                Secondary = "#66BB6A",
+                AppbarBackground = "#B23B00",
+                Background = "#1A1510",
+                Surface = "#242018",
+                DrawerBackground = "#1E1812",
+                DrawerText = "#EFEBE9",
+                TextPrimary = "#EFEBE9",
+                TextSecondary = "#BCAAA4",
             },
             Typography = new Typography
             {
@@ -104,6 +120,8 @@
             UserService.CurrentUserId = defaultUser.Id;
             _selectedUserId = defaultUser.Id;
         }
+
+        _isAdmin = await UserService.IsCookBotAdminAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -118,6 +136,15 @@
                 {
                     UserService.CurrentUserId = savedId;
                     _selectedUserId = savedId;
+                    _isAdmin = await UserService.IsCookBotAdminAsync();
+                    StateHasChanged();
+                }
+
+                var darkPref = await JS.InvokeAsync<string?>("localStorage.getItem", "cookbot_dark_mode");
+                if (darkPref == "true")
+                {
+                    _isDarkMode = true;
+                    await JS.InvokeVoidAsync("document.body.classList.toggle", "dark-mode", true);
                     StateHasChanged();
                 }
             }
@@ -129,6 +156,13 @@
     }
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private async Task ToggleDarkMode()
+    {
+        _isDarkMode = !_isDarkMode;
+        await JS.InvokeVoidAsync("localStorage.setItem", "cookbot_dark_mode", _isDarkMode.ToString().ToLower());
+        await JS.InvokeVoidAsync("document.body.classList.toggle", "dark-mode", _isDarkMode);
+    }
 
     private async Task OnUserChanged(int userId)
     {
@@ -155,22 +189,6 @@
         UserService.CurrentUserId = userId;
         await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", userId.ToString());
         Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
-    }
-
-    private async Task ShowAddUserDialog()
-    {
-        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<AddUserDialog>("Add User", options);
-        var result = await dialog.Result;
-        if (result != null && !result.Canceled && result.Data is string name && !string.IsNullOrWhiteSpace(name))
-        {
-            var user = await UserService.CreateUserAsync(name);
-            _users = await UserService.GetAllUsersAsync();
-            _selectedUserId = user.Id;
-            UserService.CurrentUserId = user.Id;
-            await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", user.Id.ToString());
-            StateHasChanged();
-        }
     }
 
     private async Task ShowAdminManageUsersDialog()

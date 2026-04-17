@@ -189,10 +189,15 @@ steps:
   - text: ""Step instruction with [ingredient name](#1).""
   - section: ""Section header""
   - text: ""Another step, bake for 25 minutes.""
+    timers:
+      - duration: 25
+        unit: min
+        label: ""bake""
 ---
 ```
 
 Use [ingredient name](#id) links in step text to reference ingredients by their ID.
+Steps may have a `timers` list with `duration` (int), `unit` (`min`/`hr`/`sec`, default `min`), and optional `label`. Include timers whenever a step has a meaningful wait time.
 If you can't follow this exact format, plain numbered steps are fine — the app will parse them.";
     }
 
@@ -278,10 +283,15 @@ If you can't follow this exact format, plain numbered steps are fine — the app
         sb.AppendLine("  - text: \"Step instruction with [ingredient name](#1).\"");
         sb.AppendLine("  - section: \"Section header\"");
         sb.AppendLine("  - text: \"Another step, bake for 25 minutes.\"");
+        sb.AppendLine("    timers:");
+        sb.AppendLine("      - duration: 25");
+        sb.AppendLine("        unit: min");
+        sb.AppendLine("        label: \"bake\"");
         sb.AppendLine("---");
         sb.AppendLine("```");
         sb.AppendLine();
         sb.AppendLine("Each ingredient has a unique `id`. Use `[display name](#id)` links in step text to reference ingredients.");
+        sb.AppendLine("Steps may have a `timers` list with `duration` (int), `unit` (`min`/`hr`/`sec`, default `min`), and optional `label`. Include timers whenever a step has a meaningful wait time.");
         sb.AppendLine("If you can't follow this exact format, plain numbered steps are fine — the app will parse them.");
         sb.AppendLine();
 

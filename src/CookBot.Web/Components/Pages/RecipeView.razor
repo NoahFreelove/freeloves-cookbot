@@ -1,5 +1,6 @@
 @page "/recipes/{RecipeId:int}"
 @using CookBot.Application.Services
+@using CookBot.Infrastructure.Data
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CurrentUserService UserService
 @inject CookBot.Application.Services.GroceryListService GroceryListService
@@ -104,12 +105,16 @@
                 {
                     @if (step.IsSection)
                     {
-                        <MudText Typo="Typo.h6" Class="mt-4 mb-2">@step.Text</MudText>
+                        <MudText Typo="Typo.h6" Class="mt-4 mb-2 recipe-body">
+                            @((MarkupString)RecipeStepTextFormatter.ToHtml(step.Text))
+                        </MudText>
                     }
                     else
                     {
                         <MudPaper Class="pa-3 mb-2" Elevation="0" Outlined="true">
-                            <MudText>@step.Text</MudText>
+                            <div class="recipe-body" style="line-height: 1.6;">
+                                @((MarkupString)RecipeStepTextFormatter.ToHtml(step.Text))
+                            </div>
                             @foreach (var timer in step.Timers)
                             {
                                 <MudChip T="string" Color="Color.Primary" Size="Size.Small" Class="mt-1">
@@ -125,7 +130,7 @@
 }
 else if (_loaded)
 {
-    <MudText>Recipe not found.</MudText>
+    <MudText>Recipe not found or you do not have access.</MudText>
 }
 </UserGuard>
 
@@ -138,6 +143,21 @@ else if (_loaded)
     private List<string> _tags = new();
 
     private bool _initialized;
+    private int _boundRecipeId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if (_boundRecipeId != RecipeId)
+        {
+            _boundRecipeId = RecipeId;
+            _initialized = false;
+            _recipe = null;
+            _loaded = false;
+            _tags = new();
+            _targetServings = 1;
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -147,25 +167,25 @@ else if (_loaded)
         if (!_initialized)
         {
             _initialized = true;
-            _recipe = await DbContext.Recipes
-                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-                .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
-                .FirstOrDefaultAsync(r => r.Id == RecipeId);
 
-            if (_recipe != null)
+            if (!await DbContext.UserCanAccessRecipeAsync(RecipeId, userId))
             {
-                var isOwner = _recipe.Cookbook.UserId == userId;
-                var isShared = _recipe.Cookbook.Shares.Any(s => s.SharedWithUserId == userId);
-                if (!isOwner && !isShared)
-                {
-                    _recipe = null;
-                }
-                else
+                _recipe = null;
+            }
+            else
+            {
+                _recipe = await DbContext.Recipes
+                    .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                    .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
+                    .FirstOrDefaultAsync(r => r.Id == RecipeId);
+
+                if (_recipe != null)
                 {
                     _targetServings = _recipe.Servings;
                     _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(_recipe.TagsJson) ?? new();
                 }
             }
+
             _loaded = true;
             StateHasChanged();
         }

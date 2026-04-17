@@ -59,10 +59,10 @@ public class AnthropicAiService : IAiService
             .ToList();
     }
 
-    public async Task<string> SendMessageAsync(string systemPrompt, List<AiMessage> messages, string? apiKey = null, string? modelId = null)
+    public async Task<string> SendMessageAsync(string systemPrompt, List<AiMessage> messages, string? apiKey = null, string? modelId = null, int maxTokens = 4096)
     {
         using var http = CreateHttpClient(apiKey);
-        var payload = BuildPayload(systemPrompt, messages, modelId, stream: false);
+        var payload = BuildPayload(systemPrompt, messages, modelId, stream: false, maxTokens);
         var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
         var response = await http.PostAsync("https://api.anthropic.com/v1/messages", content);
         var body = await response.Content.ReadAsStringAsync();
@@ -92,10 +92,10 @@ public class AnthropicAiService : IAiService
         using var stream = await response.Content.ReadAsStreamAsync(default);
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream)
+        while (true)
         {
             var line = await reader.ReadLineAsync(default);
-            if (line == null) break;
+            if (line is null) break;
             if (!line.StartsWith("data: ")) continue;
 
             var data = line["data: ".Length..];
@@ -144,14 +144,14 @@ public class AnthropicAiService : IAiService
         }
     }
 
-    private static Dictionary<string, object> BuildPayload(string systemPrompt, List<AiMessage> messages, string? modelId, bool stream)
+    private static Dictionary<string, object> BuildPayload(string systemPrompt, List<AiMessage> messages, string? modelId, bool stream, int maxTokens = 4096)
     {
         var payload = new Dictionary<string, object>
         {
             ["model"] = modelId ?? DefaultModelId,
             ["system"] = systemPrompt,
             ["messages"] = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
-            ["max_tokens"] = 4096,
+            ["max_tokens"] = maxTokens,
         };
         if (stream)
             payload["stream"] = true;

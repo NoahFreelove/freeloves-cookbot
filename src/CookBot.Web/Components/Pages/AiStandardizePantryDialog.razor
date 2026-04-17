@@ -16,6 +16,10 @@
         {
             <MudText Typo="Typo.caption" Color="Color.Primary">@_status</MudText>
         }
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-2" Style="white-space:pre-wrap;word-break:break-all;">@_error</MudAlert>
+        }
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
@@ -38,6 +42,7 @@
 
     private bool _busy;
     private string _status = "";
+    private string _error = "";
 
     private void Cancel() => MudDialog.Cancel();
 
@@ -51,6 +56,7 @@
 
         _busy = true;
         _status = "Calling AI…";
+        _error = "";
         StateHasChanged();
 
         try
@@ -65,7 +71,7 @@
 
             if (!result.Success)
             {
-                Snackbar.Add(result.Error ?? "Standardize failed.", Severity.Error);
+                _error = result.Error ?? "Standardize failed.";
                 return;
             }
 

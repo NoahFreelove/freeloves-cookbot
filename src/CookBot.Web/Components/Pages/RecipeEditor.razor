@@ -210,9 +210,11 @@
             _isEdit = true;
             _existingRecipe = await DbContext.Recipes
                 .Include(r => r.Cookbook)
-                .Include(r => r.Steps.OrderBy(s => s.Order))
+                .Include(r => r.Steps)
                 .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
                 .FirstOrDefaultAsync(r => r.Id == RecipeId);
+            if (_existingRecipe != null)
+                _existingRecipe.Steps = _existingRecipe.Steps.OrderBy(s => s.Order).ToList();
             if (_existingRecipe != null)
             {
                 if (_existingRecipe.Cookbook.UserId != userId)

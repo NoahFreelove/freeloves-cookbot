@@ -62,7 +62,10 @@ public class RecipeService
                 Order = order++,
                 Text = ps.Text,
                 IsSection = ps.IsSection,
-                Timers = ps.IsSection ? new() : TimerDetectionService.DetectTimers(ps.Text),
+                Timers = ps.IsSection ? new() :
+                    (ps.Timers?.Any() == true
+                        ? ps.Timers.Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList()
+                        : TimerDetectionService.DetectTimers(ps.Text)),
                 IngredientRefs = ps.IsSection ? new() : IngredientRefDetectionService.DetectRefs(ps.Text, parsed.Ingredients),
             };
             recipe.Steps.Add(step);
@@ -119,7 +122,10 @@ public class RecipeService
                 Order = order++,
                 Text = ps.Text,
                 IsSection = ps.IsSection,
-                Timers = ps.IsSection ? new() : TimerDetectionService.DetectTimers(ps.Text),
+                Timers = ps.IsSection ? new() :
+                    (ps.Timers?.Any() == true
+                        ? ps.Timers.Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList()
+                        : TimerDetectionService.DetectTimers(ps.Text)),
                 IngredientRefs = ps.IsSection ? new() : IngredientRefDetectionService.DetectRefs(ps.Text, parsed.Ingredients),
             };
             recipe.Steps.Add(step);

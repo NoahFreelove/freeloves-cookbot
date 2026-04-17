@@ -10,6 +10,10 @@ html, body {
     color: #3E2723;
 }
 
+body.dark-mode .recipe-body h2, body.dark-mode .recipe-body h3 {
+    color: #EFEBE9;
+}
+
 .recipe-body ol, .recipe-body ul {
     padding-left: 1.5rem;
 }
@@ -19,12 +23,14 @@ html, body {
     line-height: 1.6;
 }
 
+.recipe-body .ingredient-ref,
 .recipe-body a.ingredient-ref {
-    color: #E65100;
+    color: var(--mud-palette-secondary, #E65100);
     font-weight: 600;
     text-decoration: none;
-    border-bottom: 1px dashed #E65100;
-    cursor: help;
+    border-bottom: 1px dashed var(--mud-palette-secondary, #E65100);
+    cursor: default;
+    white-space: normal;
 }
 
 #blazor-error-ui {

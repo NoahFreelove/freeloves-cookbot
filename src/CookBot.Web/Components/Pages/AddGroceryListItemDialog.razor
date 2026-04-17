@@ -1,0 +1,93 @@
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@using CookBot.Application.Services
+
+<MudDialog>
+    <DialogContent>
+        <MudAutocomplete T="Ingredient" @bind-Value="_selectedIngredient"
+                         SearchFunc="SearchIngredients" ToStringFunc="@(i => i?.Name ?? "")"
+                         Label="Ingredient" Variant="Variant.Outlined" Class="mb-4"
+                         Dense="true" />
+        <MudTextField @bind-Value="_newIngredientName" Label="Or add new ingredient"
+                      Variant="Variant.Outlined" Class="mb-4" HelperText="Leave blank to use selection above" />
+        <MudNumericField T="double" @bind-Value="_amount" Label="Amount" Variant="Variant.Outlined"
+                         Step="0.25" Min="0.01" Class="mb-4" />
+        <MudAutocomplete T="string" @bind-Value="_unit" Label="Unit" Variant="Variant.Outlined" Class="mb-4"
+                         SearchFunc="SearchUnits" CoerceValue="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
+                   Disabled="@(!CanSubmit)">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public List<Ingredient> Ingredients { get; set; } = new();
+
+    private Ingredient? _selectedIngredient;
+    private string _newIngredientName = "";
+    private double _amount = 1;
+    private string _unit = "piece";
+
+    private static readonly string[] CommonUnits = new[]
+    {
+        "tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon",
+        "ml", "liter", "oz", "lb", "g", "kg", "pinch", "dash",
+        "piece", "slice", "clove", "bunch", "can", "bottle", "bag"
+    };
+
+    private Task<IEnumerable<string>> SearchUnits(string value, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Task.FromResult(CommonUnits.AsEnumerable());
+
+        return Task.FromResult(CommonUnits.Where(u =>
+            u.Contains(value, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private bool CanSubmit =>
+        (_selectedIngredient != null || !string.IsNullOrWhiteSpace(_newIngredientName))
+        && _amount > 0;
+
+    private Task<IEnumerable<Ingredient>> SearchIngredients(string value, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Task.FromResult(Ingredients.AsEnumerable());
+
+        return Task.FromResult(Ingredients.Where(i =>
+            i.Name.Contains(value, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        int ingredientId;
+        if (!string.IsNullOrWhiteSpace(_newIngredientName))
+        {
+            var normalized = IngredientResolver.Normalize(_newIngredientName);
+            var existing = await DbContext.Ingredients.FirstOrDefaultAsync(i => i.NormalizedName == normalized);
+            if (existing != null)
+            {
+                ingredientId = existing.Id;
+            }
+            else
+            {
+                var newIng = new Ingredient { Name = _newIngredientName.Trim(), NormalizedName = normalized };
+                DbContext.Ingredients.Add(newIng);
+                await DbContext.SaveChangesAsync();
+                ingredientId = newIng.Id;
+            }
+        }
+        else
+        {
+            ingredientId = _selectedIngredient!.Id;
+        }
+
+        var unit = string.IsNullOrWhiteSpace(_unit) ? "piece" : _unit.Trim();
+        MudDialog.Close(DialogResult.Ok(new GroceryItemResult(ingredientId, Math.Round(_amount, 2), unit)));
+    }
+
+    public record GroceryItemResult(int IngredientId, double Amount, string Unit);
+}

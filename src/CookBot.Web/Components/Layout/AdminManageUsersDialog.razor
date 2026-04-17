@@ -45,6 +45,10 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
+        @if (_isAdmin)
+        {
+            <MudButton StartIcon="@Icons.Material.Filled.PersonAdd" Color="Color.Primary" OnClick="ShowAddUserDialog">Add User</MudButton>
+        }
         <MudButton OnClick="Close">Close</MudButton>
     </DialogActions>
 </MudDialog>
@@ -64,6 +68,20 @@
     }
 
     private void Close() => MudDialog.Close();
+
+    private async Task ShowAddUserDialog()
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<AddUserDialog>("Add User", options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled && result.Data is string name && !string.IsNullOrWhiteSpace(name))
+        {
+            await UserService.CreateUserAsync(name);
+            _users = await UserService.GetAllUsersAsync();
+            await OnUsersChanged.InvokeAsync();
+            StateHasChanged();
+        }
+    }
 
     private async Task ConfirmDeleteUser(User user)
     {

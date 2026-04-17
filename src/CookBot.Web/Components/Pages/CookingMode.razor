@@ -3,6 +3,7 @@
 @using CookBot.Application.DTOs
 @using CookBot.Application.Services
 @using CookBot.Domain.Interfaces
+@using CookBot.Infrastructure.Data
 @using Markdig
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IJSRuntime JS
@@ -48,11 +49,13 @@
 
                 @if (CurrentSectionHeader != null)
                 {
-                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Class="mb-2">@CurrentSectionHeader</MudText>
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Class="mb-2 recipe-body">
+                        @((MarkupString)RecipeStepTextFormatter.ToHtml(CurrentSectionHeader))
+                    </MudText>
                 }
 
-                <MudText Typo="Typo.h4" Style="font-weight: 500; line-height: 1.6;" Class="mb-4">
-                    @CurrentStep.Text
+                <MudText Typo="Typo.h4" Style="font-weight: 500; line-height: 1.6;" Class="mb-4 recipe-body">
+                    @((MarkupString)RecipeStepTextFormatter.ToHtml(CurrentStep.Text))
                 </MudText>
 
                 @if (CurrentStep.Timers.Any())
@@ -60,7 +63,7 @@
                     <MudStack Row="true" Spacing="2" Class="mb-4" Wrap="Wrap.Wrap">
                         @foreach (var timer in CurrentStep.Timers)
                         {
-                            var timerId = $"step{CurrentStep.Order}_{timer.Label ?? timer.Duration.ToString()}_{timer.Unit}";
+                            var timerId = $"step{_currentStepIndex + 1}_{timer.Label ?? timer.Duration.ToString()}_{timer.Unit}";
                             var isActive = _activeTimers.ContainsKey(timerId);
                             <MudButton Variant="@(isActive ? Variant.Filled : Variant.Outlined)"
                                        Color="Color.Primary"
@@ -92,6 +95,40 @@
                     </MudButton>
                 </MudStack>
             </MudPaper>
+
+            @if (_aiCookAssistVisible)
+            {
+                <MudPaper Class="pa-4 mt-4" Elevation="2" Style="border-radius: 12px;">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" />
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Ask about this step</MudText>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3">
+                        Sends this recipe (YAML, scaled to your servings) and the current step to the assistant.
+                    </MudText>
+                    <MudTextField @bind-Value="_stepAiQuestion"
+                                  Label="Question"
+                                  Placeholder="e.g. How do I know when it's reduced enough?"
+                                  Variant="Variant.Outlined"
+                                  Lines="2"
+                                  Disabled="_stepAiBusy"
+                                  Class="mb-2"
+                                  FullWidth="true" />
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Secondary"
+                               StartIcon="@Icons.Material.Filled.Send"
+                               OnClick="AskStepAiAsync"
+                               Disabled="@(_stepAiBusy || string.IsNullOrWhiteSpace(_stepAiQuestion))">
+                        @(_stepAiBusy ? "Thinking…" : "Get help")
+                    </MudButton>
+                    @if (!string.IsNullOrWhiteSpace(_stepAiReply))
+                    {
+                        <MudDivider Class="my-3" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Answer</MudText>
+                        <div class="cooking-ai-reply recipe-body">@((MarkupString)RenderStepAiMarkdown(_stepAiReply))</div>
+                    }
+                </MudPaper>
+            }
         </MudItem>
 
         @* Ingredient sidebar *@
@@ -117,39 +154,6 @@
                     </MudStack>
                 }
             </MudPaper>
-
-            @if (_aiCookAssistVisible)
-            {
-                <MudPaper Class="pa-4 mt-4" Elevation="2" Style="border-radius: 12px;">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
-                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" />
-                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Ask about this step</MudText>
-                    </MudStack>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3">
-                        Sends this recipe (YAML, scaled to your servings) and the current step to the assistant.
-                    </MudText>
-                    <MudTextField @bind-Value="_stepAiQuestion"
-                                  Label="Question"
-                                  Placeholder="e.g. How do I know when it's reduced enough?"
-                                  Variant="Variant.Outlined"
-                                  Lines="2"
-                                  Disabled="_stepAiBusy"
-                                  Class="mb-2" />
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Secondary"
-                               StartIcon="@Icons.Material.Filled.Send"
-                               OnClick="AskStepAiAsync"
-                               Disabled="@(_stepAiBusy || string.IsNullOrWhiteSpace(_stepAiQuestion))">
-                        @(_stepAiBusy ? "Thinking…" : "Get help")
-                    </MudButton>
-                    @if (!string.IsNullOrWhiteSpace(_stepAiReply))
-                    {
-                        <MudDivider Class="my-3" />
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Answer</MudText>
-                        <div class="cooking-ai-reply recipe-body">@((MarkupString)RenderStepAiMarkdown(_stepAiReply))</div>
-                    }
-                </MudPaper>
-            }
         </MudItem>
     </MudGrid>
 
@@ -212,8 +216,43 @@ else if (_loaded)
     private string _stepAiReply = "";
     private bool _stepAiBusy;
 
+    private int _boundRecipeId;
+
     private RecipeStep CurrentStep => _navigableSteps[_currentStepIndex];
     private string? CurrentSectionHeader => GetSectionHeader(CurrentStep);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if (_boundRecipeId != RecipeId)
+        {
+            _boundRecipeId = RecipeId;
+            if (_dotNetRef != null)
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("CookingTimers.dispose");
+                }
+                catch (JSDisconnectedException) { }
+                _dotNetRef.Dispose();
+                _dotNetRef = null;
+            }
+
+            _initialized = false;
+            _recipe = null;
+            _loaded = false;
+            _currentStepIndex = 0;
+            _targetServings = 1;
+            _navigableSteps = new();
+            _allSteps = new();
+            _preppedIngredients = new();
+            _activeTimers = new();
+            _completedTimers = new();
+            _stepAiQuestion = "";
+            _stepAiReply = "";
+            _stepAiBusy = false;
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -223,43 +262,40 @@ else if (_loaded)
         if (!_initialized)
         {
             _initialized = true;
+
+            if (!await DbContext.UserCanAccessRecipeAsync(RecipeId, userId))
+            {
+                Navigation.NavigateTo("/cookbooks");
+                return;
+            }
+
             _recipe = await DbContext.Recipes
                 .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
                 .FirstOrDefaultAsync(r => r.Id == RecipeId);
 
-            if (_recipe != null)
-            {
-                var isOwner = _recipe.Cookbook.UserId == userId;
-                var isShared = _recipe.Cookbook.Shares.Any(s => s.SharedWithUserId == userId);
-                if (!isOwner && !isShared)
-                {
-                    Navigation.NavigateTo("/cookbooks");
-                    return;
-                }
-
-                _targetServings = _recipe.Servings;
-                _allSteps = _recipe.Steps.OrderBy(s => s.Order).ToList();
-                _navigableSteps = _allSteps.Where(s => !s.IsSection).ToList();
-
-                if (!_navigableSteps.Any())
-                {
-                    Navigation.NavigateTo($"/recipes/{RecipeId}");
-                    return;
-                }
-
-                var user = await UserService.GetCurrentUserAsync();
-                _profile = user?.Profile;
-                _aiCredentials = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
-                _aiCookAssistVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled
-                    && (_profile?.AiEnabled ?? false)
-                    && _aiCredentials != null;
-            }
-            else
+            if (_recipe == null)
             {
                 Navigation.NavigateTo("/cookbooks");
                 return;
             }
+
+            _targetServings = _recipe.Servings;
+            _allSteps = _recipe.Steps.OrderBy(s => s.Order).ToList();
+            _navigableSteps = _allSteps.Where(s => !s.IsSection).ToList();
+
+            if (!_navigableSteps.Any())
+            {
+                Navigation.NavigateTo($"/recipes/{RecipeId}");
+                return;
+            }
+
+            var user = await UserService.GetCurrentUserAsync();
+            _profile = user?.Profile;
+            _aiCredentials = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
+            _aiCookAssistVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled
+                && (_profile?.AiEnabled ?? false)
+                && _aiCredentials != null;
 
             _loaded = true;
             StateHasChanged();
@@ -412,7 +448,10 @@ else if (_loaded)
     private static string GetTimerLabel(string timerId)
     {
         var parts = timerId.Split('_');
-        return parts.Length > 1 ? parts[1] : timerId;
+        if (parts.Length < 2) return timerId;
+        var stepNum = parts[0].Replace("step", "");
+        var label = parts[1];
+        return $"Step {stepNum} \u2014 {label}";
     }
 
     private void TogglePrepped(int ingredientId, bool isPrepped)

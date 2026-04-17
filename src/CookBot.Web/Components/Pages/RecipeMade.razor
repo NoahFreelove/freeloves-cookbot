@@ -1,4 +1,5 @@
 @page "/recipes/{RecipeId:int}/made"
+@using CookBot.Infrastructure.Data
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PantryService PantryService
@@ -8,6 +9,7 @@
 
 <PageTitle>CookBot - I Made This!</PageTitle>
 
+<UserGuard>
 @if (_recipe != null)
 {
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
@@ -58,6 +60,11 @@
         </MudStack>
     </MudPaper>
 }
+else if (_loaded)
+{
+    <MudText>Recipe not found or you do not have access.</MudText>
+}
+</UserGuard>
 
 @code {
     [Parameter] public int RecipeId { get; set; }
@@ -65,14 +72,46 @@
     private double _servingsMultiplier = 1.0;
     private bool _deducted;
     private int _deductedCount;
+    private bool _loaded;
+    private bool _initialized;
+    private int _boundRecipeId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if (_boundRecipeId != RecipeId)
+        {
+            _boundRecipeId = RecipeId;
+            _initialized = false;
+            _recipe = null;
+            _loaded = false;
+            _deducted = false;
+            _deductedCount = 0;
+            _servingsMultiplier = 1.0;
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
+        if (!_initialized)
         {
-            _recipe = await DbContext.Recipes
-                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-                .FirstOrDefaultAsync(r => r.Id == RecipeId);
+            _initialized = true;
+
+            if (!await DbContext.UserCanAccessRecipeAsync(RecipeId, userId))
+            {
+                _recipe = null;
+            }
+            else
+            {
+                _recipe = await DbContext.Recipes
+                    .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                    .FirstOrDefaultAsync(r => r.Id == RecipeId);
+            }
+
+            _loaded = true;
             StateHasChanged();
         }
     }

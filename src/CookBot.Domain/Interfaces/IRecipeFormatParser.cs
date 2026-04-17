@@ -15,6 +15,14 @@ public class ParsedStep
 {
     public string Text { get; set; } = string.Empty;
     public bool IsSection { get; set; }
+    public List<ParsedTimer>? Timers { get; set; }
+}
+
+public class ParsedTimer
+{
+    public int Duration { get; set; }
+    public string Unit { get; set; } = "min";
+    public string? Label { get; set; }
 }
 
 public class ParsedIngredient

@@ -560,7 +560,10 @@ public class PantryAiPopulationService
 
         var json = ExtractJsonArray(raw);
         if (json == null)
-            return PantryAiPopulationResult.Failed("Could not find a JSON array in the assistant reply. Try again with a simpler list.");
+        {
+            var preview = raw.Length > 500 ? raw[..500] + "…" : raw;
+            return PantryAiPopulationResult.Failed($"Could not find a JSON array in the assistant reply. Try again with a simpler list.\n\nRaw reply:\n{preview}");
+        }
 
         if (!TryDeserializeRows(json, out var dtos, out var parseErr))
             return PantryAiPopulationResult.Failed($"Invalid JSON: {parseErr}");
@@ -623,7 +626,7 @@ public class PantryAiPopulationService
         string raw;
         try
         {
-            raw = await _ai.SendMessageAsync(system, messages, apiKey, modelId).WaitAsync(cancellationToken);
+            raw = await _ai.SendMessageAsync(system, messages, apiKey, modelId, maxTokens: 8192).WaitAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -632,7 +635,10 @@ public class PantryAiPopulationService
 
         var json = ExtractJsonArray(raw);
         if (json == null)
-            return PantryAiPopulationResult.Failed("Could not find a JSON array in the assistant reply. Try again.");
+        {
+            var preview = raw.Length > 500 ? raw[..500] + "…" : raw;
+            return PantryAiPopulationResult.Failed($"Could not find a JSON array in the assistant reply.\n\nRaw reply:\n{preview}");
+        }
 
         if (!TryDeserializeRows(json, out var dtos, out var parseErr))
             return PantryAiPopulationResult.Failed($"Invalid JSON: {parseErr}");

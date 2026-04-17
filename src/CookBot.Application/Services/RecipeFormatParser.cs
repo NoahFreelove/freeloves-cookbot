@@ -55,7 +55,17 @@ public class RecipeFormatParser : IRecipeFormatParser
                 }
                 else
                 {
-                    steps.Add(new ParsedStep { Text = step.Text ?? string.Empty, IsSection = false });
+                    steps.Add(new ParsedStep
+                    {
+                        Text = step.Text ?? string.Empty,
+                        IsSection = false,
+                        Timers = step.Timers?.Select(t => new ParsedTimer
+                        {
+                            Duration = t.Duration,
+                            Unit = t.Unit ?? "min",
+                            Label = t.Label,
+                        }).ToList(),
+                    });
                 }
             }
         }
@@ -111,7 +121,18 @@ public class RecipeFormatParser : IRecipeFormatParser
             }).ToList(),
             Steps = recipe.Steps.Select(s => s.IsSection
                 ? new StepFrontmatter { Section = s.Text }
-                : new StepFrontmatter { Text = s.Text }
+                : new StepFrontmatter
+                {
+                    Text = s.Text,
+                    Timers = s.Timers?.Any() == true
+                        ? s.Timers.Select(t => new TimerFrontmatter
+                        {
+                            Duration = t.Duration,
+                            Unit = t.Unit,
+                            Label = t.Label,
+                        }).ToList()
+                        : null,
+                }
             ).ToList(),
         };
 
@@ -188,5 +209,13 @@ public class RecipeFormatParser : IRecipeFormatParser
     {
         public string? Text { get; set; }
         public string? Section { get; set; }
+        public List<TimerFrontmatter>? Timers { get; set; }
+    }
+
+    private class TimerFrontmatter
+    {
+        public int Duration { get; set; }
+        public string? Unit { get; set; }
+        public string? Label { get; set; }
     }
 }
