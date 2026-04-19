@@ -12,6 +12,8 @@
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4" Style="font-weight: 600;">My Cookbooks</MudText>
     <MudSpacer />
+    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Upload"
+               OnClick="ShowImportDialog">Import</MudButton>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
                OnClick="ShowCreateDialog">New Cookbook</MudButton>
 </MudStack>
@@ -207,7 +209,14 @@ else
             { x => x.CookbookName, cookbook.Name },
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        await DialogService.ShowAsync<ShareCookbookDialog>("Share Cookbook", parameters, options);
+        await DialogService.ShowAsync<ShareCookbookDialog>("Share & export cookbook", parameters, options);
+        await LoadCookbooks();
+    }
+
+    private async Task ShowImportDialog()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        await DialogService.ShowAsync<ImportCookbookDialog>("Import cookbook", options);
         await LoadCookbooks();
     }
 }

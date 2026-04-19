@@ -4,6 +4,9 @@
 @inject NavigationManager Navigation
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject CookbookTransferService TransferService
+@inject CookbookPdfService PdfService
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>CookBot - @(_cookbook?.Name ?? "Cookbook")</PageTitle>
@@ -24,6 +27,15 @@
             </MudText>
         }
         <MudSpacer />
+        <MudMenu Icon="@Icons.Material.Filled.MoreVert" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
+                 AriaLabel="Cookbook actions">
+            <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="DownloadPdfAsync" Disabled="_exportBusy">
+                Download PDF
+            </MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Filled.DataObject" OnClick="DownloadJsonAsync" Disabled="_exportBusy">
+                Download JSON
+            </MudMenuItem>
+        </MudMenu>
         @if (!_isReadOnly)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
@@ -106,6 +118,7 @@ else if (_loaded)
     private Cookbook? _cookbook;
     private bool _loaded;
     private bool _isReadOnly;
+    private bool _exportBusy;
 
     private int? _loadedUserId;
 
@@ -145,6 +158,36 @@ else if (_loaded)
     private void GoBack() => Navigation.NavigateTo("/cookbooks");
     private void NewRecipe() => Navigation.NavigateTo($"/cookbooks/{CookbookId}/recipes/new");
     private void ViewRecipe(int id) => Navigation.NavigateTo($"/recipes/{id}");
+
+    private async Task DownloadPdfAsync()
+    {
+        if (_cookbook == null || !UserService.CurrentUserId.HasValue) return;
+        _exportBusy = true;
+        try
+        {
+            await CookbookDownloadHelper.TryDownloadPdfAsync(
+                TransferService, PdfService, JS, CookbookId, UserService.CurrentUserId.Value, Snackbar);
+        }
+        finally
+        {
+            _exportBusy = false;
+        }
+    }
+
+    private async Task DownloadJsonAsync()
+    {
+        if (_cookbook == null || !UserService.CurrentUserId.HasValue) return;
+        _exportBusy = true;
+        try
+        {
+            await CookbookDownloadHelper.TryDownloadJsonAsync(
+                TransferService, JS, CookbookId, UserService.CurrentUserId.Value, Snackbar);
+        }
+        finally
+        {
+            _exportBusy = false;
+        }
+    }
 
     private async Task DeleteRecipe(Recipe recipe)
     {

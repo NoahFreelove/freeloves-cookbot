@@ -47,6 +47,16 @@ public static class RecipeStepTextFormatter
         return sb.ToString();
     }
 
+    /// <summary>Plain text for print/PDF: strips ingredient link markup to the visible label.</summary>
+    public static string ToPlainText(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return "";
+
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
+        return IngredientLinkPattern.Replace(normalized, m => m.Groups[1].Value);
+    }
+
     private static string EncodeWithLineBreaks(ReadOnlySpan<char> span)
     {
         var s = span.ToString();

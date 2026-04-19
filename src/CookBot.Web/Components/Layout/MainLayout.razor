@@ -16,9 +16,6 @@
         <MudIcon Icon="@Icons.Material.Filled.RamenDining" Class="ml-2" />
         <MudText Typo="Typo.h5" Class="ml-2" Style="font-weight: 600;">CookBot</MudText>
         <MudSpacer />
-        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                       Color="Color.Inherit" title="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
-                       OnClick="ToggleDarkMode" />
         @if (_users.Any())
         {
             <MudSelect T="int" Value="_selectedUserId" ValueChanged="OnUserChanged"
@@ -40,6 +37,9 @@
                 Manage users
             </MudButton>
         }
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit" title="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
+                       OnClick="ToggleDarkMode" Edge="Edge.End" />
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
         <NavMenu />
