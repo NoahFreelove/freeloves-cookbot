@@ -25,4 +25,8 @@
     <ProjectReference Include="..\..\src\CookBot.Infrastructure\CookBot.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
