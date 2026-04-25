@@ -17,7 +17,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
 
 **Execution order:** Phase 1 → (Phase 2 ∥ Phase 3) → Phase 4. Phase 2 and Phase 3 may run in parallel once Phase 1 ships, because the chip composer (Phase 3) only depends on the canonical schema and parser landing in Phase 1, not on AI conformance work.
 
-- [ ] **Phase 1: Canonical Format Foundation** — One versioned `RecipeDocument` is the source of truth across YAML, JSON export, DB, and AI prompt; legacy data migrates cleanly with backups
+- [x] **Phase 1: Canonical Format Foundation** — One versioned `RecipeDocument` is the source of truth across YAML, JSON export, DB, and AI prompt; legacy data migrates cleanly with backups (completed 2026-04-25)
 - [ ] **Phase 2: AI Structured Output & Conformance** — Anthropic emits the canonical format via token-level constrained decoding, with bounded repair, key redaction, and prompt-injection defense
 - [ ] **Phase 3: Editor UX Without Special Syntax** — Users author recipes via an ingredient-chip composer and explicit step/section toggles; no manual `[name](#id)` markdown, no silent timer rewrites
 - [ ] **Phase 4: Format-Driven New Field & Cleanup** — Per-step temperature ships end-to-end (schema → upcaster → editor → cooking mode → AI), tags become relational, throwaway helpers retire, format pattern documented
@@ -35,10 +35,10 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
   4. The system prompt assembled by `PromptBuilderService` reads from a single `RecipeSchemaDocumentationProvider`; the duplicated format-spec strings at lines 168–202 and 262–296 are deleted, the opt-out clause is gone, and a snapshot test plus lint denylist (`fallback`, `informal`, `plain numbered`) prevent regression.
   5. A v1 install reading a fictional v3 recipe captures unknown fields into `Extras` and round-trips them through edit/save without data loss (forward-compat tolerance).
 **Plans**: 4 plans
-  - [ ] 01-01-PLAN.md — Canonical schema + serializers + schema provider + validator + upcaster scaffold + JsonSchema.Net package (Wave 1)
-  - [ ] 01-02-PLAN.md — Parser rewrite + IngredientRefDetectionService cleanup + RecipeStep.IngredientRefs writes retired (Wave 2)
-  - [ ] 01-03-PLAN.md — EF migration + IDatabaseBackupService + LegacyRecipeProjector + DatabaseSeeder rewrite + RecipeService canonical-write + smoke test (Wave 3)
-  - [ ] 01-04-PLAN.md — PromptBuilderService consolidation + snapshot test + lint denylist + round-trip fixture suite + unit tests (Wave 3)
+  - [x] 01-01-PLAN.md — Canonical schema + serializers + schema provider + validator + upcaster scaffold + JsonSchema.Net package (Wave 1)
+  - [x] 01-02-PLAN.md — Parser rewrite + IngredientRefDetectionService cleanup + RecipeStep.IngredientRefs writes retired (Wave 2)
+  - [x] 01-03-PLAN.md — EF migration + IDatabaseBackupService + LegacyRecipeProjector + DatabaseSeeder rewrite + RecipeService canonical-write + smoke test (Wave 3)
+  - [x] 01-04-PLAN.md — PromptBuilderService consolidation + snapshot test + lint denylist + round-trip fixture suite + unit tests (Wave 3)
 
 ### Phase 2: AI Structured Output & Conformance
 **Goal**: Anthropic Claude emits canonical recipes via `output_config.format` (token-level constrained decoding) with a bounded validate→repair→fail pipeline, key-redacted error surfaces, and XML-tagged user content that resists prompt injection from shared cookbooks.
@@ -84,7 +84,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Canonical Format Foundation | 0/TBD | Not started | - |
+| 1. Canonical Format Foundation | 4/4 | Complete    | 2026-04-25 |
 | 2. AI Structured Output & Conformance | 0/TBD | Not started | - |
 | 3. Editor UX Without Special Syntax | 0/TBD | Not started | - |
 | 4. Format-Driven New Field & Cleanup | 0/TBD | Not started | - |
