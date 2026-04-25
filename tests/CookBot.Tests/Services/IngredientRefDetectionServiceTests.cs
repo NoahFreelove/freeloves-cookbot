@@ -19,8 +19,12 @@ public class IngredientRefDetectionServiceTests
     }
 
     [Fact]
-    public void DetectRefs_PlainTextMatch()
+    public void DetectRefs_PlainTextMatch_NotDetected()
     {
+        // Plan 01-02 / FORMAT-05 / Pitfall C1: the substring-match fallback was deleted.
+        // A step that mentions "flour" or "sugar" in plain prose (without a [flour](#1)
+        // markdown link) no longer auto-detects those ingredients. Callers must emit the
+        // explicit markdown-link form to get a ref.
         var ingredients = new List<ParsedIngredient>
         {
             new() { LocalId = 1, Name = "flour" },
@@ -29,9 +33,7 @@ public class IngredientRefDetectionServiceTests
         };
         var refs = IngredientRefDetectionService.DetectRefs(
             "Add the flour and sugar to the bowl.", ingredients);
-        Assert.Contains(1, refs);
-        Assert.Contains(3, refs);
-        Assert.DoesNotContain(2, refs);
+        Assert.Empty(refs);
     }
 
     [Fact]
