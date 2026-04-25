@@ -3,6 +3,7 @@ using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
 using CookBot.Infrastructure.AI;
 using CookBot.Infrastructure.Data;
+using CookBot.Infrastructure.Data.Migrations.Helpers;
 using CookBot.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +21,11 @@ public static class DependencyInjection
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IAiService, AnthropicAiService>();
         services.AddScoped<PromptBuilderService>();
+
+        // Phase 1 / D-15: pre-migration backup; D-14: relational -> RecipeDocument projector.
+        services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();
+        services.AddScoped<LegacyRecipeProjector>();
+
         services.AddApplication();
 
         return services;

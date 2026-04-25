@@ -18,4 +18,10 @@ public class CookBotSettings
     public bool AiFeaturesEnabled { get; set; } = true;
 
     public string AnthropicApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Maximum number of `.pre-*.bak` files to retain alongside the SQLite DB. Default 3 (D-15).
+    /// Effective range: clamped to [1, 10] at runtime by `DatabaseBackupService`.
+    /// </summary>
+    public int DatabaseBackupRetention { get; set; } = 3;
 }
