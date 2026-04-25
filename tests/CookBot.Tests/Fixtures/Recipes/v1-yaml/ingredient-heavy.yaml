@@ -1,0 +1,75 @@
+---
+name: Beef Stew with Many Aromatics
+servings: 6
+prepTime: 25
+cookTime: 120
+tags: [stew, comfort, beef]
+ingredients:
+  - localId: 1
+    name: Beef Chuck
+    amount: 1000
+    unit: g
+  - localId: 2
+    name: Carrots
+    amount: 4
+    unit: ""
+  - localId: 3
+    name: Celery
+    amount: 3
+    unit: stalks
+  - localId: 4
+    name: Yellow Onion
+    amount: 2
+    unit: ""
+  - localId: 5
+    name: Garlic
+    amount: 6
+    unit: cloves
+  - localId: 6
+    name: Tomato Paste
+    amount: 2
+    unit: tbsp
+  - localId: 7
+    name: Beef Stock
+    amount: 1500
+    unit: ml
+  - localId: 8
+    name: Red Wine
+    amount: 250
+    unit: ml
+  - localId: 9
+    name: Bay Leaves
+    amount: 2
+    unit: ""
+  - localId: 10
+    name: Thyme
+    amount: 4
+    unit: sprigs
+  - localId: 11
+    name: Salt
+    amount: 2
+    unit: tsp
+  - localId: 12
+    name: Black Pepper
+    amount: 1
+    unit: tsp
+steps:
+  - text: "Season [beef chuck](#1) with [salt](#11) and [black pepper](#12)."
+  - text: "Sear the beef on all sides, then remove from the pot."
+    timers:
+      - duration: 8
+        unit: min
+        label: sear
+  - text: "Add [yellow onion](#4), [carrots](#2), and [celery](#3); sweat until soft."
+    timers:
+      - duration: 6
+        unit: min
+        label: mirepoix
+  - text: "Stir in [garlic](#5) and [tomato paste](#6); cook until fragrant."
+  - text: "Deglaze with [red wine](#8); add [beef stock](#7), [bay leaves](#9), and [thyme](#10)."
+  - text: "Return beef to the pot, simmer covered."
+    timers:
+      - duration: 90
+        unit: min
+        label: braise
+---

@@ -1,0 +1,33 @@
+---
+name: Mixed-Edge Quirks Test
+servings: 4
+prepTime: 15
+cookTime: 35
+tags: [test, edge]
+ingredients:
+  - localId: 1
+    name: Olive Oil
+    amount: 2
+    unit: tbsp
+  - localId: 2
+    name: Garlic
+    amount: 3
+    unit: cloves
+  - localId: 3
+    name: Spinach
+    amount: 200
+    unit: g
+steps:
+  - section: Prep
+  - text: "Mince [garlic](#2)."
+  - section: Cook
+  - text: "Heat [olive oil](#1)."
+    timers:
+      - duration: 2
+        unit: min
+        label: heat oil
+  - text: "Add [garlic](#2) and [spinach](#3); wilt thoroughly."
+    timers:
+      - duration: 5
+        unit: min
+---

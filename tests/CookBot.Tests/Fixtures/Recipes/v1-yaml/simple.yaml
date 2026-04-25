@@ -1,0 +1,30 @@
+---
+name: Simple Tomato Pasta
+servings: 2
+prepTime: 5
+cookTime: 12
+tags:
+  - quick
+  - vegetarian
+ingredients:
+  - localId: 1
+    name: Pasta
+    amount: 200
+    unit: g
+  - localId: 2
+    name: Tomato Sauce
+    amount: 1
+    unit: cup
+  - localId: 3
+    name: Salt
+    amount: 1
+    unit: tsp
+steps:
+  - text: "Boil water in a large pot, add [salt](#3)."
+  - text: "Cook [pasta](#1) for 10 minutes."
+    timers:
+      - duration: 10
+        unit: min
+        label: pasta cook
+  - text: "Drain pasta and toss with [tomato sauce](#2)."
+---

@@ -1,0 +1,36 @@
+---
+name: Multi-Timer Bread
+servings: 1
+prepTime: 30
+cookTime: 105
+tags: [bread]
+ingredients:
+  - localId: 1
+    name: Flour
+    amount: 500
+    unit: g
+  - localId: 2
+    name: Yeast
+    amount: 7
+    unit: g
+  - localId: 3
+    name: Water
+    amount: 350
+    unit: ml
+steps:
+  - text: "Knead [flour](#1), [yeast](#2), and [water](#3)."
+    timers:
+      - duration: 10
+        unit: min
+        label: knead
+  - text: "Let rise."
+    timers:
+      - duration: 60
+        unit: min
+        label: first rise
+  - text: "Bake at 220C."
+    timers:
+      - duration: 35
+        unit: min
+        label: bake
+---
