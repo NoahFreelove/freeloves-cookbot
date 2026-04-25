@@ -1,3 +1,4 @@
+using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,15 @@ public static class DependencyInjection
         services.AddScoped<PantryService>();
         services.AddScoped<PantryAiPopulationService>();
         services.AddScoped<GroceryListService>();
+
+        // Phase 1 canonical-format scaffold (Plan 01-01). Stateless pure services -> Singleton.
+        services.AddSingleton<IRecipeSchemaDocumentationProvider, RecipeSchemaDocumentationProvider>();
+        services.AddSingleton<RecipeJsonSchemaProvider>();
+        services.AddSingleton<RecipeValidator>();
+        services.AddSingleton<JsonRecipeSerializer>();
+        services.AddSingleton<IRecipeUpcaster, Migration_V1_To_V2>();
+        services.AddSingleton<RecipeUpcasterChain>();
+
         return services;
     }
 }
