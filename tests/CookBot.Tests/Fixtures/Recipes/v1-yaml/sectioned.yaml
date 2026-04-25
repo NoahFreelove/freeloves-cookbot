@@ -1,0 +1,30 @@
+---
+name: Sectioned Cake
+servings: 8
+prepTime: 25
+cookTime: 40
+tags: [dessert]
+ingredients:
+  - localId: 1
+    name: Flour
+    amount: 250
+    unit: g
+  - localId: 2
+    name: Sugar
+    amount: 200
+    unit: g
+  - localId: 3
+    name: Eggs
+    amount: 3
+    unit: ""
+steps:
+  - section: Wet Ingredients
+  - text: "Beat [eggs](#3) with [sugar](#2)."
+  - section: Dry Ingredients
+  - text: "Sift [flour](#1) into the wet mixture."
+  - text: "Bake at 175C."
+    timers:
+      - duration: 40
+        unit: min
+        label: bake
+---
