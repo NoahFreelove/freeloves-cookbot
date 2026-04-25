@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
+using System.Text.Json.Serialization.Metadata;
 using CookBot.Domain.Recipes;
 
 namespace CookBot.Application.Recipes;
@@ -25,7 +26,13 @@ public sealed class RecipeJsonSchemaProvider
 
     private static JsonNode BuildSchema()
     {
-        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        // JsonSchemaExporter requires the options to carry a TypeInfoResolver before being
+        // marked read-only; pin DefaultJsonTypeInfoResolver explicitly so reflection-based
+        // metadata is available at schema-export time.
+        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+        };
         var exporterOptions = new JsonSchemaExporterOptions
         {
             TreatNullObliviousAsNonNullable = true,
