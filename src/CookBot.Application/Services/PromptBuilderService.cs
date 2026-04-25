@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using CookBot.Application.Recipes;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Enums;
 
@@ -7,6 +8,13 @@ namespace CookBot.Application.Services;
 
 public class PromptBuilderService
 {
+    private readonly IRecipeSchemaDocumentationProvider _docs;
+
+    public PromptBuilderService(IRecipeSchemaDocumentationProvider docs)
+    {
+        _docs = docs;
+    }
+
     public static readonly string DefaultTemplate = string.Join("\n", new[]
     {
         "You are CookBot, an expert AI cooking assistant. You help users discover, create, and refine recipes.",
@@ -165,41 +173,7 @@ public class PromptBuilderService
         return sb.ToString().TrimEnd();
     }
 
-    private string ResolveRecipeFormat()
-    {
-        return @"IMPORTANT: When providing a recipe, ALWAYS use this exact format so it can be parsed and saved:
-```recipe
----
-name: ""Recipe Name""
-servings: 4
-prepTime: 15
-cookTime: 30
-tags: [tag1, tag2]
-ingredients:
-  - id: 1
-    name: ""ingredient name""
-    amount: 2
-    unit: ""cups""
-  - id: 2
-    name: ""another ingredient""
-    amount: 1
-    unit: ""tbsp""
-    note: ""optional note""
-steps:
-  - text: ""Step instruction with [ingredient name](#1).""
-  - section: ""Section header""
-  - text: ""Another step, bake for 25 minutes.""
-    timers:
-      - duration: 25
-        unit: min
-        label: ""bake""
----
-```
-
-Use [ingredient name](#id) links in step text to reference ingredients by their ID.
-Steps may have a `timers` list with `duration` (int), `unit` (`min`/`hr`/`sec`, default `min`), and optional `label`. Include timers whenever a step has a meaningful wait time.
-If you can't follow this exact format, plain numbered steps are fine — the app will parse them.";
-    }
+    private string ResolveRecipeFormat() => _docs.GetFormatPrompt();
 
     public string BuildCopyablePrompt(
         string userRequest,
@@ -260,39 +234,8 @@ If you can't follow this exact format, plain numbered steps are fine — the app
         }
 
         sb.AppendLine("## Recipe Format");
-        sb.AppendLine("When providing a recipe, please use this exact format so I can import it into my recipe manager:");
         sb.AppendLine();
-        sb.AppendLine("```");
-        sb.AppendLine("---");
-        sb.AppendLine("name: \"Recipe Name\"");
-        sb.AppendLine("servings: 4");
-        sb.AppendLine("prepTime: 15");
-        sb.AppendLine("cookTime: 30");
-        sb.AppendLine("tags: [tag1, tag2]");
-        sb.AppendLine("ingredients:");
-        sb.AppendLine("  - id: 1");
-        sb.AppendLine("    name: \"ingredient name\"");
-        sb.AppendLine("    amount: 2");
-        sb.AppendLine("    unit: \"cups\"");
-        sb.AppendLine("  - id: 2");
-        sb.AppendLine("    name: \"another ingredient\"");
-        sb.AppendLine("    amount: 1");
-        sb.AppendLine("    unit: \"tbsp\"");
-        sb.AppendLine("    note: \"optional note\"");
-        sb.AppendLine("steps:");
-        sb.AppendLine("  - text: \"Step instruction with [ingredient name](#1).\"");
-        sb.AppendLine("  - section: \"Section header\"");
-        sb.AppendLine("  - text: \"Another step, bake for 25 minutes.\"");
-        sb.AppendLine("    timers:");
-        sb.AppendLine("      - duration: 25");
-        sb.AppendLine("        unit: min");
-        sb.AppendLine("        label: \"bake\"");
-        sb.AppendLine("---");
-        sb.AppendLine("```");
-        sb.AppendLine();
-        sb.AppendLine("Each ingredient has a unique `id`. Use `[display name](#id)` links in step text to reference ingredients.");
-        sb.AppendLine("Steps may have a `timers` list with `duration` (int), `unit` (`min`/`hr`/`sec`, default `min`), and optional `label`. Include timers whenever a step has a meaningful wait time.");
-        sb.AppendLine("If you can't follow this exact format, plain numbered steps are fine — the app will parse them.");
+        sb.AppendLine(_docs.GetFormatPrompt());
         sb.AppendLine();
 
         sb.AppendLine("## My Request");
