@@ -1,3 +1,4 @@
+using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
@@ -58,7 +59,8 @@ public class RecipeCookingAiContextTests
             },
         };
 
-        IRecipeFormatParser parser = new RecipeFormatParser();
+        var chain = new RecipeUpcasterChain(new IRecipeUpcaster[] { new Migration_V1_To_V2() });
+        IRecipeFormatParser parser = new RecipeFormatParser(chain, new JsonRecipeSerializer(), new RecipeValidator());
         var msg = RecipeCookingAiContext.BuildUserMessage(
             recipe,
             targetServings: 2,

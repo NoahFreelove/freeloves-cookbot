@@ -1,31 +1,58 @@
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using CookBot.Application.Recipes;
 using CookBot.Domain.Interfaces;
+using CookBot.Domain.Recipes;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 namespace CookBot.Application.Services;
 
+/// <summary>
+/// Implementation of <see cref="IRecipeFormatParser"/> that delegates to the canonical
+/// schema stack (<see cref="RecipeUpcasterChain"/> -> <see cref="JsonRecipeSerializer"/>
+/// -> <see cref="RecipeValidator"/>) introduced in Plan 01-01. Public surface is preserved
+/// per D-10 — all existing callers continue to compile.
+///
+/// Pipeline (D-10 step list):
+/// <list type="number">
+///   <item>Detect YAML frontmatter vs raw JSON.</item>
+///   <item>Convert YAML -> <see cref="JsonNode"/> via the in-tree adapter (Pattern 5; no second YAML library).</item>
+///   <item>Stamp <c>version: 1</c> if absent (Pitfall H1).</item>
+///   <item>Run through <see cref="RecipeUpcasterChain.UpcastToCurrent"/>.</item>
+///   <item>Deserialize to <see cref="RecipeDocument"/> via <see cref="JsonRecipeSerializer"/>.</item>
+///   <item>Run <see cref="RecipeValidator.Validate"/>.</item>
+///   <item>Project the <see cref="RecipeDocument"/> back to the legacy flat
+///         <see cref="ParsedRecipe"/> for back-compat with existing callers.</item>
+/// </list>
+/// </summary>
 public class RecipeFormatParser : IRecipeFormatParser
 {
     private static readonly Regex FrontmatterRegex = new(
         @"^---\s*\n(.*?)\n---\s*\n?(.*)$",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    private static readonly Regex NumberedStepRegex = new(
-        @"^\d+\.\s*(.+)$",
-        RegexOptions.Compiled);
+    private readonly IDeserializer _yamlDeserializer;
+    private readonly ISerializer _yamlSerializer;
+    private readonly RecipeUpcasterChain _upcasterChain;
+    private readonly JsonRecipeSerializer _jsonSerializer;
+    private readonly RecipeValidator _validator;
 
-    private readonly IDeserializer _deserializer;
-    private readonly ISerializer _serializer;
-
-    public RecipeFormatParser()
+    public RecipeFormatParser(
+        RecipeUpcasterChain upcasterChain,
+        JsonRecipeSerializer jsonSerializer,
+        RecipeValidator validator)
     {
-        _deserializer = new DeserializerBuilder()
+        _upcasterChain = upcasterChain;
+        _jsonSerializer = jsonSerializer;
+        _validator = validator;
+
+        _yamlDeserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .IgnoreUnmatchedProperties()
             .Build();
 
-        _serializer = new SerializerBuilder()
+        _yamlSerializer = new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
             .Build();
@@ -33,73 +60,74 @@ public class RecipeFormatParser : IRecipeFormatParser
 
     public ParsedRecipe Parse(string rawContent)
     {
-        var match = FrontmatterRegex.Match(rawContent.TrimStart());
-        if (!match.Success)
-            throw new FormatException("Invalid recipe format: missing YAML frontmatter (--- delimiters).");
-
-        var yamlContent = match.Groups[1].Value;
-        var markdownBody = match.Groups[2].Value.Trim();
-
-        var frontmatter = _deserializer.Deserialize<RecipeFrontmatter>(yamlContent)
-            ?? throw new FormatException("Failed to parse YAML frontmatter.");
-
-        var steps = new List<ParsedStep>();
-
-        if (frontmatter.Steps != null && frontmatter.Steps.Count > 0)
+        if (TryParse(rawContent, out var parsed, out var errors) && parsed is not null)
         {
-            foreach (var step in frontmatter.Steps)
-            {
-                if (!string.IsNullOrEmpty(step.Section))
-                {
-                    steps.Add(new ParsedStep { Text = step.Section, IsSection = true });
-                }
-                else
-                {
-                    steps.Add(new ParsedStep
-                    {
-                        Text = step.Text ?? string.Empty,
-                        IsSection = false,
-                        Timers = step.Timers?.Select(t => new ParsedTimer
-                        {
-                            Duration = t.Duration,
-                            Unit = t.Unit ?? "min",
-                            Label = t.Label,
-                        }).ToList(),
-                    });
-                }
-            }
+            return parsed;
         }
-        else if (!string.IsNullOrWhiteSpace(markdownBody))
+        throw new FormatException($"Failed to parse recipe: {string.Join("; ", errors)}");
+    }
+
+    public bool TryParse(string rawContent, out ParsedRecipe? recipe, out List<string> errors)
+    {
+        errors = new List<string>();
+        recipe = null;
+
+        if (string.IsNullOrWhiteSpace(rawContent))
         {
-            // Fallback: parse numbered steps from markdown body
-            foreach (var line in markdownBody.Split('\n'))
-            {
-                var stepMatch = NumberedStepRegex.Match(line.Trim());
-                if (stepMatch.Success)
-                {
-                    steps.Add(new ParsedStep { Text = stepMatch.Groups[1].Value.Trim(), IsSection = false });
-                }
-            }
+            errors.Add("Recipe content is empty.");
+            return false;
         }
 
-        return new ParsedRecipe
+        try
         {
-            Name = frontmatter.Name ?? "Untitled Recipe",
-            Servings = frontmatter.Servings,
-            PrepTimeMinutes = frontmatter.PrepTime,
-            CookTimeMinutes = frontmatter.CookTime,
-            Tags = frontmatter.Tags ?? new List<string>(),
-            Ingredients = (frontmatter.Ingredients ?? new List<IngredientFrontmatter>())
-                .Select(i => new ParsedIngredient
+            // 1. Detect format: YAML frontmatter vs raw JSON.
+            JsonNode node;
+            var trimmed = rawContent.TrimStart();
+            if (trimmed.StartsWith("---"))
+            {
+                var match = FrontmatterRegex.Match(trimmed);
+                if (!match.Success)
                 {
-                    LocalId = i.Id,
-                    Name = i.Name ?? "unknown",
-                    Amount = i.Amount,
-                    Unit = i.Unit ?? "piece",
-                    Note = i.Note,
-                }).ToList(),
-            Steps = steps,
-        };
+                    errors.Add("Missing YAML frontmatter delimiters.");
+                    return false;
+                }
+                node = YamlToJsonNode(match.Groups[1].Value);
+            }
+            else
+            {
+                node = JsonNode.Parse(rawContent)
+                       ?? throw new FormatException("Empty JSON.");
+            }
+
+            // 2. Stamp version=1 if absent (Pitfall H1).
+            if (node is JsonObject root && root["version"] is null)
+            {
+                root["version"] = 1;
+            }
+
+            // 3. Upcast to current.
+            var upcasted = _upcasterChain.UpcastToCurrent(node);
+
+            // 4. Deserialize.
+            var doc = _jsonSerializer.Deserialize(upcasted);
+
+            // 5. Validate semantically.
+            var result = _validator.Validate(doc);
+            if (!result.IsValid)
+            {
+                errors.AddRange(result.Errors.Select(e => $"{e.Path}: {e.Message}"));
+                return false;
+            }
+
+            // 6. Project to legacy ParsedRecipe.
+            recipe = ProjectToParsedRecipe(doc);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Parse error: {ex.Message}");
+            return false;
+        }
     }
 
     public string Serialize(ParsedRecipe recipe)
@@ -136,54 +164,130 @@ public class RecipeFormatParser : IRecipeFormatParser
             ).ToList(),
         };
 
-        var yaml = _serializer.Serialize(frontmatter).TrimEnd();
+        var yaml = _yamlSerializer.Serialize(frontmatter).TrimEnd();
         return $"---\n{yaml}\n---\n";
     }
 
-    public bool TryParse(string rawContent, out ParsedRecipe? recipe, out List<string> errors)
+    // ---- YAML -> JsonNode adapter (Pattern 5 — no second YAML library) ----
+
+    private JsonNode YamlToJsonNode(string yamlContent)
     {
-        errors = new List<string>();
-        recipe = null;
-
-        if (string.IsNullOrWhiteSpace(rawContent))
-        {
-            errors.Add("Recipe content is empty.");
-            return false;
-        }
-
-        var match = FrontmatterRegex.Match(rawContent.TrimStart());
-        if (!match.Success)
-        {
-            errors.Add("Missing YAML frontmatter. Content must start with --- and end with ---.");
-            return false;
-        }
-
-        try
-        {
-            recipe = Parse(rawContent);
-
-            if (string.IsNullOrWhiteSpace(recipe.Name))
-                errors.Add("Recipe name is required.");
-            if (recipe.Servings <= 0)
-                errors.Add("Servings must be greater than 0.");
-            if (!recipe.Ingredients.Any())
-                errors.Add("At least one ingredient is required.");
-
-            var ids = recipe.Ingredients.Select(i => i.LocalId).ToList();
-            if (ids.Count != ids.Distinct().Count())
-                errors.Add("Ingredient IDs must be unique.");
-
-            if (!recipe.Steps.Any())
-                errors.Add("At least one step is required.");
-
-            return !errors.Any();
-        }
-        catch (Exception ex)
-        {
-            errors.Add($"Parse error: {ex.Message}");
-            return false;
-        }
+        // YamlDotNet's untyped Deserialize materializes to int/long/double/string/bool/
+        // List<object?>/Dictionary<object,object?>; ConvertGraph maps that onto JsonNode.
+        var graph = _yamlDeserializer.Deserialize(yamlContent);
+        return ConvertGraph(graph) ?? new JsonObject();
     }
+
+    private static JsonNode? ConvertGraph(object? value) => value switch
+    {
+        null => null,
+        string s => StringToJsonValue(s),
+        bool b => JsonValue.Create(b),
+        int i => JsonValue.Create(i),
+        long l => JsonValue.Create(l),
+        double d => JsonValue.Create(d),
+        IDictionary<object, object?> dict => DictToObj(dict),
+        IList<object?> list => ListToArr(list),
+        _ => JsonValue.Create(value.ToString()),
+    };
+
+    /// <summary>
+    /// YamlDotNet's untyped Deserialize returns every scalar as a <see cref="string"/>.
+    /// To match YAML 1.2 Core Schema tag resolution (and what the canonical pipeline
+    /// expects), coerce numeric/boolean-shaped strings back to typed JSON values. Quoted
+    /// strings in the source survive because YamlDotNet returns them as <see cref="string"/>
+    /// without surrounding quotes — meaning <c>"4"</c> in YAML and <c>4</c> in YAML both
+    /// arrive here as the string "4". This is a known limitation of untyped YAML; the
+    /// canonical `RecipeDocument` shape pins types via <see cref="JsonPropertyName"/>, so
+    /// the few fields where this matters (e.g. <c>servings</c>) are unambiguous.
+    /// </summary>
+    private static JsonNode StringToJsonValue(string s)
+    {
+        if (bool.TryParse(s, out var b))
+        {
+            return JsonValue.Create(b);
+        }
+        if (int.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var i))
+        {
+            return JsonValue.Create(i);
+        }
+        if (long.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var l))
+        {
+            return JsonValue.Create(l);
+        }
+        if (double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+        {
+            return JsonValue.Create(d);
+        }
+        return JsonValue.Create(s)!;
+    }
+
+    private static JsonObject DictToObj(IDictionary<object, object?> dict)
+    {
+        var obj = new JsonObject();
+        foreach (var kvp in dict)
+        {
+            var key = kvp.Key.ToString();
+            if (key is null)
+            {
+                continue;
+            }
+            obj[key] = ConvertGraph(kvp.Value);
+        }
+        return obj;
+    }
+
+    private static JsonArray ListToArr(IList<object?> list)
+    {
+        var arr = new JsonArray();
+        foreach (var item in list)
+        {
+            arr.Add(ConvertGraph(item));
+        }
+        return arr;
+    }
+
+    // ---- RecipeDocument -> ParsedRecipe projection (legacy boundary) ----
+
+    private static ParsedRecipe ProjectToParsedRecipe(RecipeDocument doc) => new()
+    {
+        Name = doc.Name,
+        Servings = doc.Servings,
+        PrepTimeMinutes = doc.PrepTimeMinutes,
+        CookTimeMinutes = doc.CookTimeMinutes,
+        Tags = doc.Tags.ToList(),
+        Ingredients = doc.Ingredients.Select(i => new ParsedIngredient
+        {
+            LocalId = i.Id,
+            Name = i.Name,
+            Amount = i.Amount,
+            Unit = i.Unit,
+            Note = i.Note,
+        }).ToList(),
+        Steps = doc.Steps.Select(s => s switch
+        {
+            ContentStep c => new ParsedStep
+            {
+                Text = c.Text,
+                IsSection = false,
+                Timers = c.Timers?.Select(t => new ParsedTimer
+                {
+                    Duration = t.Duration,
+                    Unit = t.Unit,
+                    Label = t.Label,
+                }).ToList(),
+            },
+            SectionStep sec => new ParsedStep
+            {
+                Text = sec.Heading,
+                IsSection = true,
+                Timers = null,
+            },
+            _ => throw new InvalidOperationException($"Unknown StepNode kind: {s.GetType().Name}"),
+        }).ToList(),
+    };
+
+    // ---- back-compat YAML-out shape for Serialize(ParsedRecipe) ----
 
     private class RecipeFrontmatter
     {
