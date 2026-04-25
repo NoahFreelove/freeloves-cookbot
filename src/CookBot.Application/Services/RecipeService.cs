@@ -66,7 +66,9 @@ public class RecipeService
                     (ps.Timers?.Any() == true
                         ? ps.Timers.Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList()
                         : TimerDetectionService.DetectTimers(ps.Text)),
-                IngredientRefs = ps.IsSection ? new() : IngredientRefDetectionService.DetectRefs(ps.Text, parsed.Ingredients),
+                // Plan 01-02 / D-13: writes to RecipeStep.IngredientRefs are retired this
+                // milestone. The column persists for safe rollback; Phase 4 drops it.
+                // Cooking-mode highlighting now resolves [name](#id) links at render time.
             };
             recipe.Steps.Add(step);
         }
@@ -126,7 +128,8 @@ public class RecipeService
                     (ps.Timers?.Any() == true
                         ? ps.Timers.Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList()
                         : TimerDetectionService.DetectTimers(ps.Text)),
-                IngredientRefs = ps.IsSection ? new() : IngredientRefDetectionService.DetectRefs(ps.Text, parsed.Ingredients),
+                // Plan 01-02 / D-13: writes to RecipeStep.IngredientRefs are retired this
+                // milestone. See comment in CreateAsync above.
             };
             recipe.Steps.Add(step);
         }
