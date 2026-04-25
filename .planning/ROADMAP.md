@@ -34,7 +34,11 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
   3. Running `DatabaseSeeder.SeedAsync` on a populated `cookbot.db` creates a `cookbot.db.pre-{migration}.bak` (with last-3-backups retention), back-fills `Recipe.CanonicalDocumentJson` for every recipe, is idempotent on rerun, and a fresh-install run is also a no-op.
   4. The system prompt assembled by `PromptBuilderService` reads from a single `RecipeSchemaDocumentationProvider`; the duplicated format-spec strings at lines 168–202 and 262–296 are deleted, the opt-out clause is gone, and a snapshot test plus lint denylist (`fallback`, `informal`, `plain numbered`) prevent regression.
   5. A v1 install reading a fictional v3 recipe captures unknown fields into `Extras` and round-trips them through edit/save without data loss (forward-compat tolerance).
-**Plans**: TBD
+**Plans**: 4 plans
+  - [ ] 01-01-PLAN.md — Canonical schema + serializers + schema provider + validator + upcaster scaffold + JsonSchema.Net package (Wave 1)
+  - [ ] 01-02-PLAN.md — Parser rewrite + IngredientRefDetectionService cleanup + RecipeStep.IngredientRefs writes retired (Wave 2)
+  - [ ] 01-03-PLAN.md — EF migration + IDatabaseBackupService + LegacyRecipeProjector + DatabaseSeeder rewrite + RecipeService canonical-write + smoke test (Wave 3)
+  - [ ] 01-04-PLAN.md — PromptBuilderService consolidation + snapshot test + lint denylist + round-trip fixture suite + unit tests (Wave 3)
 
 ### Phase 2: AI Structured Output & Conformance
 **Goal**: Anthropic Claude emits canonical recipes via `output_config.format` (token-level constrained decoding) with a bounded validate→repair→fail pipeline, key-redacted error surfaces, and XML-tagged user content that resists prompt injection from shared cookbooks.
