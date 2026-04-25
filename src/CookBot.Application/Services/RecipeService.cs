@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CookBot.Application.Recipes;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
 
@@ -10,17 +11,23 @@ public class RecipeService
     private readonly IRepository<Recipe> _recipeRepo;
     private readonly IRepository<Ingredient> _ingredientRepo;
     private readonly IRepository<Cookbook> _cookbookRepo;
+    private readonly IRecipeProjector _projector;
+    private readonly JsonRecipeSerializer _canonicalSerializer;
 
     public RecipeService(
         IRecipeFormatParser parser,
         IRepository<Recipe> recipeRepo,
         IRepository<Ingredient> ingredientRepo,
-        IRepository<Cookbook> cookbookRepo)
+        IRepository<Cookbook> cookbookRepo,
+        IRecipeProjector projector,
+        JsonRecipeSerializer canonicalSerializer)
     {
         _parser = parser;
         _recipeRepo = recipeRepo;
         _ingredientRepo = ingredientRepo;
         _cookbookRepo = cookbookRepo;
+        _projector = projector;
+        _canonicalSerializer = canonicalSerializer;
     }
 
     public async Task<Recipe> CreateAsync(int cookbookId, int userId, ParsedRecipe parsed)
@@ -72,6 +79,11 @@ public class RecipeService
             };
             recipe.Steps.Add(step);
         }
+
+        // MIGRATION-03 hybrid persistence: relational columns continue to be written;
+        // canonical document JSON is recomputed on every save (Plan 01-03 / D-12).
+        var canonicalDoc = _projector.Project(recipe);
+        recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
 
         return await _recipeRepo.AddAsync(recipe);
     }
@@ -133,6 +145,10 @@ public class RecipeService
             };
             recipe.Steps.Add(step);
         }
+
+        // MIGRATION-03 hybrid persistence: recompute canonical document on every save.
+        var canonicalDoc = _projector.Project(recipe);
+        recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
 
         await _recipeRepo.UpdateAsync(recipe);
         return recipe;

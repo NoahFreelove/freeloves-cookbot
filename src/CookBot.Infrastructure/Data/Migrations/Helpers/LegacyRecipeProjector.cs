@@ -12,7 +12,7 @@ namespace CookBot.Infrastructure.Data.Migrations.Helpers;
 /// DELETE-AFTER-V1.1: this helper is throwaway. Phase 4 (POLISH-03) drops it together with
 /// the legacy ingredient-refs column on the relational step entity.
 /// </summary>
-public sealed class LegacyRecipeProjector
+public sealed class LegacyRecipeProjector : IRecipeProjector
 {
     public RecipeDocument Project(Recipe recipe)
     {

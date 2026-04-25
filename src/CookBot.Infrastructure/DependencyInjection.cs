@@ -25,6 +25,9 @@ public static class DependencyInjection
         // Phase 1 / D-15: pre-migration backup; D-14: relational -> RecipeDocument projector.
         services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();
         services.AddScoped<LegacyRecipeProjector>();
+        // Bind IRecipeProjector to the same scoped instance so RecipeService and the seeder
+        // see the same projector and CookBot.Application stays infrastructure-free.
+        services.AddScoped<CookBot.Application.Recipes.IRecipeProjector>(sp => sp.GetRequiredService<LegacyRecipeProjector>());
 
         services.AddApplication();
 
