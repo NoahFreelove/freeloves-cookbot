@@ -1,0 +1,87 @@
+# Project State
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-04-25)
+
+**Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
+**Current focus:** Phase 1 — Canonical Format Foundation
+
+## Current Position
+
+Phase: 1 of 4 (Canonical Format Foundation)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-04-25 — Roadmap created (v1.1 milestone, 4 phases, 46 requirements mapped, coverage 46/46)
+
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0
+- Average duration: —
+- Total execution time: —
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
+
+**Recent Trend:**
+- Last 5 plans: —
+- Trend: —
+
+*Updated after each plan completion*
+
+## Accumulated Context
+
+### Decisions
+
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work (resolved during requirements step, see SUMMARY.md §9):
+
+- v1.1 / Q1: New format field is **per-step temperature** only (FEATURE-V2 section) — smallest blast radius, addresses CONCERNS §8 scaling silence.
+- v1.1 / Q2: Markdown back-compat — text-backed model; `[name](#id)` stays under the hood as the wire-level representation, chips are a view-layer tokenization.
+- v1.1 / Q3: AI repair aggressiveness — max 2 retries with minimal prompt (failure + format reminder), then "Edit and save anyway" affordance.
+- v1.1 / Q4: Validation strictness — two-tier; schema-strict for storage, lenient with coercion for parse.
+- v1.1 / Q5: Structured-output mechanism — native `output_config.format`; tool-use is FUTURE-09 fallback.
+- v1.1 / Q6: Resumed AI conversations stamp `FormatVersion = 2`, prepend system note (POLISH-06).
+- v1.1 / Q7: Encrypt-at-rest for API keys is deferred (FUTURE-01).
+- v1.1 / Q8: Tags become a relational table (POLISH-04).
+- v1.1 / Q9: Only `RecipeIngredient.Amount` scales — temperature/time fields never scale with servings.
+
+### Pending Todos
+
+[From .planning/todos/pending/ — ideas captured during sessions]
+
+None yet.
+
+### Blockers/Concerns
+
+[Issues that affect future work]
+
+- Phase 1 must finish before Phase 2 can start (AI structured output needs `RecipeJsonSchemaProvider` + `RecipeValidator`).
+- Phase 3 (chip editor) is parallel-safe with Phase 2 once Phase 1 ships; coordinate to avoid both phases editing `RecipeEditor.razor` simultaneously.
+- EF Core 10 JSON column behavior on SQLite is MEDIUM confidence per research SUMMARY §10 — recommend smoke test before Phase 1 persistence work lands (covered by MIGRATION-08).
+
+## Deferred Items
+
+Items captured in REQUIREMENTS.md "Future Requirements" — not in v1.1 scope:
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| Security | FUTURE-01: Encrypt-at-rest for `UserProfile.AiApiKey` | Deferred | 2026-04-25 (requirements) |
+| Telemetry | FUTURE-02: Token-cost telemetry per key owner | Deferred | 2026-04-25 |
+| Format fields | FUTURE-03..06: substitutions, equipment, doneness cues, source provenance | Deferred | 2026-04-25 |
+| Export | FUTURE-07/11: Schema.org rich-results, Cooklang one-way export | Deferred | 2026-04-25 |
+| Nutrition | FUTURE-08: USDA FDC nutrition computation | Deferred | 2026-04-25 |
+| AI fallback | FUTURE-09: Tool-use fallback if Structured Outputs regresses | Deferred | 2026-04-25 |
+| Maintenance | FUTURE-10: MudBlazor 9.x upgrade | Deferred | 2026-04-25 |
+
+## Session Continuity
+
+Last session: 2026-04-25 (roadmap creation)
+Stopped at: ROADMAP.md and STATE.md written; REQUIREMENTS.md traceability filled. Ready for `/gsd-plan-phase 1`.
+Resume file: None

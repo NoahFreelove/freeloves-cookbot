@@ -128,17 +128,63 @@ Explicit exclusions with reasoning. Roadmapper treats these as bright lines.
 
 ## Traceability
 
-(This section is filled in by the roadmapper when it maps requirements to phases.)
+Mapped 2026-04-25 by `/gsd-roadmapper` (auto mode). Coverage: 46/46 (100%). Every v1 requirement maps to exactly one phase.
 
 | REQ-ID | Phase | Notes |
 |---|---|---|
-| FORMAT-01..10 | (TBD) | |
-| AI-01..09 | (TBD) | |
-| EDITOR-01..07 | (TBD) | |
-| MIGRATION-01..08 | (TBD) | |
-| FEATURE-V2-01..05 | (TBD) | |
-| POLISH-01..07 | (TBD) | |
+| FORMAT-01 | Phase 1 | Canonical `RecipeDocument` record — foundational; everything else depends on it (build step 1) |
+| FORMAT-02 | Phase 1 | `int Version` field — versioning spine (build step 1) |
+| FORMAT-03 | Phase 1 | Unit-bearing field names (`prepTimeMinutes` etc.) — Pitfall C2 mitigation (build step 1) |
+| FORMAT-04 | Phase 1 | `StepNode` discriminated union — Pitfall C3 mitigation (build step 1) |
+| FORMAT-05 | Phase 1 | `[name](#id)` as internal text rep; substring fallback removed — Pitfall C1 mitigation (build step 1) |
+| FORMAT-06 | Phase 1 | `RecipeJsonSchemaProvider` via `JsonSchemaExporter` (build step 2) |
+| FORMAT-07 | Phase 1 | `RecipeValidator` semantic checks (build step 3) |
+| FORMAT-08 | Phase 1 | `IRecipeUpcaster` chain at JSON-node layer (build step 3) |
+| FORMAT-09 | Phase 1 | Forward-compat `Extras` round-trip — Pitfall H2 mitigation (build steps 2-3) |
+| FORMAT-10 | Phase 1 | Round-trip test suite — CI gate (build step 5) |
+| AI-01 | Phase 2 | `SendStructuredAsync` overload + Anthropic `output_config.format` (build step 7) |
+| AI-02 | Phase 2 | `IAiRecipeGenerator` orchestrator (build step 7) |
+| AI-03 | Phase 2 | Validate→repair→fail with max-2 retries — Pitfall C6 mitigation (build step 7) |
+| AI-04 | Phase 1 | Opt-out clause REMOVED from `PromptBuilderService` (build step 6) |
+| AI-05 | Phase 1 | `RecipeSchemaDocumentationProvider` consolidation (build step 6) |
+| AI-06 | Phase 1 | Snapshot test + lint denylist — Pitfall H6 mitigation (build step 6) |
+| AI-07 | Phase 2 | `RedactSecrets` chokepoint — Pitfall C5 mitigation (build step 7) |
+| AI-08 | Phase 2 | XML-tagged user content — Pitfall C7 mitigation (build step 7) |
+| AI-09 | Phase 2 | Per-sharer import consent banner — Pitfall C7 follow-up (build step 8) |
+| EDITOR-01 | Phase 3 | Chip-aware step composer (build step 9) |
+| EDITOR-02 | Phase 3 | Step / Section toggle — closes CONCERNS §6 footgun (build step 9) |
+| EDITOR-03 | Phase 3 | Suggestion-only timer detection — closes CONCERNS §7 (build step 9) |
+| EDITOR-04 | Phase 3 | Immutable `id` on ingredient reorder (build step 9) |
+| EDITOR-05 | Phase 3 | Paste-raw-text routes through new schema stack (build step 9) |
+| EDITOR-06 | Phase 3 | Cooking-mode chip rendering + link-only highlighting (build step 9) |
+| EDITOR-07 | Phase 3 | Keyboard nav + accessibility + JS-interop graceful fallback (build step 9) |
+| MIGRATION-01 | Phase 1 | EF migration adds `CanonicalDocumentJson` + `LegacyRecipeProjector` back-fill (build step 4) |
+| MIGRATION-02 | Phase 1 | Pre-migration `cookbot.db` backup — Pitfall C4 mitigation (build step 4) |
+| MIGRATION-03 | Phase 1 | Hybrid persistence (relational + JSON) preserved (build step 4) |
+| MIGRATION-04 | Phase 2 | `CookbookTransferService.Deserialize` routes through upcaster (build step 8) |
+| MIGRATION-05 | Phase 1 | Envelope `SchemaVersion` → 2; two-axis versioning — Pitfall H3 mitigation (build step 4) |
+| MIGRATION-06 | Phase 2 | YAML paste-in routes through upcaster chain (build step 8) |
+| MIGRATION-07 | Phase 1 | Idempotent migration — Pitfall L5 mitigation (build step 4) |
+| MIGRATION-08 | Phase 1 | Smoke test on representative `cookbot.db` (build step 4) |
+| FEATURE-V2-01 | Phase 4 | `OvenTempFahrenheit: int?` on `ContentStep` (build step 10) |
+| FEATURE-V2-02 | Phase 4 | V1→V2 upcaster leaves field unset on legacy data (build step 10) |
+| FEATURE-V2-03 | Phase 4 | Chip composer exposes temperature input (build step 10) |
+| FEATURE-V2-04 | Phase 4 | Cooking mode renders chip with "Not scaled" badge — Pitfall M8 mitigation (build step 10) |
+| FEATURE-V2-05 | Phase 4 | `RecipeSchemaDocumentationProvider` describes new field; AI authors recipes with it (build step 10) |
+| POLISH-01 | Phase 2 | Delete `AiChat.ExtractRecipeContent` three-tier extractor (build step 11, but dependent on AI-02 landing) |
+| POLISH-02 | Phase 1 | Delete duplicated format-spec literals in `PromptBuilderService` (build step 6) |
+| POLISH-03 | Phase 4 | `LegacyRecipeProjector` deletion-target comment for next milestone (build step 11) |
+| POLISH-04 | Phase 4 | `Recipe.TagsJson` → relational `RecipeTag` table — CONCERNS §3 (build step 11) |
+| POLISH-05 | Phase 4 | Snapshot test on assembled system prompt (build step 11) |
+| POLISH-06 | Phase 2 | `AiConversation.FormatVersion = 2` stamping + system note on resume — Pitfall L2 mitigation (build step 8) |
+| POLISH-07 | Phase 4 | README.md "Recipe Format" section + backup recovery docs (build step 11) |
+
+**Phase summary:**
+- Phase 1 (Canonical Format Foundation): 20 requirements (FORMAT-01..10, AI-04..06, MIGRATION-01, 02, 03, 05, 07, 08, POLISH-02)
+- Phase 2 (AI Structured Output & Conformance): 10 requirements (AI-01, 02, 03, 07, 08, 09, MIGRATION-04, 06, POLISH-01, 06)
+- Phase 3 (Editor UX Without Special Syntax): 7 requirements (EDITOR-01..07)
+- Phase 4 (Format-Driven New Field & Cleanup): 9 requirements (FEATURE-V2-01..05, POLISH-03, 04, 05, 07)
 
 ---
 
-*Generated 2026-04-25 from PROJECT.md + SUMMARY.md (auto mode). 46 requirements across 6 categories.*
+*Generated 2026-04-25 from PROJECT.md + SUMMARY.md (auto mode). 46 requirements across 6 categories. Traceability completed by roadmapper 2026-04-25.*
