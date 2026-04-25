@@ -3,7 +3,14 @@ namespace CookBot.Application.DTOs;
 /// <summary>Portable cookbook file for backup and sharing (JSON).</summary>
 public sealed class CookbookTransferDocument
 {
-    public int SchemaVersion { get; set; } = 1;
+    /// <summary>
+    /// Envelope shape version. Independent of <c>RecipeDocument.Version</c>. Bump when the
+    /// cookbook envelope shape (metadata + recipes array) changes. Bumped from 1 to 2 in
+    /// Phase 1 (D-17 / MIGRATION-05) to track that this export was produced by a v2-aware
+    /// install; the deserializer hot path stays on the v1 path until Phase 2 wires the
+    /// upcaster chain (MIGRATION-04 / MIGRATION-06).
+    /// </summary>
+    public int SchemaVersion { get; set; } = 2;
     public string ExportedAt { get; set; } = "";
     public string SourceApp { get; set; } = "CookBot";
     public CookbookTransferCookbook Cookbook { get; set; } = new();
