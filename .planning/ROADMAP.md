@@ -67,7 +67,11 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
   3. Detected timer durations in step text surface as a "Detected 25 min — convert to a timer? [Yes / No]" suggestion; saving a recipe never auto-rewrites step text — explicit timer chips are the only persisted source.
   4. Pasting raw text via `PasteRawTextDialog.razor` parses best-effort through the new schema stack, surfaces unresolved fields in the chip editor for confirmation, and never persists a non-conforming recipe; cooking mode (`CookingMode.razor`) renders the same chip representation and uses `[name](#id)` link resolution exclusively for highlighting (no substring matching).
   5. The chip composer is keyboard-navigable (Tab/Shift+Tab between chips, Backspace to delete, Arrows to move caret), passes an axe-core/screen-reader smoke pass, and degrades gracefully if JS interop fails (the recipe still saves with its current `[name](#id)` text).
-**Plans**: TBD
+**Plans**: 4 plans
+  - [ ] 03-01-PLAN.md — Shared chip composer foundation: bUnit + lift IngredientLinkPattern + RecipeChipComposer.razor + IngredientChip.razor + recipe-chip-composer.js + JS-interop fallback (Wave 1)
+  - [ ] 03-02-PLAN.md — Editor integration: RecipeStepEditor.razor + TimerChip.razor + SectionDropConfirmationDialog.razor + RecipeEditor.razor rewrite + Step/Section toggle bUnit tests (Wave 2)
+  - [ ] 03-03-PLAN.md — Cooking mode chip rendering + paste flow simplification + timer regex broadening + InlineTimerSuggestion + formatter timer-suggestion overload + tests (Wave 2)
+  - [ ] 03-04-PLAN.md — Auto-write deletion in RecipeService + EDITOR-01 docs amendment in REQUIREMENTS.md + ROADMAP SC#1 alignment + manual a11y smoke checklist + human-verify checkpoint (Wave 3)
 **UI hint**: yes
 
 ### Phase 4: Format-Driven New Field & Cleanup
