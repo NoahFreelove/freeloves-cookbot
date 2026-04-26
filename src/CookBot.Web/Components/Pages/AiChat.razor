@@ -2,10 +2,13 @@
 @using System.Text
 @using System.Text.RegularExpressions
 @using CookBot.Application.DTOs
+@using Markdig
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IAiService AiService
+@inject CookBot.Application.AI.IAiRecipeGenerator AiRecipeGenerator
+@inject CookBot.Application.Recipes.JsonRecipeSerializer CanonicalSerializer
 @inject AiApiKeyResolutionService AiKeyResolver
 @using CookBot.Application.Services
 @using CookBot.Infrastructure.AI
@@ -155,6 +158,9 @@ else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
                     </div>
                 }
                 <div style="flex: 1;"></div>
+                @{
+                    var lastMessage = _messages.LastOrDefault();
+                }
                 @foreach (var msg in _messages)
                 {
                     <div class="d-flex @(msg.Role == "user" ? "justify-end" : "justify-start") mb-3">
@@ -163,11 +169,14 @@ else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
                             @if (msg.Role == "assistant")
                             {
                                 <div class="recipe-body">@((MarkupString)RenderContent(msg.Content))</div>
-                                @if (HasRecipe(msg.Content))
+                                @* D-24: Save button visibility keys off the typed structured-output result for the
+                                   most-recent assistant turn. Free-form chat turns and pre-Phase-2 turns never
+                                   produce a non-null _lastStructuredRecipe, so the button stays hidden. *@
+                                @if (msg == lastMessage && _lastStructuredRecipe?.Ok == true)
                                 {
                                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
                                                StartIcon="@Icons.Material.Filled.Save" Class="mt-2"
-                                               OnClick="@(() => SaveRecipeFromMessage(msg.Content))">
+                                               OnClick="SaveRecipeFromMessageAsync">
                                         Save Recipe to Cookbook
                                     </MudButton>
                                 }
@@ -188,16 +197,60 @@ else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
                         </MudPaper>
                     </div>
                 }
+                @if (_isDraftingRecipe)
+                {
+                    @* UI-SPEC Surface 1: Drafting indicator while IAiRecipeGenerator runs the
+                       structured-output pipeline (compose-then-reveal — no partial JSON streamed). *@
+                    <div class="d-flex justify-start mb-3">
+                        <MudPaper Class="pa-3" Elevation="1"
+                                  Style="max-width: 80%; border-radius: 12px; background: #FFF3E0;">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Drafting recipe…</MudText>
+                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Size="Size.Small" Class="mt-2" />
+                        </MudPaper>
+                    </div>
+                }
+                else if (_lastStructuredRecipe is { Ok: false, Validation: not null })
+                {
+                    @* UI-SPEC Surface 3: Edit-and-save-anyway when the orchestrator exhausted its
+                       2-retry budget on validation errors. The user lands in the editor with
+                       parser-best-effort fields populated; standard validation gate still applies. *@
+                    <div class="d-flex justify-start mb-3">
+                        <MudPaper Class="pa-3" Elevation="1"
+                                  Style="max-width: 80%; border-radius: 12px; background: #FFF3E0;">
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                                The AI could not produce a valid recipe after 2 attempts.
+                                You can edit the draft below and save it manually.
+                            </MudAlert>
+                            <MudStack Row="true" Spacing="1" Class="mt-2">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Edit"
+                                           OnClick="OpenDraftInEditor">
+                                    Edit and save anyway
+                                </MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                           OnClick="RetryRecipeGeneration">
+                                    Try again
+                                </MudButton>
+                            </MudStack>
+                        </MudPaper>
+                    </div>
+                }
             </div>
 
             <MudDivider Class="my-2" />
             <MudStack Row="true" Spacing="2">
                 <MudTextField @bind-Value="_userInput" Label="Ask CookBot..." Variant="Variant.Outlined"
-                              Immediate="true" OnKeyDown="HandleKeyDown" Disabled="@_isStreaming"
+                              Immediate="true" OnKeyDown="HandleKeyDown" Disabled="@(_isStreaming || _isDraftingRecipe)"
                               Style="flex: 1;" />
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                           StartIcon="@Icons.Material.Filled.Restaurant"
+                           OnClick="GenerateRecipeFromInput"
+                           Disabled="@(_isStreaming || _isDraftingRecipe || string.IsNullOrWhiteSpace(_userInput))">
+                    Generate Recipe
+                </MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.Send"
-                           OnClick="SendMessage" Disabled="@(_isStreaming || string.IsNullOrWhiteSpace(_userInput))">
+                           OnClick="SendMessage" Disabled="@(_isStreaming || _isDraftingRecipe || string.IsNullOrWhiteSpace(_userInput))">
                     Send
                 </MudButton>
             </MudStack>
@@ -228,6 +281,20 @@ else
     private string _promptTemplate = PromptBuilderService.DefaultTemplate;
 
     private int? _loadedUserId;
+
+    // Plan 02-04 / AI-08-AUDIT (D-15): assistant content is rendered through a pipeline with
+    // raw HTML disabled, so injected markdown like "<img src='https://attacker/log'>"
+    // or "<a href='javascript:...'>" cannot reach the DOM. Markdown image syntax
+    // "![](url)" is still rendered (Markdig generates the <img> tag itself, not from
+    // attacker HTML), but DisableHtml() removes the raw-HTML exfil surface that
+    // the dropped AI-09 banner was theoretically guarding against.
+    private static readonly Markdig.MarkdownPipeline AssistantContentPipeline =
+        new Markdig.MarkdownPipelineBuilder().DisableHtml().Build();
+
+    // Plan 02-04 — recipe-generation state.
+    private bool _isDraftingRecipe;
+    private CookBot.Application.AI.StructuredResult<CookBot.Domain.Recipes.RecipeDocument>? _lastStructuredRecipe;
+    private CancellationTokenSource? _generationCts;
 
     private static readonly Regex CookbookRecipeTokenRegex = new(@"\{\{cookbook_recipes:(\d+)\}\}", RegexOptions.Compiled);
 
@@ -291,6 +358,11 @@ else
         _currentConversation = conv;
         _selectedConversationId = conv.Id;
         _messages = System.Text.Json.JsonSerializer.Deserialize<List<CookBot.Domain.Interfaces.AiMessage>>(conv.MessagesJson) ?? new();
+        // Plan 02-04 / D-23: pre-Phase-2 conversations had FormatVersion < 2; the next AI
+        // call within this conversation gets a transient resume note prepended at request
+        // assembly time (see AssembleMessagesForAiCall). The note is NOT persisted.
+        // Drop any stale structured-recipe state from a different conversation.
+        _lastStructuredRecipe = null;
     }
 
     private async Task NewConversation()
@@ -298,6 +370,7 @@ else
         _currentConversation = null;
         _messages.Clear();
         _selectedConversationId = 0;
+        _lastStructuredRecipe = null;
         await Task.CompletedTask;
     }
 
@@ -310,12 +383,13 @@ else
         {
             _currentConversation = null;
             _messages.Clear();
+            _lastStructuredRecipe = null;
         }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey && !_isStreaming && !string.IsNullOrWhiteSpace(_userInput))
+        if (e.Key == "Enter" && !e.ShiftKey && !_isStreaming && !_isDraftingRecipe && !string.IsNullOrWhiteSpace(_userInput))
         {
             await SendMessage();
         }
@@ -323,11 +397,13 @@ else
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(_userInput) || _isStreaming) return;
+        if (string.IsNullOrWhiteSpace(_userInput) || _isStreaming || _isDraftingRecipe) return;
 
         var userMsg = _userInput.Trim();
         _userInput = "";
         _messages.Add(new CookBot.Domain.Interfaces.AiMessage { Role = "user", Content = userMsg });
+        // A free-form chat turn invalidates any prior structured-recipe state.
+        _lastStructuredRecipe = null;
 
         _isStreaming = true;
         _streamingContent = "";
@@ -337,8 +413,9 @@ else
         {
             var apiKey = _effectiveAi?.ApiKey;
             var modelId = _effectiveAi?.ModelId;
+            var messagesForCall = AssembleMessagesForAiCall();
 
-            await foreach (var chunk in AiService.StreamMessageAsync(_systemPrompt, _messages, apiKey, modelId))
+            await foreach (var chunk in AiService.StreamMessageAsync(_systemPrompt, messagesForCall, apiKey, modelId))
             {
                 _streamingContent += chunk;
                 StateHasChanged();
@@ -349,7 +426,8 @@ else
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"AI Error: {ex.Message}", Severity.Error);
+            // UI-SPEC Surface 4: sanitized snackbar copy — never bind raw ex.Message.
+            Snackbar.Add(MapToSanitizedSnackbarCopy(ex.Message), Severity.Error);
             _messages.RemoveAt(_messages.Count - 1);
         }
         finally
@@ -358,6 +436,202 @@ else
             _streamingContent = "";
             StateHasChanged();
         }
+    }
+
+    /// <summary>Submit handler for the explicit "Generate Recipe" button.</summary>
+    private async Task GenerateRecipeFromInput()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput) || _isStreaming || _isDraftingRecipe) return;
+
+        var userMsg = _userInput.Trim();
+        _userInput = "";
+        _messages.Add(new CookBot.Domain.Interfaces.AiMessage { Role = "user", Content = userMsg });
+        StateHasChanged();
+
+        await GenerateRecipeAsync(userMsg);
+    }
+
+    /// <summary>
+    /// AI-02 / AI-03 wiring — runs the IAiRecipeGenerator orchestrator (validate -> repair ->
+    /// fail) and updates UI state for Surfaces 1-4 of UI-SPEC. Never throws — the orchestrator
+    /// returns a populated StructuredResult on every path.
+    /// </summary>
+    private async Task GenerateRecipeAsync(string userPrompt)
+    {
+        _generationCts?.Cancel();
+        _generationCts = new CancellationTokenSource();
+
+        _isDraftingRecipe = true;
+        _lastStructuredRecipe = null;
+        StateHasChanged();
+
+        try
+        {
+            var apiKey = _effectiveAi?.ApiKey;
+            var modelId = _effectiveAi?.ModelId;
+            var result = await AiRecipeGenerator.GenerateAsync(
+                userPrompt, apiKey, modelId, _generationCts.Token);
+
+            _lastStructuredRecipe = result;
+
+            if (result.Ok && result.Value is not null)
+            {
+                // Add the assistant turn to the conversation. We serialize the canonical
+                // RecipeDocument as indented JSON inside a ```json fence so Markdig renders
+                // it as a code block — the typed Save flow keys off _lastStructuredRecipe,
+                // not on the rendered text.
+                var assistantContent = "```json\n" + CanonicalSerializer.SerializeIndented(result.Value) + "\n```";
+                _messages.Add(new CookBot.Domain.Interfaces.AiMessage { Role = "assistant", Content = assistantContent });
+                await SaveConversation();
+            }
+            else if (result.SanitizedError is not null && result.Validation is null)
+            {
+                // Transport / auth / refusal — sanitized snackbar copy.
+                Snackbar.Add(MapToSanitizedSnackbarCopy(result.SanitizedError), Severity.Error);
+            }
+            // else: validation failure — _lastStructuredRecipe drives the DRAFT_FAILED bubble.
+        }
+        catch (OperationCanceledException)
+        {
+            // User navigated away or cancelled — silent.
+        }
+        catch (Exception ex)
+        {
+            // Defensive: orchestrator promises never to throw, but if a future change breaks
+            // that, route through the sanitized snackbar mapper instead of binding ex.Message.
+            Snackbar.Add(MapToSanitizedSnackbarCopy(ex.Message), Severity.Error);
+        }
+        finally
+        {
+            _isDraftingRecipe = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// UI-SPEC Surface 4 — maps a sanitized error string to one of the prescriptive copy
+    /// templates. The input has already been redacted by SecretRedactor at the IAiService
+    /// boundary; this is a pure UX-copy mapping.
+    /// </summary>
+    private static string MapToSanitizedSnackbarCopy(string? sanitizedError)
+    {
+        if (string.IsNullOrEmpty(sanitizedError))
+            return "Something went wrong with the AI. Please try again.";
+
+        var lower = sanitizedError.ToLowerInvariant();
+        if (lower.Contains("401") || lower.Contains("authentication") || lower.Contains("api key"))
+            return "Could not connect to the AI — check your API key in Profile settings.";
+        if (lower.Contains("transport failure") || lower.Contains("network") || lower.Contains("timeout"))
+            return "Could not reach the AI. Check your internet connection and try again.";
+        if (lower.Contains("declined"))
+            return "The AI declined this request. Try a different prompt.";
+        return "Something went wrong with the AI. Please try again.";
+    }
+
+    private async Task SaveRecipeFromMessageAsync()
+    {
+        if (_lastStructuredRecipe?.Ok != true || _lastStructuredRecipe.Value is null)
+        {
+            Snackbar.Add("No recipe is available to save.", Severity.Warning);
+            return;
+        }
+
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        var cookbooks = await DbContext.Cookbooks
+            .Where(c => c.UserId == UserService.CurrentUserId.Value)
+            .ToListAsync();
+
+        if (!cookbooks.Any())
+        {
+            Snackbar.Add("Create a cookbook first!", Severity.Warning);
+            return;
+        }
+
+        // The existing SaveRecipeDialog accepts a serialized recipe string (it parses via
+        // IRecipeFormatParser). Serialize the typed RecipeDocument as canonical JSON;
+        // RecipeFormatParser.TryParse handles raw-JSON input (the non-frontmatter branch).
+        var recipeJson = CanonicalSerializer.SerializeIndented(_lastStructuredRecipe.Value);
+
+        var parameters = new DialogParameters<SaveRecipeDialog>
+        {
+            { x => x.Cookbooks, cookbooks },
+            { x => x.RecipeContent, recipeJson },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<SaveRecipeDialog>("Save Recipe", parameters, options);
+        var result = await dialog.Result;
+        if (result != null && !result.Canceled)
+        {
+            Snackbar.Add("Recipe saved to cookbook!", Severity.Success);
+        }
+    }
+
+    private async Task OpenDraftInEditor()
+    {
+        if (_lastStructuredRecipe?.RawResponse is null)
+        {
+            Snackbar.Add("No draft is available to edit.", Severity.Warning);
+            return;
+        }
+
+        var rawJson = _lastStructuredRecipe.RawResponse.ToJsonString();
+
+        // D-08 primary path: try to coerce via IRecipeFormatParser (parser-route).
+        if (Parser.TryParse(rawJson, out var _, out var _))
+        {
+            // Parser succeeded — open SaveRecipeDialog with the raw JSON; the user can pick a
+            // cookbook and the dialog will re-parse + persist (Phase 1 invariant: never persist
+            // a non-conforming recipe).
+            if (UserService.CurrentUserId.HasValue)
+            {
+                var cookbooks = await DbContext.Cookbooks
+                    .Where(c => c.UserId == UserService.CurrentUserId.Value)
+                    .ToListAsync();
+                if (cookbooks.Any())
+                {
+                    var parameters = new DialogParameters<SaveRecipeDialog>
+                    {
+                        { x => x.Cookbooks, cookbooks },
+                        { x => x.RecipeContent, rawJson },
+                    };
+                    var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+                    await DialogService.ShowAsync<SaveRecipeDialog>("Save Recipe", parameters, options);
+                    return;
+                }
+            }
+        }
+
+        // D-09 fallback: parser couldn't coerce — surface the raw JSON for manual edit.
+        Snackbar.Add("The AI draft could not be parsed automatically. Copy it from the chat and paste into the recipe editor.", Severity.Info);
+    }
+
+    private async Task RetryRecipeGeneration()
+    {
+        _lastStructuredRecipe = null;
+        var lastUserMessage = _messages.LastOrDefault(m => m.Role == "user")?.Content;
+        if (!string.IsNullOrEmpty(lastUserMessage))
+            await GenerateRecipeAsync(lastUserMessage);
+    }
+
+    /// <summary>
+    /// D-23 — when the active conversation pre-dates Phase 2 (FormatVersion &lt; 2), prepend a
+    /// transient user-role note to the request so the model knows to emit current-format
+    /// recipes. The note is NOT persisted to MessagesJson; once SaveConversation re-stamps
+    /// FormatVersion = 2 (D-22), the note disappears on subsequent calls.
+    /// </summary>
+    private List<CookBot.Domain.Interfaces.AiMessage> AssembleMessagesForAiCall()
+    {
+        var prepared = new List<CookBot.Domain.Interfaces.AiMessage>(_messages);
+        if (_currentConversation is { } conv && conv.FormatVersion < 2)
+        {
+            prepared.Insert(0, new CookBot.Domain.Interfaces.AiMessage
+            {
+                Role = "user",
+                Content = "Note: this conversation's earlier assistant outputs may reference an older recipe format. Emit any new recipes in the current structured format only."
+            });
+        }
+        return prepared;
     }
 
     private async Task SaveConversation()
@@ -379,6 +653,10 @@ else
 
         _currentConversation.MessagesJson = System.Text.Json.JsonSerializer.Serialize(_messages);
         _currentConversation.UpdatedAt = DateTime.UtcNow;
+        // POLISH-06 / D-22: every save stamps the conversation as v2 (Phase 2+). Resumed
+        // pre-Phase-2 conversations had FormatVersion=1 (back-fill default in the migration);
+        // after the first save in Phase 2 they're indistinguishable from natively-v2 rows.
+        _currentConversation.FormatVersion = 2;
         await DbContext.SaveChangesAsync();
         await LoadConversations();
         _selectedConversationId = _currentConversation.Id;
@@ -478,99 +756,15 @@ else
         Snackbar.Add("System prompt saved!", Severity.Success);
     }
 
+    /// <summary>
+    /// AI-08-AUDIT (D-15): rendered through the locked-down pipeline. DisableHtml() strips
+    /// raw HTML blocks/inlines so attacker-injected &lt;img src='https://exfil/log'&gt; or
+    /// &lt;a href='javascript:...'&gt; cannot reach the DOM. Markdown image syntax is still
+    /// parsed; Markdig itself controls the &lt;img&gt; tag generation in that path.
+    /// </summary>
     private string RenderContent(string content)
     {
         if (string.IsNullOrEmpty(content)) return "";
-        return Markdig.Markdown.ToHtml(content);
-    }
-
-    private bool HasRecipe(string content)
-    {
-        var recipeContent = ExtractRecipeContent(content);
-        return recipeContent != null;
-    }
-
-    private string? ExtractRecipeContent(string content)
-    {
-        // Try ```recipe fenced block first
-        var startIdx = content.IndexOf("```recipe");
-        if (startIdx >= 0)
-        {
-            var endIdx = content.IndexOf("```", startIdx + 9);
-            if (endIdx >= 0)
-            {
-                var recipeText = content[(startIdx + 9)..endIdx].Trim();
-                if (Parser.TryParse(recipeText, out _, out _))
-                    return recipeText;
-            }
-        }
-
-        // Try ---\nname: YAML front-matter style
-        startIdx = content.IndexOf("---\nname:");
-        if (startIdx >= 0)
-        {
-            var recipeText = content[startIdx..];
-            if (Parser.TryParse(recipeText, out _, out _))
-                return recipeText;
-        }
-
-        // Try loose YAML-like format: has both name: and ingredients: keys
-        if (content.Contains("name:") && content.Contains("ingredients:"))
-        {
-            // Find the line starting with name: and take everything from there
-            var lines = content.Split('\n');
-            int nameLineIdx = -1;
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (lines[i].TrimStart().StartsWith("name:"))
-                {
-                    nameLineIdx = i;
-                    break;
-                }
-            }
-            if (nameLineIdx >= 0)
-            {
-                var recipeText = string.Join('\n', lines[nameLineIdx..]);
-                if (Parser.TryParse(recipeText, out _, out _))
-                    return recipeText;
-            }
-        }
-
-        return null;
-    }
-
-    private async Task SaveRecipeFromMessage(string content)
-    {
-        var recipeContent = ExtractRecipeContent(content);
-        if (recipeContent == null)
-        {
-            Snackbar.Add("Could not find a valid recipe in this message.", Severity.Warning);
-            return;
-        }
-
-        if (!UserService.CurrentUserId.HasValue) return;
-
-        var cookbooks = await DbContext.Cookbooks
-            .Where(c => c.UserId == UserService.CurrentUserId.Value)
-            .ToListAsync();
-
-        if (!cookbooks.Any())
-        {
-            Snackbar.Add("Create a cookbook first!", Severity.Warning);
-            return;
-        }
-
-        var parameters = new DialogParameters<SaveRecipeDialog>
-        {
-            { x => x.Cookbooks, cookbooks },
-            { x => x.RecipeContent, recipeContent },
-        };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<SaveRecipeDialog>("Save Recipe", parameters, options);
-        var result = await dialog.Result;
-        if (result != null && !result.Canceled)
-        {
-            Snackbar.Add("Recipe saved to cookbook!", Severity.Success);
-        }
+        return Markdig.Markdown.ToHtml(content, AssistantContentPipeline);
     }
 }
