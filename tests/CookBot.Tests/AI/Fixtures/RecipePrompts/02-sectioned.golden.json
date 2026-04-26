@@ -1,0 +1,6 @@
+{
+  "ingredientCountMin": 10,
+  "stepCountMin": 8,
+  "hasSections": true,
+  "hasTimers": false
+}
