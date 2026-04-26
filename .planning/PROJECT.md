@@ -41,7 +41,7 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 - [ ] **Recipe-mode UX without special syntax** — users author and edit recipes (including ingredient references and timers) without ever typing `[name](#id)`, picking between `text:` vs `section:`, or formatting YAML by hand
 - [ ] **Single canonical, versioned recipe format** — one schema is the source of truth across the AI prompt, the YAML wire format, the JSON export, and the DB representation; the format carries an explicit `version` and supports forward-compatible evolution
-- [ ] **AI chat reliably emits the canonical format** — system prompt requires the format (no opt-out), output is validated, and the app self-repairs (re-prompts the model) when the response doesn't parse
+- [x] **AI chat reliably emits the canonical format** — Validated in Phase 2: AI Structured Output & Conformance. Anthropic's structured-output transport (`SendStructuredAsync<T>`) emits canonical recipes via `output_config.format`; a 2-retry repair loop bounds validation failures; SecretRedactor strips API keys from error surfaces; PromptInjectionGuard wraps recipe content in `<recipe>` tags. AI-09 (consent banner) deferred to FUTURE-12; AI-08-AUDIT (Markdig DisableHtml lockdown) shipped as the technical replacement.
 - [ ] **Format-driven new features** — once the format is canonical, add at least one new field/capability that exercises versioning (candidates: per-step temperature, ingredient substitutions, expiration dates, nutrition, equipment requirements) — exact list locked during requirements step
 - [ ] **General usability improvements** — friction items surfaced in the codebase concerns audit and from the user's own use, scoped during requirements step (candidates: better paste-raw-text affordances, smarter timer detection, scaling-aware timing notes, recipe-from-AI save flow polish)
 
@@ -131,4 +131,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state (users, feedback, metrics)
 
 ---
-*Last updated: 2026-04-25 after initialization (brownfield import — codebase mapped first)*
+*Last updated: 2026-04-26 after Phase 2 completion (AI Structured Output & Conformance)*
