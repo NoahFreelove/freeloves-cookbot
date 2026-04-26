@@ -26,8 +26,10 @@ public static class DependencyInjection
         services.AddSingleton<IRecipeUpcaster, Migration_V1_To_V2>();
         services.AddSingleton<RecipeUpcasterChain>();
 
-        // Phase 2 Plan 03 (AI-02 / AI-03). Stateless orchestrator -> Singleton.
-        services.AddSingleton<IAiRecipeGenerator, AiRecipeGenerator>();
+        // Phase 2 Plan 03 (AI-02 / AI-03). Orchestrator is stateless, but IStructuredAiService
+        // is registered Scoped (Plan 02 — same instance as IAiService). DI validation forbids
+        // a Singleton consuming a Scoped dependency, so the orchestrator is Scoped too.
+        services.AddScoped<IAiRecipeGenerator, AiRecipeGenerator>();
 
         return services;
     }
