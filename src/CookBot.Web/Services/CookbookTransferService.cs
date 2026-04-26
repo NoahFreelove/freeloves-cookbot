@@ -1,8 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CookBot.Application.DTOs;
+using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
+using CookBot.Domain.Recipes;
 using CookBot.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,15 +23,21 @@ public sealed class CookbookTransferService
     private readonly CookBotDbContext _db;
     private readonly CookbookService _cookbookService;
     private readonly RecipeService _recipeService;
+    private readonly RecipeUpcasterChain _upcasterChain;
+    private readonly RecipeValidator _validator;
 
     public CookbookTransferService(
         CookBotDbContext db,
         CookbookService cookbookService,
-        RecipeService recipeService)
+        RecipeService recipeService,
+        RecipeUpcasterChain upcasterChain,
+        RecipeValidator validator)
     {
         _db = db;
         _cookbookService = cookbookService;
         _recipeService = recipeService;
+        _upcasterChain = upcasterChain;
+        _validator = validator;
     }
 
     public async Task<CookbookTransferDocument?> BuildExportAsync(int cookbookId, int userId,
@@ -113,13 +122,32 @@ public sealed class CookbookTransferService
     public static byte[] SerializeToUtf8Json(CookbookTransferDocument document) =>
         JsonSerializer.SerializeToUtf8Bytes(document, JsonOptions);
 
-    public static CookbookTransferDocument? Deserialize(string json, out List<string> errors)
+    /// <summary>
+    /// MIGRATION-04 — parses an envelope, then per-recipe stamps version, routes through
+    /// the upcaster chain, deserializes to <see cref="RecipeDocument"/>, and runs the
+    /// semantic validator. Per-recipe errors are collected with index/name prefixes; the
+    /// envelope is returned even when some recipes fail validation so the caller can show
+    /// partial-success UI. Envelope-level failures (malformed JSON, unsupported schema
+    /// version) return null.
+    ///
+    /// Implementation note: per-recipe upcasting must operate on the raw JsonNode from
+    /// the input string (not the round-tripped DTO), because the DTO models the v1 wire
+    /// shape (<c>localId</c>, <c>isSection</c>) and would silently drop v2-only fields
+    /// (<c>id</c>, <c>kind</c>, <c>heading</c>) on a v2 envelope.
+    /// </summary>
+    public CookbookTransferDocument? Deserialize(string json, out List<string> errors)
     {
         errors = new List<string>();
-        CookbookTransferDocument? doc;
+
+        // 1. Parse to JsonNode AND DTO. The JsonNode preserves whatever shape was sent
+        //    (v1 or v2); the DTO is used to compose the legacy ImportAsNewCookbookAsync
+        //    output and for envelope-level metadata.
+        JsonNode? root;
+        CookbookTransferDocument? envelope;
         try
         {
-            doc = JsonSerializer.Deserialize<CookbookTransferDocument>(json, JsonOptions);
+            root = JsonNode.Parse(json);
+            envelope = JsonSerializer.Deserialize<CookbookTransferDocument>(json, JsonOptions);
         }
         catch (Exception ex)
         {
@@ -127,26 +155,84 @@ public sealed class CookbookTransferService
             return null;
         }
 
-        if (doc == null)
+        if (envelope is null || root is null)
         {
             errors.Add("File was empty or unreadable.");
             return null;
         }
 
-        if (doc.SchemaVersion != 1)
-            errors.Add($"Unsupported schema version: {doc.SchemaVersion} (expected 1).");
-
-        if (string.IsNullOrWhiteSpace(doc.Cookbook.Name))
-            errors.Add("Cookbook name is required.");
-
-        for (var i = 0; i < doc.Recipes.Count; i++)
+        // 2. Accept SchemaVersion in {1, 2} — Phase 2 supports v2 envelopes too.
+        if (envelope.SchemaVersion is not (1 or 2))
         {
-            var r = doc.Recipes[i];
-            if (string.IsNullOrWhiteSpace(r.Name))
-                errors.Add($"Recipe #{i + 1} is missing a name.");
+            errors.Add($"Unsupported schema version: {envelope.SchemaVersion}. Only v1 and v2 are supported.");
+            return null;
         }
 
-        return errors.Count == 0 ? doc : null;
+        if (string.IsNullOrWhiteSpace(envelope.Cookbook.Name))
+        {
+            errors.Add("Cookbook name is required.");
+        }
+
+        // 3. Per-recipe: stamp version -> upcast -> deserialize -> validate.
+        //    Operate on raw nodes from the input so v2 fields aren't lost via the v1-shaped DTO.
+        var envelopeVersionForStamping = envelope.SchemaVersion; // 1 or 2
+        var rawRecipes = root["recipes"] as JsonArray;
+
+        for (var i = 0; i < envelope.Recipes.Count; i++)
+        {
+            var recipeDto = envelope.Recipes[i];
+            if (string.IsNullOrWhiteSpace(recipeDto.Name))
+            {
+                errors.Add($"Recipe #{i + 1} is missing a name.");
+                continue;
+            }
+
+            try
+            {
+                // Take the original (untouched) recipe node from the parsed envelope. If for
+                // some reason the array shape mismatches, fall back to serializing the DTO.
+                JsonNode node;
+                if (rawRecipes is not null && i < rawRecipes.Count && rawRecipes[i] is JsonNode rawNode)
+                {
+                    node = rawNode.DeepClone();
+                }
+                else
+                {
+                    node = JsonSerializer.SerializeToNode(recipeDto, JsonOptions)
+                        ?? throw new InvalidOperationException("Recipe serialized to null JsonNode");
+                }
+
+                // Stamp version from the envelope if the per-recipe `version` field is absent.
+                // Phase 1 invariant (FORMAT-08 / RecipeUpcasterChain): the chain reads `version`
+                // off the node. If the v1 export omitted it, stamp to envelopeVersionForStamping.
+                if (node["version"] is null)
+                {
+                    node["version"] = envelopeVersionForStamping;
+                }
+
+                var upcasted = _upcasterChain.UpcastToCurrent(node);
+                var doc = JsonSerializer.Deserialize<RecipeDocument>(upcasted.ToJsonString(), JsonOptions);
+                if (doc is null)
+                {
+                    errors.Add($"Recipe #{i + 1} ({recipeDto.Name}): could not deserialize to canonical document.");
+                    continue;
+                }
+
+                var validation = _validator.Validate(doc);
+                if (!validation.IsValid)
+                {
+                    var msgs = string.Join("; ", validation.Errors.Select(e => $"{e.Path}: {e.Message}"));
+                    errors.Add($"Recipe #{i + 1} ({recipeDto.Name}): {msgs}");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Recipe #{i + 1} ({recipeDto.Name}): upcast/deserialize failed — {ex.Message}");
+            }
+        }
+
+        // Always return the envelope (even with per-recipe errors) — caller decides what to import.
+        return envelope;
     }
 
     public async Task<int> ImportAsNewCookbookAsync(int userId, CookbookTransferDocument doc,

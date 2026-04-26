@@ -44,11 +44,17 @@
             await using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
             using var reader = new StreamReader(stream);
             var json = await reader.ReadToEndAsync();
-            var doc = CookbookTransferService.Deserialize(json, out var errors);
+            var doc = TransferService.Deserialize(json, out var errors);
             if (doc == null)
             {
                 Snackbar.Add(string.Join(" ", errors), Severity.Error);
                 return;
+            }
+            if (errors.Count > 0)
+            {
+                // Partial-success surface (UI-SPEC Surface 8): some recipes failed validation
+                // but the envelope is intact. Show a warning so the user sees per-recipe issues.
+                Snackbar.Add($"Import completed with {errors.Count} warning(s): {string.Join(" | ", errors)}", Severity.Warning);
             }
 
             var newId = await TransferService.ImportAsNewCookbookAsync(
