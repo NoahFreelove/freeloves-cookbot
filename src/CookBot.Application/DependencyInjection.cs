@@ -1,3 +1,4 @@
+using CookBot.Application.AI;
 using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
@@ -24,6 +25,9 @@ public static class DependencyInjection
         services.AddSingleton<JsonRecipeSerializer>();
         services.AddSingleton<IRecipeUpcaster, Migration_V1_To_V2>();
         services.AddSingleton<RecipeUpcasterChain>();
+
+        // Phase 2 Plan 03 (AI-02 / AI-03). Stateless orchestrator -> Singleton.
+        services.AddSingleton<IAiRecipeGenerator, AiRecipeGenerator>();
 
         return services;
     }
