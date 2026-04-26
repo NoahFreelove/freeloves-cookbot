@@ -81,6 +81,73 @@ public sealed class RecipeValidator
             }
         }
 
+        // AI-SPEC §1b enhancements (warnings, not errors — do not trigger the repair loop):
+        DetectOrphanIngredients(doc, warnings);
+        DetectEmptySections(doc, warnings);
+
         return new ValidationResult(errors, warnings);
+    }
+
+    /// <summary>
+    /// AI-SPEC §1b — surfaces ingredients that are present in <c>doc.Ingredients</c> but
+    /// never referenced by a <c>[name](#id)</c> markdown link in any <see cref="ContentStep.Text"/>.
+    /// Warning only — does not flip <see cref="ValidationResult.IsValid"/>.
+    /// </summary>
+    private static void DetectOrphanIngredients(RecipeDocument doc, List<ValidationWarning> warnings)
+    {
+        if (doc.Ingredients.Count == 0) return;
+
+        // Collect every `[text](#id)` numeric id referenced in step text.
+        var referencedIds = new HashSet<int>();
+        foreach (var step in doc.Steps.OfType<ContentStep>())
+        {
+            if (string.IsNullOrEmpty(step.Text)) continue;
+            foreach (Match m in IngredientLink.Matches(step.Text))
+            {
+                if (int.TryParse(m.Groups[2].Value, out var refId))
+                    referencedIds.Add(refId);
+            }
+        }
+
+        for (var i = 0; i < doc.Ingredients.Count; i++)
+        {
+            var ing = doc.Ingredients[i];
+            if (!referencedIds.Contains(ing.Id))
+            {
+                warnings.Add(new ValidationWarning(
+                    Path: $"/ingredients/{i}",
+                    Code: "OrphanIngredient",
+                    Message: $"Ingredient '{ing.Name}' (id={ing.Id}) is not referenced by any step."));
+            }
+        }
+    }
+
+    /// <summary>
+    /// AI-SPEC §1b — surfaces <see cref="SectionStep"/>s that are immediately followed by
+    /// another <see cref="SectionStep"/> (or end-of-list) with no <see cref="ContentStep"/>
+    /// in between. Warning only — does not flip <see cref="ValidationResult.IsValid"/>.
+    /// </summary>
+    private static void DetectEmptySections(RecipeDocument doc, List<ValidationWarning> warnings)
+    {
+        for (var i = 0; i < doc.Steps.Count; i++)
+        {
+            if (doc.Steps[i] is not SectionStep section) continue;
+
+            // Look ahead until next SectionStep or end-of-list — must find a ContentStep.
+            var hasContentInSection = false;
+            for (var j = i + 1; j < doc.Steps.Count; j++)
+            {
+                if (doc.Steps[j] is SectionStep) break;
+                if (doc.Steps[j] is ContentStep) { hasContentInSection = true; break; }
+            }
+
+            if (!hasContentInSection)
+            {
+                warnings.Add(new ValidationWarning(
+                    Path: $"/steps/{i}",
+                    Code: "EmptySection",
+                    Message: $"Section '{section.Heading}' has no steps."));
+            }
+        }
     }
 }
