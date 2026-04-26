@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Canonical Format & AI Conformance
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-04-26T05:22:23.381Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-04-26T05:31:11.162Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 5
-  percent: 56
+  completed_plans: 6
+  percent: 67
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 ## Current Position
 
 Phase: 02 (ai-structured-output-conformance) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-04-26
 
-Progress: [██████░░░░] 56%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [██████░░░░] 56%
 
 *Updated after each plan completion*
 | Phase 02 P01 | 23 | 2 tasks | 4 files |
+| Phase 02 P02-02 | 5 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Recent decisions affecting current work (resolved during requirements step, see 
 - v1.1 / Q9: Only `RecipeIngredient.Amount` scales — temperature/time fields never scale with servings.
 - Phase 2 Plan 1: SecretRedactor in Infrastructure/AI (caller-coloc), PromptInjectionGuard in Application/AI (callers in Application). Both pure-static; D-12 / D-16 / D-18 spec language committed verbatim — no refactor.
 - Phase 2 Plan 1: ReDoS risk on SecretRedactor regexes explicitly accepted (T-02P01-04); no Timeout set; inputs bounded by Anthropic ≤256 KB response size.
+- Phase 2 Plan 2: IStructuredAiService lives in Application/AI (NOT Domain) — JsonNode + ValidationResult cannot leak to Domain. AnthropicAiService now implements both IAiService and IStructuredAiService; DI factory aliases the second registration to the same scoped instance.
+- Phase 2 Plan 2: SendStructuredAsync<T> never throws (except OperationCanceledException). Every error path routes through SecretRedactor.Redact (4 call sites: client-init, transport, non-success HTTP, JsonException). Refusal stop_reason short-circuits before deserialization to preserve the 2-retry repair budget for Wave 3.
+- Phase 2 Plan 2: FakeHttpMessageHandler is the first HTTP-layer test fake in this codebase; pattern is reusable for Wave 3+ tests. Testability seam is  on AnthropicAiService — minimum-blast-radius hook avoiding IHttpClientFactory ceremony.
 
 ### Pending Todos
 
@@ -103,8 +107,8 @@ Items captured in REQUIREMENTS.md "Future Requirements" — not in v1.1 scope:
 
 ## Session Continuity
 
-Last session: 2026-04-26T05:22:23.378Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-04-26T05:31:11.159Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
 
 **Planned Phase:** 2 (AI Structured Output & Conformance) — 5 plans — 2026-04-26T02:43:44.788Z
