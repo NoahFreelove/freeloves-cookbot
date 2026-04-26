@@ -12,10 +12,6 @@ namespace CookBot.Application.Recipes;
 /// </summary>
 public sealed class RecipeValidator
 {
-    private static readonly Regex IngredientLink = new(
-        @"\[([^\]]+)\]\(#(\d+)\)",
-        RegexOptions.Compiled);
-
     /// <summary>
     /// Validates a recipe. Never throws on any input including null; null produces a single
     /// <see cref="ValidationError"/> at path "/".
@@ -56,7 +52,7 @@ public sealed class RecipeValidator
             switch (doc.Steps[i])
             {
                 case ContentStep content:
-                    foreach (Match m in IngredientLink.Matches(content.Text))
+                    foreach (Match m in IngredientLinkPatterns.Pattern.Matches(content.Text))
                     {
                         var idText = m.Groups[2].Value;
                         if (!int.TryParse(idText, out var refId) || !ids.Contains(refId))
@@ -102,7 +98,7 @@ public sealed class RecipeValidator
         foreach (var step in doc.Steps.OfType<ContentStep>())
         {
             if (string.IsNullOrEmpty(step.Text)) continue;
-            foreach (Match m in IngredientLink.Matches(step.Text))
+            foreach (Match m in IngredientLinkPatterns.Pattern.Matches(step.Text))
             {
                 if (int.TryParse(m.Groups[2].Value, out var refId))
                     referencedIds.Add(refId);
