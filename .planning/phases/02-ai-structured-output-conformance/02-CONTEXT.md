@@ -210,9 +210,15 @@ These are choices the planner can make during plan-phase without re-asking:
 - `src/CookBot.Domain/Entities/AiConversation.cs` — adds `FormatVersion: int` (default 2)
 - `src/CookBot.Infrastructure/Data/CookBotDbContext.cs` — `AiConversation` mapping picks up the new column
 - `src/CookBot.Infrastructure/Migrations/` — new EF migration `<timestamp>_AiConversationFormatVersion`
-- `src/CookBot.Domain/Interfaces/IAiService.cs` — adds `SendStructuredAsync<T>` overload signature
+<!-- Plan 02-04 documentation correction: the original CONTEXT.md listed the Domain
+     IAiService interface here as the host of the new structured-output overload. That
+     entry has been removed. Plan 02 actually introduced the structured surface as a NEW
+     Application-layer interface (see the "creates" list below for IStructuredAiService).
+     The Domain IAiService is unchanged. See `<deviations>` block in 02-02-PLAN.md and
+     the deviation note in 02-02-SUMMARY.md. -->
 
 ### Source files this phase creates
+- `src/CookBot.Application/AI/IStructuredAiService.cs` (NEW, lives in Application/AI not Domain) — Application-layer interface adding the `SendStructuredAsync<T>` method. `StructuredResult<T>` references `JsonNode` and `ValidationResult` which Domain may not see; so this surface lives in Application. `AnthropicAiService` implements both `IAiService` (Domain, unchanged) and `IStructuredAiService` (new); the DI factory aliases the second registration to the same scoped instance. (See Plan 02 `<deviations>` block and 02-02-SUMMARY.md.)
 - `src/CookBot.Application/AI/IAiRecipeGenerator.cs` + impl `AiRecipeGenerator.cs`
 - `src/CookBot.Application/AI/StructuredResult.cs` (envelope record)
 - `src/CookBot.Application/AI/PromptInjectionGuard.cs` (static helper)
