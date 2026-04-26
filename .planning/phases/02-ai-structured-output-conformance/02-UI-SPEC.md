@@ -1,10 +1,11 @@
 ---
 phase: 2
 slug: ai-structured-output-conformance
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-04-25
+reviewed_at: 2026-04-25T00:00:00Z
 ---
 
 # Phase 2 — UI Design Contract
