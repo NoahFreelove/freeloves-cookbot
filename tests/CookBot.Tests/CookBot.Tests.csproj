@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\CookBot.Domain\CookBot.Domain.csproj" />
     <ProjectReference Include="..\..\src\CookBot.Application\CookBot.Application.csproj" />
     <ProjectReference Include="..\..\src\CookBot.Infrastructure\CookBot.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\CookBot.Web\CookBot.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>
