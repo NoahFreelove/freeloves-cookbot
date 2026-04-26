@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Canonical Format & AI Conformance
-status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-04-26T14:02:19.149Z"
+status: verifying
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-04-26T14:16:19.082Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 
 Phase: 02 (ai-structured-output-conformance) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-26
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [█████████░] 89%
 | Phase 02 P02-02 | 5 | 3 tasks | 6 files |
 | Phase 02 P03 | 7 | 4 tasks | 12 files |
 | Phase Phase 02 P04 P13 | 5 tasks (4 + 1 RED-GREEN split) | 8 files tasks | - files |
+| Phase 02 P05 | 8 | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Recent decisions affecting current work (resolved during requirements step, see 
 - Phase 2 Plan 4: AiChat.razor keeps both Send (free-form chat via IAiService.StreamMessageAsync) AND Generate Recipe (structured-output via IAiRecipeGenerator) buttons. Plan text noted intent-detection vs. explicit-button as executor's discretion; explicit buttons match UI-SPEC Surface 2 invariant ('Free-form chat turns never show the Save button') without heuristic intent detection.
 - Phase 2 Plan 4: AI-09 formally moved to FUTURE-12 in REQUIREMENTS.md (active list, deferred list, traceability, phase summary, top-of-file count). AI-08 (XML-tag wrap) + AI-08-AUDIT (Markdig DisableHtml lockdown) are the load-bearing trusted-LAN mitigations replacing the dropped per-sharer consent banner. CONTEXT.md canonical_refs corrected to reference IStructuredAiService (Plan 02 layering deviation).
 - Phase 2 Plan 4: Markdig pipeline lockdown via static readonly AssistantContentPipeline = MarkdownPipelineBuilder().DisableHtml().Build() field; RenderContent uses 2-arg Markdown.ToHtml(content, AssistantContentPipeline). DisableHtml() requires @using Markdig directive (not just Markdig.Renderers) because it is an extension method in the Markdig namespace. Reusable pattern for any future Razor surface rendering untrusted markdown.
+- Phase 2 Plan 5: Fixture-driven Theory + AI-08 prompt-injection live test gate. 5 prompts + 5 goldens with FixtureGoldenSchema strong-typing; both live test classes [Trait('Category', 'RequiresApiKey')]-tagged. Offline CI gate (--filter 'Category!=RequiresApiKey') skips; milestone-verification command is ANTHROPIC_API_KEY=... dotnet test. Phase 2 success criterion #1 is now mechanically verifiable.
+- Phase 2 Plan 5: AI-SPEC §1b validator warnings shipped (OrphanIngredient + EmptySection) — surface as ValidationWarning entries; never flip IsValid; preserve orchestrator repair-loop semantics. Reuses Phase 1 IngredientLink regex; ~67 LOC added to RecipeValidator.
+- Phase 2 Plan 5: Live test stack constructs AnthropicAiService directly with Options.Create(CookBotSettings) + RecipeValidator (the real production constructor; plan-text TestStubCurrentUserService was wrong — no ICurrentUserService dep exists). Real-stack mocking is intentional: these tests are milestone-verification gates, not unit tests.
 
 ### Pending Todos
 
@@ -117,8 +121,8 @@ Items captured in REQUIREMENTS.md "Future Requirements" — not in v1.1 scope:
 
 ## Session Continuity
 
-Last session: 2026-04-26T14:02:19.145Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-04-26T14:16:19.077Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
 
 **Planned Phase:** 2 (AI Structured Output & Conformance) — 5 plans — 2026-04-26T02:43:44.788Z

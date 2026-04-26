@@ -27,7 +27,8 @@ Single source of truth across YAML wire, JSON export, DB representation, and AI 
 
 The AI must use the format. No opt-out. Replaces the three-tier extractor in `AiChat.ExtractRecipeContent` and the duplicated format spec in `PromptBuilderService` (CONCERNS §9–13).
 
-- [ ] **AI-01**: `IAiService` gains a structured-output overload (e.g. `SendStructuredAsync<T>(systemPrompt, messages, schema, ...)`) that wires Anthropic's `output_config.format = { type: "json_schema", schema, strict: true }` into `AnthropicAiService`. Streaming SSE is preserved; the assembled JSON validates after the final chunk.
+- [x] **AI-01
+**: `IAiService` gains a structured-output overload (e.g. `SendStructuredAsync<T>(systemPrompt, messages, schema, ...)`) that wires Anthropic's `output_config.format = { type: "json_schema", schema, strict: true }` into `AnthropicAiService`. Streaming SSE is preserved; the assembled JSON validates after the final chunk.
 - [x] **AI-02
 **: A new `IAiRecipeGenerator` orchestrator in `CookBot.Application` wraps `IAiService.SendStructuredAsync` with the `RecipeJsonSchemaProvider` and the `RecipeValidator`. Recipe-emitting AI calls in `AiChat.razor` and the cooking-step assist route through this orchestrator.
 - [x] **AI-03
