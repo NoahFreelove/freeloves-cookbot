@@ -1,4 +1,5 @@
 using CookBot.Application;
+using CookBot.Application.AI;
 using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
 using CookBot.Infrastructure.AI;
@@ -20,6 +21,8 @@ public static class DependencyInjection
 
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IAiService, AnthropicAiService>();
+        // AI-01 — same instance, second interface (Plan 02-02). AnthropicAiService implements both.
+        services.AddScoped<IStructuredAiService>(sp => (IStructuredAiService)sp.GetRequiredService<IAiService>());
         services.AddScoped<PromptBuilderService>();
 
         // Phase 1 / D-15: pre-migration backup; D-14: relational -> RecipeDocument projector.

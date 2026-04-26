@@ -2,14 +2,18 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using CookBot.Application.AI;
 using CookBot.Application.DTOs;
+using CookBot.Application.Recipes;
 using CookBot.Domain.Interfaces;
+using CookBot.Domain.Recipes;
 using Microsoft.Extensions.Options;
 
 namespace CookBot.Infrastructure.AI;
 
-public class AnthropicAiService : IAiService
+public class AnthropicAiService : IAiService, IStructuredAiService
 {
     public static readonly List<AiModelInfo> CuratedModels = new()
     {
@@ -27,13 +31,15 @@ public class AnthropicAiService : IAiService
     };
 
     private readonly CookBotSettings _settings;
+    private readonly RecipeValidator _validator;
 
-    public AnthropicAiService(IOptions<CookBotSettings> settings)
+    public AnthropicAiService(IOptions<CookBotSettings> settings, RecipeValidator validator)
     {
         _settings = settings.Value;
+        _validator = validator;
     }
 
-    private HttpClient CreateHttpClient(string? apiKey)
+    protected virtual HttpClient CreateHttpClient(string? apiKey)
     {
         var key = apiKey ?? _settings.AnthropicApiKey;
         if (string.IsNullOrEmpty(key))
@@ -177,5 +183,197 @@ public class AnthropicAiService : IAiService
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// AI-01 structured-output transport. Wires Anthropic's <c>output_config.format</c>
+    /// with <c>strict: true</c>, accumulates SSE deltas, deserializes the JSON body,
+    /// runs <see cref="RecipeValidator"/> for <see cref="RecipeDocument"/> Ts, and
+    /// surfaces every failure as a <see cref="StructuredResult{T}"/> envelope (D-02).
+    /// Never throws, except for <see cref="OperationCanceledException"/> from the
+    /// supplied <paramref name="ct"/>.
+    /// </summary>
+    public async Task<StructuredResult<T>> SendStructuredAsync<T>(
+        string systemPrompt,
+        List<AiMessage> messages,
+        JsonNode schema,
+        string? apiKey = null,
+        string? modelId = null,
+        int maxTokens = 4096,
+        CancellationToken ct = default)
+        where T : class
+    {
+        // resolvedKey is the verbatim secret to scrub from any error message.
+        // CreateHttpClient handles fallback to settings if apiKey is null.
+        var resolvedKey = apiKey ?? _settings.AnthropicApiKey;
+
+        HttpClient http;
+        try
+        {
+            http = CreateHttpClient(apiKey);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new StructuredResult<T>(
+                Ok: false, Value: null, RawResponse: null, Validation: null,
+                SanitizedError: SecretRedactor.Redact($"AI client init failure: {ex.Message}", resolvedKey));
+        }
+
+        try
+        {
+            // D-10: output_config.format with type=json_schema, the cached schema node, strict=true.
+            var outputConfig = new
+            {
+                format = new
+                {
+                    type = "json_schema",
+                    schema = schema,
+                    strict = true
+                }
+            };
+
+            var payload = new Dictionary<string, object>
+            {
+                ["model"]         = modelId ?? DefaultModelId,
+                ["system"]        = systemPrompt,
+                ["messages"]      = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
+                ["max_tokens"]    = maxTokens,
+                ["stream"]        = true,           // SSE under the hood (D-01)
+                ["output_config"] = outputConfig,
+            };
+
+            var requestContent = new StringContent(
+                JsonSerializer.Serialize(payload, JsonOptions),
+                Encoding.UTF8,
+                "application/json");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
+            request.Content = requestContent;
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return new StructuredResult<T>(
+                    Ok: false, Value: null, RawResponse: null, Validation: null,
+                    SanitizedError: SecretRedactor.Redact($"AI transport failure: {ex.Message}", resolvedKey));
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorBody = await response.Content.ReadAsStringAsync(ct);
+                    return new StructuredResult<T>(
+                        Ok: false, Value: null, RawResponse: null, Validation: null,
+                        SanitizedError: SecretRedactor.Redact(
+                            $"Anthropic API error {(int)response.StatusCode}: {errorBody}",
+                            resolvedKey));
+                }
+
+                // SSE accumulation — match StreamMessageAsync line-reading discipline.
+                var accumulated = new StringBuilder();
+                string? stopReason = null;
+
+                using var stream = await response.Content.ReadAsStreamAsync(ct);
+                using var reader = new StreamReader(stream);
+
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var line = await reader.ReadLineAsync(ct);
+                    if (line is null) break;
+                    if (!line.StartsWith("data: ")) continue;
+                    var data = line["data: ".Length..];
+                    if (data == "[DONE]") break;
+
+                    try
+                    {
+                        using var evt = JsonDocument.Parse(data);
+                        var type = evt.RootElement.GetProperty("type").GetString();
+
+                        // P-4: structured-output JSON arrives in content_block_delta.delta.text.
+                        if (type == "content_block_delta")
+                        {
+                            var delta = evt.RootElement.GetProperty("delta");
+                            if (delta.TryGetProperty("text", out var text))
+                                accumulated.Append(text.GetString());
+                        }
+                        // P-5: capture stop_reason from message_delta — short-circuit on refusal.
+                        else if (type == "message_delta")
+                        {
+                            if (evt.RootElement.TryGetProperty("delta", out var d) &&
+                                d.TryGetProperty("stop_reason", out var sr) &&
+                                sr.ValueKind == JsonValueKind.String)
+                            {
+                                stopReason = sr.GetString();
+                            }
+                        }
+                    }
+                    catch (JsonException) { /* skip malformed SSE events */ }
+                }
+
+                // Critical-constraint #2: refusals do not converge under repair — short-circuit.
+                if (stopReason == "refusal")
+                {
+                    return new StructuredResult<T>(
+                        Ok: false, Value: null, RawResponse: null, Validation: null,
+                        SanitizedError: "The AI declined to produce a recipe for this request.");
+                }
+
+                // Typed deserialize.
+                T? doc;
+                JsonNode? rawNode = null;
+                try
+                {
+                    var json = accumulated.ToString();
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        return new StructuredResult<T>(
+                            Ok: false, Value: null, RawResponse: null, Validation: null,
+                            SanitizedError: "Model returned empty content.");
+                    }
+                    rawNode = JsonNode.Parse(json);
+                    doc = JsonSerializer.Deserialize<T>(json, JsonOptions);
+                }
+                catch (JsonException ex)
+                {
+                    return new StructuredResult<T>(
+                        Ok: false, Value: null, RawResponse: rawNode, Validation: null,
+                        SanitizedError: SecretRedactor.Redact(
+                            $"Deserialization failed: {ex.Message}", resolvedKey));
+                }
+
+                if (doc is null)
+                {
+                    return new StructuredResult<T>(
+                        Ok: false, Value: null, RawResponse: rawNode, Validation: null,
+                        SanitizedError: "Model returned empty content.");
+                }
+
+                // Semantic validation runs only for RecipeDocument. Other Ts skip the validator.
+                if (doc is RecipeDocument recipeDoc)
+                {
+                    var validation = _validator.Validate(recipeDoc);
+                    return new StructuredResult<T>(
+                        Ok: validation.IsValid,
+                        Value: validation.IsValid ? doc : null,
+                        RawResponse: rawNode,
+                        Validation: validation,
+                        SanitizedError: null);
+                }
+
+                // For non-recipe Ts: deserialization success implies Ok.
+                return new StructuredResult<T>(
+                    Ok: true, Value: doc, RawResponse: rawNode, Validation: null, SanitizedError: null);
+            }
+        }
+        finally
+        {
+            http.Dispose();
+        }
     }
 }
