@@ -53,7 +53,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
 **Plans**: 5 plans
   - [x] 02-01-PLAN.md — Foundation security helpers: SecretRedactor (AI-07) + PromptInjectionGuard (AI-08) + tests (Wave 1)
   - [x] 02-02-PLAN.md — Structured-output transport: StructuredResult<T> + IStructuredAiService + AnthropicAiService.SendStructuredAsync + FakeHttpMessageHandler tests (Wave 2)
-  - [ ] 02-03-PLAN.md — Recipe-generation orchestrator: IAiRecipeGenerator + 2-retry repair loop + AI-08 directive append + RecipeCookingAiContext wrap + AiConversation.FormatVersion column + EF migration + tests (Wave 3)
+  - [x] 02-03-PLAN.md — Recipe-generation orchestrator: IAiRecipeGenerator + 2-retry repair loop + AI-08 directive append + RecipeCookingAiContext wrap + AiConversation.FormatVersion column + EF migration + tests (Wave 3)
   - [ ] 02-04-PLAN.md — UI integration: AiChat.razor rewrite (delete ExtractRecipeContent, route through orchestrator, Markdig pipeline lockdown for AI-08-AUDIT, FormatVersion stamping + resume note) + CookbookTransferService.Deserialize through upcaster + RecipeFormatParser version-stamping verification + AI-09→FUTURE-12 documentation (Wave 4)
   - [ ] 02-05-PLAN.md — AI eval suite: 5 fixture prompts + golden-shape assertions + RequiresApiKey-gated live theory + prompt-injection resistance test + RecipeValidator orphan-ingredient/empty-section warnings (Wave 5)
 

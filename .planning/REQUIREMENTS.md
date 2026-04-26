@@ -28,8 +28,10 @@ Single source of truth across YAML wire, JSON export, DB representation, and AI 
 The AI must use the format. No opt-out. Replaces the three-tier extractor in `AiChat.ExtractRecipeContent` and the duplicated format spec in `PromptBuilderService` (CONCERNS §9–13).
 
 - [ ] **AI-01**: `IAiService` gains a structured-output overload (e.g. `SendStructuredAsync<T>(systemPrompt, messages, schema, ...)`) that wires Anthropic's `output_config.format = { type: "json_schema", schema, strict: true }` into `AnthropicAiService`. Streaming SSE is preserved; the assembled JSON validates after the final chunk.
-- [ ] **AI-02**: A new `IAiRecipeGenerator` orchestrator in `CookBot.Application` wraps `IAiService.SendStructuredAsync` with the `RecipeJsonSchemaProvider` and the `RecipeValidator`. Recipe-emitting AI calls in `AiChat.razor` and the cooking-step assist route through this orchestrator.
-- [ ] **AI-03**: The validate → repair → fail pipeline replaces the current three-tier extractor. Repair is capped at **2 retries**; the repair prompt contains only the failure mode + format reminder (NOT full conversation history). After 2 failures the user sees the raw output with an "Edit and save anyway" affordance.
+- [x] **AI-02
+**: A new `IAiRecipeGenerator` orchestrator in `CookBot.Application` wraps `IAiService.SendStructuredAsync` with the `RecipeJsonSchemaProvider` and the `RecipeValidator`. Recipe-emitting AI calls in `AiChat.razor` and the cooking-step assist route through this orchestrator.
+- [x] **AI-03
+**: The validate → repair → fail pipeline replaces the current three-tier extractor. Repair is capped at **2 retries**; the repair prompt contains only the failure mode + format reminder (NOT full conversation history). After 2 failures the user sees the raw output with an "Edit and save anyway" affordance.
 - [x] **AI-04**: The opt-out clause at `PromptBuilderService.cs:201` ("If you can't follow this exact format, plain numbered steps are fine — the app will parse them.") is removed and replaced with a strict directive: "If you cannot emit a recipe in the structured format, ask the user a clarifying question instead." The same clause is removed from `BuildCopyablePrompt`.
 - [x] **AI-05**: A single `RecipeSchemaDocumentationProvider` is the source of truth for the format-prose description; both the in-app system prompt and `BuildCopyablePrompt` read from it. The two duplicated literal-string format specs in `PromptBuilderService.cs` are deleted.
 - [x] **AI-06**: A snapshot test on the assembled system prompt + a lint denylist for the words "fallback", "informal", "plain numbered" in `PromptBuilderService` prevents the opt-out clause from creeping back in.
@@ -81,7 +83,8 @@ Picked exactly one new field this milestone. Per `SUMMARY.md` Q1 recommendation:
 - [ ] **POLISH-03**: `LegacyRecipeProjector` (the throwaway one-shot back-fill helper from MIGRATION-01) is marked with a deletion-target comment for the next milestone after v1.1 ships.
 - [ ] **POLISH-04**: `Recipe.TagsJson` (CONCERNS §3) is normalized — tags become a relational `RecipeTag` table with proper indexes; existing `JsonSerializer.Deserialize<List<string>>` call sites are removed. Cookbook-list tag filtering becomes a queryable feature.
 - [ ] **POLISH-05**: A snapshot test on the rendered system prompt (assembled by `PromptBuilderService.ResolveTemplate` with a fixture profile) prevents drift; combined with AI-06's lint denylist, the opt-out clause cannot regress silently.
-- [ ] **POLISH-06**: AI-conversation history (`AiConversation.MessagesJson`) is stamped with `FormatVersion = 2` on save. Resumed conversations prepend a system note: "Note: previous messages reference the v1 recipe format; emit v2 going forward."
+- [x] **POLISH-06
+**: AI-conversation history (`AiConversation.MessagesJson`) is stamped with `FormatVersion = 2` on save. Resumed conversations prepend a system note: "Note: previous messages reference the v1 recipe format; emit v2 going forward."
 - [ ] **POLISH-07**: README.md gets a "Recipe Format" section documenting the canonical schema, the version field, and recovery from `cookbot.db.pre-*.bak` backups.
 
 ---
