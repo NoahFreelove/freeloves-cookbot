@@ -18,7 +18,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
 **Execution order:** Phase 1 → (Phase 2 ∥ Phase 3) → Phase 4. Phase 2 and Phase 3 may run in parallel once Phase 1 ships, because the chip composer (Phase 3) only depends on the canonical schema and parser landing in Phase 1, not on AI conformance work.
 
 - [x] **Phase 1: Canonical Format Foundation** — One versioned `RecipeDocument` is the source of truth across YAML, JSON export, DB, and AI prompt; legacy data migrates cleanly with backups (completed 2026-04-25)
-- [ ] **Phase 2: AI Structured Output & Conformance** — Anthropic emits the canonical format via token-level constrained decoding, with bounded repair, key redaction, and prompt-injection defense
+- [x] **Phase 2: AI Structured Output & Conformance** — Anthropic emits the canonical format via token-level constrained decoding, with bounded repair, key redaction, and prompt-injection defense (completed 2026-04-26)
 - [ ] **Phase 3: Editor UX Without Special Syntax** — Users author recipes via an ingredient-chip composer and explicit step/section toggles; no manual `[name](#id)` markdown, no silent timer rewrites
 - [ ] **Phase 4: Format-Driven New Field & Cleanup** — Per-step temperature ships end-to-end (schema → upcaster → editor → cooking mode → AI), tags become relational, throwaway helpers retire, format pattern documented
 
@@ -90,7 +90,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Canonical Format Foundation | 4/4 | Complete    | 2026-04-25 |
-| 2. AI Structured Output & Conformance | 4/5 | In progress | - |
+| 2. AI Structured Output & Conformance | 5/5 | Complete | 2026-04-26 |
 | 3. Editor UX Without Special Syntax | 0/TBD | Not started | - |
 | 4. Format-Driven New Field & Cleanup | 0/TBD | Not started | - |
 
