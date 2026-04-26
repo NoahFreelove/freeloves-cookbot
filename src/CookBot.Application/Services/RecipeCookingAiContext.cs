@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using CookBot.Application.AI;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
 
@@ -55,7 +56,10 @@ public static class RecipeCookingAiContext
         IRecipeFormatParser parser)
     {
         var parsed = ToParsedRecipe(recipe, targetServings);
-        var yaml = parser.Serialize(parsed).Trim();
+        // AI-08 (D-13): wrap injected recipe body in <recipe>...</recipe> XML tags so the
+        // system-prompt directive can fence it as data, not instructions. The triple-backtick
+        // fence below stays — it is the markdown container; XML is the model-side data fence.
+        var yaml = PromptInjectionGuard.WrapRecipe(parser.Serialize(parsed).Trim());
         var step = navigableSteps[currentNavigableIndex];
         var stepHuman = currentNavigableIndex + 1;
 
