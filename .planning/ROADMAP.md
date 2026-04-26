@@ -51,7 +51,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
   4. Forcing an Anthropic error (invalid key, 401) surfaces a sanitized message in the UI containing no `sk-ant-*` substring, no configured key value, and no `x-api-key`/`authorization` header verbatim. *(The original second clause — "importing a cookbook from another user shows a one-time consent banner naming the sharer" — was reframed during /gsd-discuss-phase 2 as **FUTURE-12**; the technical replacement is the AI-08-AUDIT Markdig pipeline lockdown delivered in Plan 02-04. See `.planning/phases/02-ai-structured-output-conformance/02-CONTEXT.md` `<deferred>`.)*
   5. Resuming a pre-v2 AI conversation stamps `FormatVersion = 2` on save and prepends a system note instructing the model to emit v2 going forward; the legacy three-tier extractor `AiChat.ExtractRecipeContent` is deleted and recipe save-back from chat reads the structured-output result.
 **Plans**: 5 plans
-  - [ ] 02-01-PLAN.md — Foundation security helpers: SecretRedactor (AI-07) + PromptInjectionGuard (AI-08) + tests (Wave 1)
+  - [x] 02-01-PLAN.md — Foundation security helpers: SecretRedactor (AI-07) + PromptInjectionGuard (AI-08) + tests (Wave 1)
   - [ ] 02-02-PLAN.md — Structured-output transport: StructuredResult<T> + IStructuredAiService + AnthropicAiService.SendStructuredAsync + FakeHttpMessageHandler tests (Wave 2)
   - [ ] 02-03-PLAN.md — Recipe-generation orchestrator: IAiRecipeGenerator + 2-retry repair loop + AI-08 directive append + RecipeCookingAiContext wrap + AiConversation.FormatVersion column + EF migration + tests (Wave 3)
   - [ ] 02-04-PLAN.md — UI integration: AiChat.razor rewrite (delete ExtractRecipeContent, route through orchestrator, Markdig pipeline lockdown for AI-08-AUDIT, FormatVersion stamping + resume note) + CookbookTransferService.Deserialize through upcaster + RecipeFormatParser version-stamping verification + AI-09→FUTURE-12 documentation (Wave 4)
@@ -90,7 +90,7 @@ This is the v1.1 milestone of an existing, validated v1.0 Blazor Server cooking 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Canonical Format Foundation | 4/4 | Complete    | 2026-04-25 |
-| 2. AI Structured Output & Conformance | 0/5 | Not started | - |
+| 2. AI Structured Output & Conformance | 1/5 | In progress | - |
 | 3. Editor UX Without Special Syntax | 0/TBD | Not started | - |
 | 4. Format-Driven New Field & Cleanup | 0/TBD | Not started | - |
 

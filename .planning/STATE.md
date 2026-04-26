@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Canonical Format & AI Conformance
-status: planning
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-04-26T02:43:44.792Z"
-last_activity: 2026-04-25
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-04-26T05:22:23.381Z"
+last_activity: 2026-04-26
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 4
-  percent: 44
+  completed_plans: 5
+  percent: 56
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-25)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
-**Current focus:** Phase --phase — 1
+**Current focus:** Phase 02 — ai-structured-output-conformance
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-04-25
+Phase: 02 (ai-structured-output-conformance) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-04-26
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████░░░░] 56%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 02 P01 | 23 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Recent decisions affecting current work (resolved during requirements step, see 
 - v1.1 / Q7: Encrypt-at-rest for API keys is deferred (FUTURE-01).
 - v1.1 / Q8: Tags become a relational table (POLISH-04).
 - v1.1 / Q9: Only `RecipeIngredient.Amount` scales — temperature/time fields never scale with servings.
+- Phase 2 Plan 1: SecretRedactor in Infrastructure/AI (caller-coloc), PromptInjectionGuard in Application/AI (callers in Application). Both pure-static; D-12 / D-16 / D-18 spec language committed verbatim — no refactor.
+- Phase 2 Plan 1: ReDoS risk on SecretRedactor regexes explicitly accepted (T-02P01-04); no Timeout set; inputs bounded by Anthropic ≤256 KB response size.
 
 ### Pending Todos
 
@@ -100,8 +103,8 @@ Items captured in REQUIREMENTS.md "Future Requirements" — not in v1.1 scope:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: --resume-file
+Last session: 2026-04-26T05:22:23.378Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
 
 **Planned Phase:** 2 (AI Structured Output & Conformance) — 5 plans — 2026-04-26T02:43:44.788Z
