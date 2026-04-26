@@ -61,9 +61,11 @@ Both surfaces (live `cookbot.db` + `.cookbook.json` v1 files in the wild + old Y
 - [x] **MIGRATION-01**: An EF migration adds `Recipe.CanonicalDocumentJson` (TEXT, nullable). `DatabaseSeeder.SeedAsync` back-fills it for every recipe with `CanonicalDocumentJson IS NULL` using a one-shot `LegacyRecipeProjector` that reads the relational columns and emits `RecipeDocument` at current `Version`.
 - [x] **MIGRATION-02**: Before any schema-version-bumping migration runs, `DatabaseSeeder` copies `cookbot.db` → `cookbot.db.pre-{migrationName}.bak` (keeping the last 3 backups). Recovery instructions are added to `README.md`.
 - [x] **MIGRATION-03**: Hybrid persistence is preserved — relational columns (`Recipe.Servings`, `RecipeIngredient.*`) remain, indexed queries in `CookbookList.razor` keep working, and `CanonicalDocumentJson` is recomputed on every save as the export/AI/import authority.
-- [ ] **MIGRATION-04**: `CookbookTransferService.Deserialize` routes legacy v1 `.cookbook.json` files through the upcaster chain — stamps `version: 1` if absent, runs `Migration_V1_To_V2`, then deserializes to `RecipeDocument` and validates. CONCERNS §2 divergences (`prepTimeMinutes`/`cookTimeMinutes`, `IsSection: bool`, `localId`) are reconciled inside the upcaster.
+- [x] **MIGRATION-04
+**: `CookbookTransferService.Deserialize` routes legacy v1 `.cookbook.json` files through the upcaster chain — stamps `version: 1` if absent, runs `Migration_V1_To_V2`, then deserializes to `RecipeDocument` and validates. CONCERNS §2 divergences (`prepTimeMinutes`/`cookTimeMinutes`, `IsSection: bool`, `localId`) are reconciled inside the upcaster.
 - [x] **MIGRATION-05**: The cookbook envelope `CookbookTransferDocument.SchemaVersion` bumps to `2` on export; the version-axis is documented as "envelope shape only" and is independent of `RecipeDocument.Version`. Mixed-version cookbooks are supported (importer migrates per-recipe to current; exporter writes everything at current).
-- [ ] **MIGRATION-06**: YAML paste-in routes through the same upcaster chain — stamps `version: 1` when absent. The YAML format is demoted to a paste-in / display-only surface; new exports are JSON.
+- [x] **MIGRATION-06
+**: YAML paste-in routes through the same upcaster chain — stamps `version: 1` when absent. The YAML format is demoted to a paste-in / display-only surface; new exports are JSON.
 - [x] **MIGRATION-07**: Migration is idempotent (`WHERE CanonicalDocumentJson IS NULL`) — re-running on a fresh install or a partially-migrated install is a no-op.
 - [x] **MIGRATION-08**: A smoke test runs the migration on a copy of a representative `cookbot.db` and asserts: every recipe round-trips through `Project → Serialize → Parse → ValidateSemantically` with no value drift.
 
@@ -79,7 +81,8 @@ Picked exactly one new field this milestone. Per `SUMMARY.md` Q1 recommendation:
 
 ### POLISH — Cleanup, regression prevention, and observability
 
-- [ ] **POLISH-01**: `AiChat.ExtractRecipeContent`'s three-tier extractor (`AiChat.razor:493-540`) is deleted; recipe save-back from chat reads structured-output result instead.
+- [x] **POLISH-01
+**: `AiChat.ExtractRecipeContent`'s three-tier extractor (`AiChat.razor:493-540`) is deleted; recipe save-back from chat reads structured-output result instead.
 - [x] **POLISH-02**: The two duplicated format-spec literal strings in `PromptBuilderService.cs` (lines 168–202 and 262–296) are deleted; both prompt sites now read from `RecipeSchemaDocumentationProvider`.
 - [ ] **POLISH-03**: `LegacyRecipeProjector` (the throwaway one-shot back-fill helper from MIGRATION-01) is marked with a deletion-target comment for the next milestone after v1.1 ships.
 - [ ] **POLISH-04**: `Recipe.TagsJson` (CONCERNS §3) is normalized — tags become a relational `RecipeTag` table with proper indexes; existing `JsonSerializer.Deserialize<List<string>>` call sites are removed. Cookbook-list tag filtering becomes a queryable feature.

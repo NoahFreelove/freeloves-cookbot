@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Canonical Format & AI Conformance
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-04-26T05:44:24.895Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-04-26T14:02:19.149Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 ## Current Position
 
 Phase: 02 (ai-structured-output-conformance) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-04-26
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████████░░] 78%
 | Phase 02 P01 | 23 | 2 tasks | 4 files |
 | Phase 02 P02-02 | 5 | 3 tasks | 6 files |
 | Phase 02 P03 | 7 | 4 tasks | 12 files |
+| Phase Phase 02 P04 P13 | 5 tasks (4 + 1 RED-GREEN split) | 8 files tasks | - files |
 
 ## Accumulated Context
 
@@ -81,6 +82,10 @@ Recent decisions affecting current work (resolved during requirements step, see 
 - Phase 2 Plan 3: Microsoft.Extensions.Logging.Abstractions 10.0.3 added to CookBot.Application — first ILogger usage in src/. Foundational MS abstraction; not on forbidden-package list.
 - Phase 2 Plan 3: AI-08 directive (D-14) appended to RecipeSchemaDocumentationProvider.FormatPrompt; PromptInjectionGuard.WrapRecipe wired into RecipeCookingAiContext.BuildUserMessage; AiConversation.FormatVersion column added (default 2; existing rows back-fill to 1 per D-22).
 - Phase 2 Plan 3: Repair-loop hard cap MaxRepairAttempts = 2 const-locked (D-05); refusal/transport short-circuit returns immediately when Validation==null && SanitizedError!=null; minimal repair prompt is 2 user turns + validator error list (D-06).
+- Phase 2 Plan 4: Per-recipe upcast loop in CookbookTransferService.Deserialize operates on raw JsonNode from input string (not DTO round-trip) — the v1-shaped CookbookTransferRecipe DTO would silently drop v2-only fields (id/kind/heading) on a v2 envelope. Rule 1 correctness fix vs. plan-text path.
+- Phase 2 Plan 4: AiChat.razor keeps both Send (free-form chat via IAiService.StreamMessageAsync) AND Generate Recipe (structured-output via IAiRecipeGenerator) buttons. Plan text noted intent-detection vs. explicit-button as executor's discretion; explicit buttons match UI-SPEC Surface 2 invariant ('Free-form chat turns never show the Save button') without heuristic intent detection.
+- Phase 2 Plan 4: AI-09 formally moved to FUTURE-12 in REQUIREMENTS.md (active list, deferred list, traceability, phase summary, top-of-file count). AI-08 (XML-tag wrap) + AI-08-AUDIT (Markdig DisableHtml lockdown) are the load-bearing trusted-LAN mitigations replacing the dropped per-sharer consent banner. CONTEXT.md canonical_refs corrected to reference IStructuredAiService (Plan 02 layering deviation).
+- Phase 2 Plan 4: Markdig pipeline lockdown via static readonly AssistantContentPipeline = MarkdownPipelineBuilder().DisableHtml().Build() field; RenderContent uses 2-arg Markdown.ToHtml(content, AssistantContentPipeline). DisableHtml() requires @using Markdig directive (not just Markdig.Renderers) because it is an extension method in the Markdig namespace. Reusable pattern for any future Razor surface rendering untrusted markdown.
 
 ### Pending Todos
 
@@ -112,8 +117,8 @@ Items captured in REQUIREMENTS.md "Future Requirements" — not in v1.1 scope:
 
 ## Session Continuity
 
-Last session: 2026-04-26T05:44:12.264Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-04-26T14:02:19.145Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
 
 **Planned Phase:** 2 (AI Structured Output & Conformance) — 5 plans — 2026-04-26T02:43:44.788Z
