@@ -1,0 +1,709 @@
+/* CookBot Design System
+   ─────────────────────
+   Inter only. Warm-cream identity tightened: dial back orange to chrome accents,
+   give body text room to breathe, lean on tabular numerals for timers/quantities.
+
+   Ported from .planning/design-handoff/project/styles.css (Phase 5 / DS-01..DS-06).
+*/
+
+@import url('https://rsms.me/inter/inter.css');
+
+:root {
+  /* Surfaces — warm cream, low chroma */
+  --cream: #FBF6E7;          /* page bg, slightly warmer than #FFF8E1 */
+  --cream-2: #F5EDD3;        /* sunken */
+  --paper: #FFFFFF;          /* card bg */
+  --paper-2: #FCFAF3;        /* card alt */
+  --line: rgba(60, 42, 18, 0.10);
+  --line-strong: rgba(60, 42, 18, 0.18);
+
+  /* Ink — cocoa, not pure black */
+  --ink: #231A0E;
+  --ink-2: #4A3C28;
+  --ink-3: #79695A;
+  --ink-4: #A89A88;
+
+  /* Accent — orange (default) — used sparingly: numerals, focus, CTAs */
+  --accent: #C2410C;         /* a touch deeper than #E65100, less candy */
+  --accent-soft: #FCE7D6;
+  --accent-ink: #6B1F00;
+
+  /* Secondary — green, used only for "in stock" / success */
+  --green: #2E7D32;
+  --green-soft: #E1ECDF;
+
+  /* Status */
+  --warn: #B45309;
+  --warn-soft: #FBEACE;
+
+  /* Type scale */
+  --f-display: 'Inter', -apple-system, system-ui, sans-serif;
+  --f-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --t-radius: 14px;
+  --t-radius-sm: 8px;
+
+  /* Density (overridable via tweak) */
+  --pad: 24px;
+  --pad-sm: 16px;
+  --gap: 16px;
+}
+
+[data-density="compact"] {
+  --pad: 18px;
+  --pad-sm: 12px;
+  --gap: 12px;
+}
+
+[data-accent="terracotta"] {
+  --accent: #A0502E;
+  --accent-soft: #F2E0D2;
+  --accent-ink: #5C2C16;
+}
+[data-accent="sage"] {
+  --accent: #4A6B3F;
+  --accent-soft: #E2EAD9;
+  --accent-ink: #243818;
+}
+
+* { box-sizing: border-box; }
+
+.cb {
+  font-family: var(--f-body);
+  color: var(--ink);
+  background: var(--cream);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.cb h1, .cb h2, .cb h3, .cb h4 { margin: 0; font-weight: 600; letter-spacing: -0.022em; color: var(--ink); }
+.cb p { margin: 0; }
+.cb button { font-family: inherit; }
+.cb .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: -0.02em; }
+.cb .mono { font-family: var(--f-mono); }
+
+/* Eyebrow / kicker */
+.cb .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* Buttons.
+   Default (Primary): cocoa fill + literal cream text. We use the literal cream
+   (#FBF6E7) instead of var(--cream) so the button text stays high-contrast even
+   when --cream is rebound (dark mode swaps it to a near-black). The dark-mode
+   override below redefines bg + color explicitly. */
+.cb-btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  background: #231A0E;
+  color: #FBF6E7;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background .15s, transform .05s;
+  white-space: nowrap;
+}
+.cb-btn:active { transform: translateY(0.5px); }
+.cb-btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.cb-btn.ghost:hover { background: rgba(60,42,18,0.04); }
+.cb-btn.accent {
+  background: var(--accent);
+  color: #fff;
+}
+.cb-btn.subtle {
+  background: rgba(60,42,18,0.06);
+  color: var(--ink);
+}
+
+/* Card */
+.cb-card {
+  background: var(--paper);
+  border-radius: var(--t-radius);
+  border: 1px solid var(--line);
+}
+
+/* Striped photo placeholder — for missing imagery */
+.cb-ph {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(60,42,18,0.06) 0 1px,
+      transparent 1px 12px
+    ),
+    var(--cream-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow: hidden;
+}
+.cb-ph::after {
+  content: "";
+  position: absolute; inset: 0;
+  border: 1px dashed rgba(60,42,18,0.12);
+  pointer-events: none;
+}
+
+/* Chip / pill */
+.cb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: rgba(60,42,18,0.05);
+  color: var(--ink-2);
+}
+.cb-chip.timer { background: var(--accent-soft); color: var(--accent-ink); }
+.cb-chip.ing   { background: var(--cream-2); color: var(--ink-2); }
+.cb-chip.tag   { border: 1px solid var(--line); background: transparent; }
+
+/* Divider line that interrupts text gracefully */
+.cb-rule {
+  height: 1px;
+  background: var(--line);
+  border: 0;
+}
+
+/* Material-icons-ish glyph fallback — flat geometric, monoline.
+   We use unicode geometric chars as placeholders. Not real material icons. */
+.icon {
+  display: inline-block;
+  width: 18px; height: 18px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Drawer/list-row hover */
+.cb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+.cb-row:hover { background: rgba(60,42,18,0.04); }
+.cb-row.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* Sidebar / app shell tokens */
+.cb-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  height: 100%;
+  background: var(--cream);
+}
+/* Hamburger collapses the sidebar column entirely. The Sidebar component is
+   conditionally rendered out of the DOM in MainLayout when _drawerCollapsed=true,
+   so we just collapse the grid template column. */
+.cb-shell.is-collapsed {
+  grid-template-columns: 0 1fr;
+}
+.cb-shell .side {
+  background: var(--paper-2);
+  border-right: 1px solid var(--line);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cb-shell .topbar {
+  height: 56px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 24px;
+  background: var(--cream);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+/* Stat tile — used on Home */
+.cb-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+  border-radius: var(--t-radius);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  min-height: 124px;
+}
+.cb-stat .v { font-size: 36px; font-weight: 600; letter-spacing: -0.03em; }
+.cb-stat .l { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
+
+/* Editorial recipe layout */
+.cb-recipe-cap {
+  font-family: var(--f-display);
+  font-size: 64px;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+/* A simple "kbd"-ish tag */
+.cb-kbd {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--ink-2);
+  background: var(--paper);
+}
+
+/* CookBot Design System — dark-mode block added 2026-04-27 (Phase 5 / DS-05).
+   Class-based to match the existing cookbot_dark_mode toggle in MainLayout (D-04).
+   Every dark-relevant token is redefined; component overrides reset to dark surfaces. */
+body.dark-mode {
+  --cream: #1A1510;
+  --cream-2: #221A12;
+  --paper: #2A2018;
+  --paper-2: #241B13;
+  --line: rgba(239, 235, 233, 0.10);
+  --line-strong: rgba(239, 235, 233, 0.18);
+  --ink: #EFEBE9;
+  --ink-2: #D7CFC8;
+  --ink-3: #A89A88;
+  --ink-4: #79695A;
+  --accent: #FF8A50;
+  --accent-soft: rgba(255, 138, 80, 0.18);
+  --accent-ink: #FFD4B8;
+  --green: #66BB6A;
+  --green-soft: rgba(102, 187, 106, 0.18);
+  --warn: #D97706;
+  --warn-soft: rgba(217, 119, 6, 0.18);
+}
+body.dark-mode .cb { background: var(--cream); color: var(--ink); }
+body.dark-mode .cb-card,
+body.dark-mode .cb-stat { background: var(--paper); border-color: var(--line); }
+body.dark-mode .cb-shell .side { background: var(--paper-2); border-right-color: var(--line); }
+body.dark-mode .cb-shell .topbar { background: var(--cream); border-bottom-color: var(--line); }
+/* Buttons in dark mode: invert the ink/cream pair so primary stays a high-contrast
+   chip (cocoa fill, cream text) — matching design intent on dark surfaces.
+   Without this, .cb-btn would render light bg + dark text, which disappears against
+   any surface that's also derived from --ink (cooking mode, hero panels). */
+body.dark-mode .cb-btn { background: #2A2018; color: #EFEBE9; border-color: transparent; }
+body.dark-mode .cb-btn.ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+body.dark-mode .cb-btn.ghost:hover { background: rgba(239, 235, 233, 0.04); }
+body.dark-mode .cb-btn.accent { background: var(--accent); color: #1A1510; }
+body.dark-mode .cb-btn.subtle { background: rgba(239, 235, 233, 0.08); color: var(--ink); }
+body.dark-mode .cb-row { color: var(--ink-2); }
+body.dark-mode .cb-row:hover { background: rgba(239, 235, 233, 0.04); }
+body.dark-mode .cb-row.active { background: var(--accent-soft); color: var(--accent-ink); }
+body.dark-mode .cb-chip { background: rgba(239, 235, 233, 0.08); color: var(--ink-2); }
+body.dark-mode .cb-chip.timer { background: var(--accent-soft); color: var(--accent-ink); }
+body.dark-mode .cb-chip.ing { background: var(--cream-2); color: var(--ink-2); }
+body.dark-mode .cb-chip.tag { border-color: var(--line); background: transparent; }
+body.dark-mode .cb-kbd { background: var(--paper); color: var(--ink-2); border-color: var(--line-strong); }
+body.dark-mode .cb-rule { background: var(--line); }
+body.dark-mode .cb-ph {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(239, 235, 233, 0.06) 0 1px,
+      transparent 1px 12px
+    ),
+    var(--cream-2);
+  color: var(--ink-3);
+}
+body.dark-mode .cb-ph::after { border-color: rgba(239, 235, 233, 0.12); }
+
+/* CbBadge variants — Phase 5 / ATOM-08.
+   Built on top of .cb-chip geometry; only background/color tint differs.
+   Light-mode tints reference --green-soft / --warn-soft / --accent-soft, all
+   redefined for dark-mode in the body.dark-mode block above — the chips
+   recolor automatically; only the "out" variant needs an explicit dark override. */
+.cb-chip.cb-badge { font-weight: 600; }
+.cb-chip.cb-badge.cb-badge-in-stock { background: var(--green-soft); color: var(--green); }
+.cb-chip.cb-badge.cb-badge-low      { background: var(--warn-soft); color: var(--warn); }
+.cb-chip.cb-badge.cb-badge-expiring { background: var(--accent-soft); color: var(--accent-ink); }
+.cb-chip.cb-badge.cb-badge-out      { background: rgba(60,42,18,0.05); color: var(--ink-3); }
+
+body.dark-mode .cb-chip.cb-badge.cb-badge-out {
+  background: rgba(239,235,233,0.06);
+  color: var(--ink-3);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Form atoms — Phase 5 / ATOM-09 + ATOM-10
+   ───────────────────────────────────────────────────────────── */
+
+/* Field label */
+.cb-label {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+/* Shared input/textarea/select baseline */
+.cb-input,
+.cb-textarea,
+.cb-select {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--t-radius-sm);
+  padding: 9px 12px;
+  width: 100%;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.cb-input::placeholder,
+.cb-textarea::placeholder { color: var(--ink-4); }
+
+.cb-input:focus-visible,
+.cb-textarea:focus-visible,
+.cb-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.cb-input:disabled,
+.cb-textarea:disabled,
+.cb-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cb-textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
+
+/* Toggle (switch) */
+.cb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.cb-toggle input { display: none; }
+.cb-toggle .track {
+  width: 36px; height: 20px;
+  border-radius: 999px;
+  background: rgba(60,42,18,0.18);
+  position: relative;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.cb-toggle .thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+  transition: transform .15s;
+}
+.cb-toggle input:checked + .track { background: var(--accent); }
+.cb-toggle input:checked + .track .thumb { transform: translateX(16px); }
+.cb-toggle:focus-within .track { box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Checkbox */
+.cb-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.cb-checkbox input { display: none; }
+.cb-checkbox .box {
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--line-strong);
+  display: grid; place-items: center;
+  background: var(--paper);
+  transition: background .12s, border-color .12s;
+  flex-shrink: 0;
+}
+.cb-checkbox .box::after {
+  content: "";
+  width: 10px; height: 5px;
+  border-left: 2px solid var(--paper);
+  border-bottom: 2px solid var(--paper);
+  transform: translateY(-1px) rotate(-45deg);
+  opacity: 0;
+}
+.cb-checkbox input:checked + .box { background: var(--accent); border-color: var(--accent); }
+.cb-checkbox input:checked + .box::after { opacity: 1; }
+.cb-checkbox:focus-within .box { box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Radio */
+.cb-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.cb-radio input { display: none; }
+.cb-radio .circle {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  display: grid; place-items: center;
+  transition: border-color .12s;
+  flex-shrink: 0;
+}
+.cb-radio .circle::after {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform .12s;
+}
+.cb-radio input:checked + .circle { border-color: var(--accent); }
+.cb-radio input:checked + .circle::after { transform: scale(1); }
+.cb-radio:focus-within .circle { box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Dark-mode form-atom adjustments */
+body.dark-mode .cb-input,
+body.dark-mode .cb-textarea,
+body.dark-mode .cb-select {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+body.dark-mode .cb-toggle .track { background: rgba(239,235,233,0.18); }
+body.dark-mode .cb-toggle .thumb { background: var(--paper); }
+body.dark-mode .cb-checkbox .box,
+body.dark-mode .cb-radio .circle { background: var(--paper); border-color: var(--line-strong); }
+
+/* ─────────────────────────────────────────────────────────────
+   Dialog + Toast + Dropdown — Phase 5 / Plan 05-04 / DIALOG-01..04
+   ───────────────────────────────────────────────────────────── */
+
+/* Scrim — full-viewport semi-transparent backdrop. z-index 1000 puts it above
+   page content but below toasts (1100). Click on the scrim closes the dialog
+   when CloseOnScrim is true (handler stops propagation on the .cb-dialog card). */
+.cb-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.36);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: cb-fade-in 0.12s ease-out;
+}
+body.dark-mode .cb-scrim { background: rgba(0, 0, 0, 0.6); }
+
+@keyframes cb-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Dialog card */
+.cb-dialog {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--t-radius, 14px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
+  animation: cb-dialog-in 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+  outline: none;
+}
+.cb-dialog.size-xs { width: 360px; max-width: calc(100vw - 32px); }
+.cb-dialog.size-sm { width: 480px; max-width: calc(100vw - 32px); }
+.cb-dialog.size-md { width: 640px; max-width: calc(100vw - 32px); }
+.cb-dialog.size-lg { width: 840px; max-width: calc(100vw - 32px); }
+.cb-dialog.size-xl { width: 1080px; max-width: calc(100vw - 32px); }
+
+@keyframes cb-dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.cb-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+.cb-dialog-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.cb-dialog-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  background: var(--paper-2);
+}
+
+/* Toast host + toasts. column-reverse so newest-on-bottom (visually pushed up
+   by older toasts at the top of the stack); pointer-events:none on the host so
+   clicks pass through to underlying UI when no toast is at the cursor. */
+.cb-toast-host {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  z-index: 1100;
+  pointer-events: none;
+}
+.cb-toast {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--t-radius-sm, 10px);
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--ink);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  min-width: 240px;
+  max-width: 380px;
+  pointer-events: auto;
+  animation: cb-toast-in 0.18s ease-out;
+}
+.cb-toast.success { background: var(--green-soft); color: var(--green); border-color: rgba(46, 125, 50, 0.18); }
+.cb-toast.error   { background: var(--warn-soft); color: var(--warn); border-color: rgba(180, 83, 9, 0.32); font-weight: 500; }
+.cb-toast.info    { background: var(--paper-2); color: var(--ink); }
+.cb-toast.warning { background: var(--warn-soft); color: var(--warn); border-color: rgba(180, 83, 9, 0.22); }
+
+@keyframes cb-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Dropdown */
+.cb-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.cb-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 280px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--t-radius-sm, 10px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  animation: cb-dropdown-in 0.12s ease-out;
+}
+@keyframes cb-dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cb-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+.cb-dropdown-item:hover,
+.cb-dropdown-item.focused { background: rgba(60, 42, 18, 0.04); color: var(--ink); }
+.cb-dropdown-item.selected { background: var(--accent-soft); color: var(--accent-ink); }
+body.dark-mode .cb-dropdown-item { color: var(--ink-2); }
+body.dark-mode .cb-dropdown-item:hover,
+body.dark-mode .cb-dropdown-item.focused { background: rgba(239, 235, 233, 0.06); color: var(--ink); }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Streaming animations (Phase 7 / Plan 07-04 / AIC-03..05).
+   - cb-blink: 50%-opacity step animation for the inline caret in the active
+     chat turn and the active recipe step on the AI Chat canvas.
+   - cb-pulse: smooth 1.4s opacity ease for the "drafting · {pct}" save-bar
+     dot. Both keyframes are referenced inline by AiChat.razor markup.
+   ────────────────────────────────────────────────────────────────────────── */
+@keyframes cb-blink { 50% { opacity: 0; } }
+@keyframes cb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Focus rings — Phase 7 / Plan 07-06 / A11Y-01.
+   The form atoms (.cb-input/.cb-textarea/.cb-select/.cb-toggle/.cb-checkbox/
+   .cb-radio) already declare their own focus-visible treatment higher up in
+   this file. Buttons, sidebar rows, chips, and dropdown items carry the
+   project's default focus ring here so every keyboard-reachable element
+   surfaces a clear 2px accent outline on Tab focus. Outline-offset 2px keeps
+   the ring outside pill borders. .cb-row and .cb-dropdown-item border-radius
+   varies; outline traces the bounding box, which is acceptable for the
+   project's a11y bar.
+   ────────────────────────────────────────────────────────────────────────── */
+.cb-btn:focus-visible,
+.cb-row:focus-visible,
+.cb-chip:focus-visible,
+.cb-dropdown-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+body.dark-mode .cb-btn:focus-visible,
+body.dark-mode .cb-row:focus-visible,
+body.dark-mode .cb-chip:focus-visible,
+body.dark-mode .cb-dropdown-item:focus-visible {
+  outline-color: var(--accent);
+}

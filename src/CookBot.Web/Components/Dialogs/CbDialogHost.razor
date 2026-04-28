@@ -1,0 +1,83 @@
+@namespace CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@using Microsoft.AspNetCore.Components
+@inject ICbDialogService DialogService
+@implements IDisposable
+
+@* CbDialogHost — Phase 5 / Plan 05-04 / DIALOG-02 / D-24.
+   Subscribes to ICbDialogService.OnRequest, maintains a stack of open dialogs,
+   and renders each via <DynamicComponent> inside a <CbDialog>. The cascaded
+   CbDialogInstance lets dialog content call Close(CbDialogResult.Ok(...)) to
+   self-dismiss and resolve the awaiting Task. *@
+
+@foreach (var entry in _stack)
+{
+    <CbDialog @key="entry.Id"
+              IsOpen="true"
+              MaxWidth="@entry.Options.MaxWidth"
+              FullWidth="@entry.Options.FullWidth"
+              CloseOnEscape="@entry.Options.CloseOnEscape"
+              CloseOnScrim="@entry.Options.CloseOnScrim"
+              OnClose="@(() => HandleCancel(entry))">
+        <Header>@entry.Title</Header>
+        <Body>
+            <CascadingValue Value="@(new CbDialogInstance(entry.Tcs))" IsFixed="true">
+                <DynamicComponent Type="@entry.DialogType" Parameters="@entry.Parameters" />
+            </CascadingValue>
+        </Body>
+    </CbDialog>
+}
+
+@code {
+    private readonly List<HostEntry> _stack = new();
+
+    private sealed record HostEntry(
+        Guid Id,
+        Type DialogType,
+        string Title,
+        Dictionary<string, object?> Parameters,
+        CbDialogOptions Options,
+        TaskCompletionSource<CbDialogResult> Tcs);
+
+    protected override void OnInitialized()
+    {
+        DialogService.OnRequest += HandleRequest;
+    }
+
+    private Task HandleRequest(CbDialogRequest req)
+    {
+        var entry = new HostEntry(
+            Guid.NewGuid(),
+            req.DialogType,
+            req.Title,
+            new Dictionary<string, object?>(req.Parameters),
+            req.Options,
+            req.Tcs);
+        _stack.Add(entry);
+
+        // When the Tcs completes (dialog calls Close()), pop the entry and re-render.
+        _ = entry.Tcs.Task.ContinueWith(_ =>
+        {
+            _stack.Remove(entry);
+            InvokeAsync(StateHasChanged);
+        }, TaskScheduler.Default);
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleCancel(HostEntry entry)
+    {
+        // Triggered by scrim click or ESC inside CbDialog. If the inner dialog content
+        // already called Close(Ok(...)), the Tcs is complete and SetResult would throw —
+        // guard with IsCompleted.
+        if (!entry.Tcs.Task.IsCompleted)
+        {
+            entry.Tcs.SetResult(CbDialogResult.Cancel());
+        }
+    }
+
+    public void Dispose()
+    {
+        DialogService.OnRequest -= HandleRequest;
+    }
+}

@@ -1,10 +1,14 @@
 @page "/recipes/{RecipeId:int}/cook"
 @rendermode InteractiveServer
 @using CookBot.Application.DTOs
+@using CookBot.Application.Recipes
 @using CookBot.Application.Services
 @using CookBot.Domain.Interfaces
 @using CookBot.Infrastructure.Data
+@using CookBot.Web.Components.Atoms
+@using CookBot.Web.Components.Pages.RecipeEditorParts
 @using Markdig
+@using System.Text.RegularExpressions
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IJSRuntime JS
 @inject CurrentUserService UserService
@@ -14,183 +18,367 @@
 @inject IAiService AiService
 @inject AiApiKeyResolutionService AiKeyResolver
 @inject PromptBuilderService PromptBuilder
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
+@inject IRecipeMadeService RecipeMadeService
 @implements IAsyncDisposable
 
 <PageTitle>CookBot - Cooking Mode</PageTitle>
 
+@*
+   Phase 6 / Plan 06-02 / D-07..D-12 — Cooking Mode rewrite against Phase 5 atoms.
+   ALL @code-block logic is preserved verbatim from the prior markup; only
+   the render tree changes. JS interop (cooking-timers.js + RecipeChipComposer scroll)
+   is unchanged. Ingredient highlighting reads [name](#id) links from CurrentStep.Text
+   via CurrentStepRefIds() — never the dead RecipeStep.IngredientRefs field (Phase 1
+   D-13 retired those writes). Servings-only scaling per v1.1 D-Q9; oven temps + times
+   never auto-scale.
+*@
+
 <UserGuard>
 @if (_recipe != null)
 {
-    @* Top bar *@
-    <MudPaper Class="pa-3 mb-4" Elevation="2" Style="border-radius: 12px;">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
-                       StartIcon="@Icons.Material.Filled.Close"
-                       OnClick="ExitCooking">
-                Exit Cooking
-            </MudButton>
-            <MudText Typo="Typo.h6">Step @(_currentStepIndex + 1) of @_navigableSteps.Count</MudText>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudText Typo="Typo.body2">Servings:</MudText>
-                <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small"
-                               OnClick="DecrementServings" Disabled="_targetServings <= 1" />
-                <MudText Typo="Typo.body1"><b>@_targetServings</b></MudText>
-                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small"
-                               OnClick="IncrementServings" Disabled="_targetServings >= 100" />
-            </MudStack>
-        </MudStack>
-    </MudPaper>
+    var totalNavigable = _navigableSteps.Count;
+    var stepHuman = _currentStepIndex + 1;
+    var timerHero = _currentStepTimerRunning;
+    var currentStepRefIds = CurrentStepRefIds();
+    var sectionHeader = CurrentSectionHeader;
+    var stepText = CurrentStep.Text ?? string.Empty;
+    var defaultStepTimer = CurrentStep.Timers.FirstOrDefault();
+    var recipeBaseServings = _recipe.Servings > 0 ? _recipe.Servings : 1;
+    var scaleRatio = (double)_targetServings / recipeBaseServings;
+    var scaleLabel = FormatScaleLabel(scaleRatio);
 
-    <MudGrid>
-        @* Main step area *@
-        <MudItem xs="12" md="8">
-            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px; min-height: 400px;">
+    @* Cooking Mode is a fixed-dark surface — it stays dark cocoa in BOTH light
+       and dark site themes (design intent: hands-busy tablet view, no-flicker
+       transitions). Use literal cocoa hexes so var(--ink)/var(--cream) swapping
+       in dark mode doesn't flip this surface to bright. *@
+    <div class="cb cooking-mode-root"
+         tabindex="0"
+         @ref="_rootRef"
+         @onkeydown="HandleKeyDown"
+         style="background: #1A1410; color: #FBF6E7; display: flex; flex-direction: column; min-height: calc(100vh - 96px); margin: -24px; padding: 0; outline: none;">
 
-                @if (CurrentSectionHeader != null)
-                {
-                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Class="mb-2 recipe-body">
-                        @((MarkupString)RecipeStepTextFormatter.ToHtml(CurrentSectionHeader))
-                    </MudText>
-                }
+        @* Top bar — minimal cocoa header. Exit + recipe title + step indicator + notif chip *@
+        <header style="height: 56px; display: flex; align-items: center; padding: 0 24px; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); flex: 0 0 auto;">
+            <button type="button" @onclick="ExitCooking"
+                    style="background: transparent; border: 0; color: #FBF6E7; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; padding: 0;">
+                <Icon Name="@Icon.Names.ArrowL" Size="18" />
+                <span>Exit</span>
+            </button>
+            <div style="flex: 1; text-align: center; font-size: 14px; font-weight: 500;">
+                @_recipe.Name
+                <span style="opacity: 0.75; margin-left: 10px;">· step @stepHuman of @totalNavigable</span>
+            </div>
+            <span class="cb-chip" style="background: rgba(255,255,255,0.08); color: #FBF6E7;">
+                <Icon Name="@Icon.Names.Bell" Size="12" />
+                @(_notificationsGranted ? "notifications on" : "notifications off")
+            </span>
+        </header>
 
-                <MudText Typo="Typo.h4" Style="font-weight: 500; line-height: 1.6;" Class="mb-4 recipe-body">
-                    @((MarkupString)RecipeStepTextFormatter.ToHtml(CurrentStep.Text))
-                </MudText>
-
-                @if (CurrentStep.Timers.Any())
-                {
-                    <MudStack Row="true" Spacing="2" Class="mb-4" Wrap="Wrap.Wrap">
-                        @foreach (var timer in CurrentStep.Timers)
-                        {
-                            var timerId = $"step{_currentStepIndex + 1}_{timer.Label ?? timer.Duration.ToString()}_{timer.Unit}";
-                            var isActive = _activeTimers.ContainsKey(timerId);
-                            <MudButton Variant="@(isActive ? Variant.Filled : Variant.Outlined)"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.Timer"
-                                       OnClick="@(() => StartTimer(timerId, timer))"
-                                       Disabled="isActive">
-                                @(timer.Label ?? "Timer"): @timer.Duration @timer.Unit
-                                @if (isActive)
-                                {
-                                    <span class="ml-2">(@FormatTime(_activeTimers[timerId]))</span>
-                                }
-                            </MudButton>
-                        }
-                    </MudStack>
-                }
-
-                <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.ArrowBack"
-                               OnClick="PreviousStep"
-                               Disabled="_currentStepIndex == 0">
-                        Previous
-                    </MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                               EndIcon="@Icons.Material.Filled.ArrowForward"
-                               OnClick="NextStep"
-                               Disabled="_currentStepIndex >= _navigableSteps.Count - 1">
-                        Next
-                    </MudButton>
-                </MudStack>
-            </MudPaper>
-
-            @if (_aiCookAssistVisible)
+        @* Step rail — segmented progress.
+           A11Y-03 (Plan 07-06): the rail is a progressbar exposing current step
+           position to AT. aria-valuemin=1 / valuemax=totalNavigable / valuenow=
+           current human-numbered step gives a meaningful "step N of M" reading. *@
+        <div role="progressbar"
+             aria-valuemin="1"
+             aria-valuemax="@totalNavigable"
+             aria-valuenow="@stepHuman"
+             aria-label="@($"Step {stepHuman} of {totalNavigable}")"
+             style="display: flex; gap: 6px; padding: 12px 24px 0; flex: 0 0 auto;">
+            @for (int i = 0; i < totalNavigable; i++)
             {
-                <MudPaper Class="pa-4 mt-4" Elevation="2" Style="border-radius: 12px;">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
-                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" />
-                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Ask about this step</MudText>
-                    </MudStack>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3">
-                        Sends this recipe (YAML, scaled to your servings) and the current step to the assistant.
-                    </MudText>
-                    <MudTextField @bind-Value="_stepAiQuestion"
-                                  Label="Question"
-                                  Placeholder="e.g. How do I know when it's reduced enough?"
-                                  Variant="Variant.Outlined"
-                                  Lines="2"
-                                  Disabled="_stepAiBusy"
-                                  Class="mb-2"
-                                  FullWidth="true" />
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Secondary"
-                               StartIcon="@Icons.Material.Filled.Send"
-                               OnClick="AskStepAiAsync"
-                               Disabled="@(_stepAiBusy || string.IsNullOrWhiteSpace(_stepAiQuestion))">
-                        @(_stepAiBusy ? "Thinking…" : "Get help")
-                    </MudButton>
-                    @if (!string.IsNullOrWhiteSpace(_stepAiReply))
-                    {
-                        <MudDivider Class="my-3" />
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Answer</MudText>
-                        <div class="cooking-ai-reply recipe-body">@((MarkupString)RenderStepAiMarkdown(_stepAiReply))</div>
-                    }
-                </MudPaper>
+                var bg = i < _currentStepIndex
+                    ? "rgba(255,255,255,0.5)"
+                    : i == _currentStepIndex
+                        ? "var(--accent)"
+                        : "rgba(255,255,255,0.12)";
+                <div style="@($"flex: 1; height: 4px; border-radius: 2px; background: {bg};")"></div>
             }
-        </MudItem>
+        </div>
 
-        @* Ingredient sidebar *@
-        <MudItem xs="12" md="4">
-            <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
-                <MudText Typo="Typo.h6" Class="mb-3">Ingredients</MudText>
+        @* Main split: hero (left) + ingredient rail (right) *@
+        <div style="flex: 1; display: grid; grid-template-columns: 1.6fr 1fr; min-height: 0;">
+            <section style="padding: 40px 48px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
+
+                @* Hero region — adaptive: timer when running, step text when idle *@
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
+                    @if (timerHero)
+                    {
+                        var t = _activeTimers[_currentStepTimerId!];
+                        var label = GetCurrentStepTimerLabel();
+                        var isPaused = _pausedTimers.ContainsKey(_currentStepTimerId!);
+                        <div>
+                            <div style="font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.75); margin-bottom: 12px;">
+                                @label@(isPaused ? " — paused" : "")
+                            </div>
+                            <div class="num"
+                                 style="font-size: 224px; line-height: 0.92; font-weight: 600; letter-spacing: -0.05em; color: #FBF6E7; font-feature-settings: 'tnum';">
+                                @FormatTime(t)
+                            </div>
+                            <div style="display: flex; gap: 12px; margin-top: 28px; align-items: center;">
+                                @if (isPaused)
+                                {
+                                    <button type="button" @onclick="ResumeCurrentStepTimer"
+                                            title="Resume timer"
+                                            aria-label="Resume timer"
+                                            style="width: 64px; height: 64px; border-radius: 32px; border: 0; background: var(--accent); color: #fff; display: grid; place-items: center; cursor: pointer;">
+                                        <Icon Name="@Icon.Names.Play" Size="22" />
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" @onclick="PauseCurrentStepTimer"
+                                            title="Pause timer"
+                                            aria-label="Pause timer"
+                                            style="width: 64px; height: 64px; border-radius: 32px; border: 0; background: var(--accent); color: #fff; display: grid; place-items: center; cursor: pointer;">
+                                        <Icon Name="@Icon.Names.Pause" Size="22" />
+                                    </button>
+                                }
+                                <CbButton Variant="CbButton.CbButtonVariant.Subtle" OnClick="StopCurrentStepTimer">
+                                    Stop
+                                </CbButton>
+                                <CbButton Variant="CbButton.CbButtonVariant.Subtle" OnClick="AddThirtySecondsToCurrentStepTimer" Disabled="isPaused">
+                                    + 30s
+                                </CbButton>
+                                <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="ResetCurrentStepTimer">
+                                    Reset
+                                </CbButton>
+                            </div>
+                            @if (sectionHeader != null)
+                            {
+                                <div style="margin-top: 24px; font-size: 14px; letter-spacing: 0.04em; color: var(--accent); text-transform: uppercase;">
+                                    @sectionHeader
+                                </div>
+                            }
+                            <div class="recipe-body" style="margin-top: 16px; font-size: 17px; line-height: 1.45; color: rgba(255,255,255,0.92); max-width: 540px;">
+                                <RecipeChipComposer Interactive="false"
+                                                    Text="@stepText"
+                                                    Ingredients="@_recipeIngredientsParsed"
+                                                    OnIngredientChipClick="ScrollToIngredient" />
+                            </div>
+
+                            @* AI assist is also reachable from the timer hero so the user
+                               doesn't have to pause the timer to ask for help. Hidden when
+                               AI is off (host kill-switch OR per-user toggle OR no key). *@
+                            @if (_aiCookAssistVisible)
+                            {
+                                <div style="margin-top: 20px;">
+                                    <CbButton Variant="CbButton.CbButtonVariant.Subtle"
+                                              StartIcon="@Icon.Names.Spark"
+                                              OnClick="ToggleStepAiPanel">
+                                        Ask about this step
+                                    </CbButton>
+                                </div>
+
+                                @if (_stepAiOpen)
+                                {
+                                    @RenderStepAiPanel()
+                                }
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div>
+                            <div style="font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.7); margin-bottom: 16px;">
+                                @if (sectionHeader != null)
+                                {
+                                    <span style="color: var(--accent);">@sectionHeader · </span>
+                                }
+                                <span>Step @stepHuman</span>
+                            </div>
+                            <div class="recipe-body"
+                                 style="font-size: 52px; line-height: 1.12; font-weight: 500; letter-spacing: -0.025em; color: #FFFFFF; max-width: 720px;">
+                                <RecipeChipComposer Interactive="false"
+                                                    Text="@stepText"
+                                                    Ingredients="@_recipeIngredientsParsed"
+                                                    OnIngredientChipClick="ScrollToIngredient" />
+                            </div>
+                            <div style="display: flex; gap: 10px; margin-top: 36px; flex-wrap: wrap;">
+                                @if (defaultStepTimer != null)
+                                {
+                                    var primaryTimerId = BuildTimerId(defaultStepTimer);
+                                    var alreadyActive = _activeTimers.ContainsKey(primaryTimerId);
+                                    <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                                              StartIcon="@Icon.Names.Clock"
+                                              Disabled="alreadyActive"
+                                              OnClick="@(() => StartTimer(primaryTimerId, defaultStepTimer))">
+                                        Start @defaultStepTimer.Duration-@(defaultStepTimer.Unit) timer
+                                    </CbButton>
+                                }
+                                @* Additional timers on this step (rare but possible) *@
+                                @foreach (var extra in CurrentStep.Timers.Skip(1))
+                                {
+                                    var extraId = BuildTimerId(extra);
+                                    var extraActive = _activeTimers.ContainsKey(extraId);
+                                    <CbButton Variant="CbButton.CbButtonVariant.Subtle"
+                                              StartIcon="@Icon.Names.Clock"
+                                              Disabled="extraActive"
+                                              OnClick="@(() => StartTimer(extraId, extra))">
+                                        @(extra.Label ?? "Timer"): @extra.Duration @extra.Unit
+                                    </CbButton>
+                                }
+                                @if (_aiCookAssistVisible)
+                                {
+                                    <CbButton Variant="CbButton.CbButtonVariant.Subtle"
+                                              StartIcon="@Icon.Names.Spark"
+                                              OnClick="ToggleStepAiPanel">
+                                        Ask about this step
+                                    </CbButton>
+                                }
+                            </div>
+
+                            @if (_aiCookAssistVisible && _stepAiOpen)
+                            {
+                                @RenderStepAiPanel()
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* Bottom step nav: Previous (1fr ghost) + Next/Finish (2fr accent).
+                   On the last step, "Next" becomes "Finish" — clicking it logs the cook
+                   via IRecipeMadeService and navigates back to the recipe detail page. *@
+                <div style="display: flex; align-items: center; gap: 14px; padding-top: 32px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <button type="button"
+                            @onclick="PreviousStep"
+                            disabled="@(_currentStepIndex == 0)"
+                            style="@PrevButtonStyle()">
+                        <Icon Name="@Icon.Names.ArrowL" Size="18" />
+                        <span style="text-align: left;">
+                            <div style="font-size: 11.5px; opacity: 0.6; letter-spacing: 0.05em; text-transform: uppercase;">Previous</div>
+                            <div>@PreviousStepName()</div>
+                        </span>
+                    </button>
+                    @if (_currentStepIndex >= totalNavigable - 1)
+                    {
+                        <button type="button"
+                                @onclick="FinishCooking"
+                                disabled="@_finishInFlight"
+                                style="@FinishButtonStyle()">
+                            <span style="text-align: left;">
+                                <div style="font-size: 11.5px; opacity: 0.7; letter-spacing: 0.05em; text-transform: uppercase;">Finish</div>
+                                <div>@(_finishInFlight ? "Saving…" : "Mark as completed")</div>
+                            </span>
+                            <Icon Name="@Icon.Names.Check" Size="20" />
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button"
+                                @onclick="NextStep"
+                                style="@NextButtonStyle()">
+                            <span style="text-align: left;">
+                                <div style="font-size: 11.5px; opacity: 0.7; letter-spacing: 0.05em; text-transform: uppercase;">Next</div>
+                                <div>@NextStepName()</div>
+                            </span>
+                            <Icon Name="@Icon.Names.ArrowR" Size="20" />
+                        </button>
+                    }
+                </div>
+            </section>
+
+            @* Right rail — always-on ingredients *@
+            <aside style="background: rgba(255,255,255,0.04); border-left: 1px solid rgba(255,255,255,0.06); padding: 32px 28px; overflow-y: auto;">
+                <div style="font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.75); margin-bottom: 14px;">
+                    Ingredients
+                    <span style="margin-left: 8px; color: var(--accent); text-transform: none; letter-spacing: 0;">· @scaleLabel</span>
+                </div>
+
                 @foreach (var ri in _recipe.RecipeIngredients.OrderBy(i => i.RecipeLocalId))
                 {
-                    var isReferenced = CurrentStep.IngredientRefs.Contains(ri.RecipeLocalId);
-                    <MudStack Row="true" AlignItems="AlignItems.Center"
-                              Style="@(isReferenced ? "background: var(--mud-palette-primary-lighten); border-radius: 8px; padding: 4px 8px;" : "padding: 4px 8px;")">
-                        <MudCheckBox T="bool" Value="@_preppedIngredients.Contains(ri.Id)"
-                                     ValueChanged="@((bool v) => TogglePrepped(ri.Id, v))"
-                                     Dense="true" />
-                        <MudText Style="@(_preppedIngredients.Contains(ri.Id) ? "text-decoration: line-through; opacity: 0.6;" : "")">
-                            <b>@RecipeScalingService.FormatScaledAmount(ri.Amount, _recipe.Servings, _targetServings) @ri.Unit</b>
-                            @ri.Ingredient.Name
-                            @if (!string.IsNullOrEmpty(ri.Note))
-                            {
-                                <span style="color: #888;"> (@ri.Note)</span>
-                            }
-                        </MudText>
-                    </MudStack>
+                    var isReferenced = currentStepRefIds.Contains(ri.RecipeLocalId);
+                    var prepped = _preppedIngredients.Contains(ri.Id);
+                    var rowBg = isReferenced ? "rgba(194,65,12,0.18)" : "transparent";
+                    var rowBorder = isReferenced ? "1px solid rgba(194,65,12,0.35)" : "1px solid transparent";
+                    var qtyColor = isReferenced ? "#FFFFFF" : "rgba(255,255,255,0.85)";
+                    var nameColor = isReferenced ? "#FFFFFF" : "rgba(255,255,255,0.85)";
+                    var preppedDecoration = prepped ? "text-decoration: line-through; opacity: 0.55;" : "";
+                    <div id="@($"ingredient-{ri.RecipeLocalId}")"
+                         @onclick="@(() => TogglePrepped(ri.Id, !prepped))"
+                         style="@($"padding: 14px 12px; margin: 0 -12px 6px -12px; border-radius: 10px; background: {rowBg}; border: {rowBorder}; cursor: pointer; {preppedDecoration}")">
+                        <div class="num"
+                             style="@($"font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: {qtyColor}; font-feature-settings: 'tnum';")">
+                            @RecipeScalingService.FormatScaledAmount(ri.Amount, recipeBaseServings, _targetServings) @ri.Unit
+                        </div>
+                        <div style="@($"font-size: 14px; color: {nameColor}; margin-top: 2px;")">
+                            @ri.Ingredient.Name@(string.IsNullOrEmpty(ri.Note) ? "" : $" ({ri.Note})")
+                        </div>
+                    </div>
                 }
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
 
-    @* Active timers bottom bar *@
-    @if (_activeTimers.Any())
-    {
-        <MudPaper Class="pa-3 mt-4" Elevation="4"
-                  Style="border-radius: 12px; position: sticky; bottom: 16px; z-index: 100;">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap">
-                <MudIcon Icon="@Icons.Material.Filled.Timer" />
-                <MudText Typo="Typo.body2"><b>Active Timers:</b></MudText>
-                @foreach (var kvp in _activeTimers)
+                @* Servings widget *@
+                <div style="margin-top: 24px; padding: 14px; border-radius: 12px; background: rgba(255,255,255,0.06); display: flex; align-items: center; gap: 10px;">
+                    <Icon Name="@Icon.Names.Scale" Size="16" />
+                    <div style="font-size: 13px; flex: 1;">
+                        <div style="font-weight: 500;">Serves @_targetServings</div>
+                        <div style="opacity: 0.6; font-size: 11.5px; margin-top: 1px;">scaled from @recipeBaseServings</div>
+                    </div>
+                    <div style="display: flex; gap: 4px;">
+                        <button type="button" @onclick="DecrementServings"
+                                disabled="@(_targetServings <= 1)"
+                                title="Decrease servings"
+                                aria-label="Decrease servings"
+                                style="width: 28px; height: 28px; border-radius: 14px; background: rgba(255,255,255,0.08); border: 0; color: #FBF6E7; cursor: pointer;">
+                            −
+                        </button>
+                        <button type="button" @onclick="IncrementServings"
+                                disabled="@(_targetServings >= 100)"
+                                title="Increase servings"
+                                aria-label="Increase servings"
+                                style="width: 28px; height: 28px; border-radius: 14px; background: rgba(255,255,255,0.08); border: 0; color: #FBF6E7; cursor: pointer;">
+                            +
+                        </button>
+                    </div>
+                </div>
+
+                @* Active timers section (shows additional running timers beyond the hero one) *@
+                @if (_activeTimers.Count > 0)
                 {
-                    var id = kvp.Key;
-                    var remaining = kvp.Value;
-                    <MudChip T="string" Color="@(remaining <= 10 ? Color.Error : Color.Primary)"
-                             Variant="Variant.Filled" Size="Size.Medium"
-                             OnClose="@(() => StopTimer(id))">
-                        @GetTimerLabel(id): @FormatTime(remaining)
-                    </MudChip>
+                    <div style="margin-top: 20px;">
+                        <div style="font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.75); margin-bottom: 8px;">
+                            Active timers
+                        </div>
+                        @foreach (var kvp in _activeTimers)
+                        {
+                            var id = kvp.Key;
+                            var remaining = kvp.Value;
+                            var critical = remaining <= 10;
+                            <div style="@($"display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: {(critical ? "rgba(194,65,12,0.22)" : "rgba(255,255,255,0.06)")}; margin-bottom: 6px;")">
+                                <Icon Name="@Icon.Names.Clock" Size="14" />
+                                <span style="flex: 1; font-size: 13px;">@GetTimerLabel(id)</span>
+                                <span class="num" style="font-size: 14px; font-weight: 600; font-feature-settings: 'tnum';">@FormatTime(remaining)</span>
+                                <button type="button" @onclick="@(() => StopTimer(id))"
+                                        title="Stop timer"
+                                        aria-label="@($"Stop timer {GetTimerLabel(id)}")"
+                                        style="background: transparent; border: 0; color: #FBF6E7; cursor: pointer; padding: 2px;">
+                                    ×
+                                </button>
+                            </div>
+                        }
+                    </div>
                 }
-            </MudStack>
-        </MudPaper>
-    }
 
-    @* Completed timer alerts *@
-    @foreach (var timerId in _completedTimers)
-    {
-        <MudAlert Severity="Severity.Success" Class="mt-2"
-                  CloseIconClicked="@(() => DismissCompleted(timerId))" ShowCloseIcon="true">
-            Timer "@GetTimerLabel(timerId)" is complete!
-        </MudAlert>
-    }
+                @* Completed timer alerts *@
+                @foreach (var timerId in _completedTimers)
+                {
+                    <div style="margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(74,107,63,0.25); border: 1px solid rgba(74,107,63,0.45); display: flex; align-items: center; gap: 8px;">
+                        <Icon Name="@Icon.Names.Check" Size="14" />
+                        <span style="flex: 1; font-size: 13px;">Timer "@GetTimerLabel(timerId)" complete</span>
+                        <button type="button" @onclick="@(() => DismissCompleted(timerId))"
+                                aria-label="@($"Dismiss completed timer {GetTimerLabel(timerId)}")"
+                                style="background: transparent; border: 0; color: #FBF6E7; cursor: pointer;">
+                            ×
+                        </button>
+                    </div>
+                }
+            </aside>
+        </div>
+    </div>
 }
 else if (_loaded)
 {
-    <MudText>Recipe not found or access denied.</MudText>
+    <p style="color: var(--ink-2);">Recipe not found or access denied.</p>
 }
 </UserGuard>
 
@@ -204,22 +392,223 @@ else if (_loaded)
     private int _targetServings = 1;
     private List<RecipeStep> _navigableSteps = new();
     private List<RecipeStep> _allSteps = new();
+    private List<ParsedIngredient> _recipeIngredientsParsed = new();
     private HashSet<int> _preppedIngredients = new();
     private Dictionary<string, int> _activeTimers = new();
+    // Paused timers: timerId -> remaining-seconds-at-pause. The timer stays in
+    // _activeTimers (so the right-rail "Active timers" list still shows it), but
+    // its JS-side interval is cleared. Resume restarts the JS interval with the
+    // saved remaining time.
+    private Dictionary<string, int> _pausedTimers = new();
     private List<string> _completedTimers = new();
     private DotNetObjectReference<CookingMode>? _dotNetRef;
 
     private UserProfile? _profile;
     private EffectiveAiCredentials? _aiCredentials;
     private bool _aiCookAssistVisible;
+    private bool _stepAiOpen;
     private string _stepAiQuestion = "";
     private string _stepAiReply = "";
     private bool _stepAiBusy;
+    private bool _notificationsGranted;
 
     private int _boundRecipeId;
+    private ElementReference _rootRef;
+    private bool _rootFocusRequested;
 
     private RecipeStep CurrentStep => _navigableSteps[_currentStepIndex];
     private string? CurrentSectionHeader => GetSectionHeader(CurrentStep);
+
+    // Cache key: invalidated whenever CurrentStep changes (step navigation).
+    private RecipeStep? _refIdsCacheStep;
+    private HashSet<int> _refIdsCache = new();
+
+    /// <summary>
+    /// Returns the set of ingredient RecipeLocalIds referenced as [name](#id) links
+    /// in CurrentStep.Text. Result is cached per step — the cache invalidates when
+    /// CurrentStep changes (Next/Previous swaps to a different RecipeStep instance).
+    /// WR-03 fix: replaces the dead IngredientRefs list read (Phase 1 D-13 retired those writes).
+    /// </summary>
+    private HashSet<int> CurrentStepRefIds()
+    {
+        // Cheap reference-equality check — Next/Previous step swap CurrentStep to a different RecipeStep instance.
+        if (ReferenceEquals(_refIdsCacheStep, CurrentStep)) return _refIdsCache;
+
+        var ids = new HashSet<int>();
+        var text = CurrentStep.Text ?? string.Empty;
+        foreach (Match m in IngredientLinkPatterns.Pattern.Matches(text))
+        {
+            if (int.TryParse(m.Groups[2].Value, out var id) && id > 0)
+                ids.Add(id);
+        }
+        _refIdsCache = ids;
+        _refIdsCacheStep = CurrentStep;
+        return ids;
+    }
+
+    // === Adaptive hero state =====================================================
+    // Plan 06-02 D-08: hero shows the 224px tabular timer when an active timer is
+    // bound to the current step; otherwise shows the 52px step text. We derive the
+    // "current step's timer id" by matching the existing timerId convention
+    // (`step{N}_{label}_{unit}`) used by StartTimer/GetTimerLabel.
+
+    private string? _currentStepTimerId
+    {
+        get
+        {
+            if (_navigableSteps.Count == 0) return null;
+            var prefix = $"step{_currentStepIndex + 1}_";
+            foreach (var key in _activeTimers.Keys)
+            {
+                if (key.StartsWith(prefix, StringComparison.Ordinal)) return key;
+            }
+            return null;
+        }
+    }
+
+    private bool _currentStepTimerRunning
+        => _currentStepTimerId is not null && _activeTimers.TryGetValue(_currentStepTimerId, out var t) && t > 0;
+
+    private string GetCurrentStepTimerLabel()
+    {
+        if (_currentStepTimerId is null) return "Timer";
+        // Match the active timer back to the StepTimer for its display label.
+        foreach (var t in CurrentStep.Timers)
+        {
+            if (BuildTimerId(t) == _currentStepTimerId)
+            {
+                return t.Label ?? $"{t.Duration} {t.Unit}";
+            }
+        }
+        return GetTimerLabel(_currentStepTimerId);
+    }
+
+    private string BuildTimerId(StepTimer timer)
+        => $"step{_currentStepIndex + 1}_{timer.Label ?? timer.Duration.ToString()}_{timer.Unit}";
+
+    // === Servings scale formatter ================================================
+    private static string FormatScaleLabel(double ratio)
+    {
+        if (Math.Abs(ratio - 1.0) < 0.001) return "scaled 1×";
+        // Render with a single decimal when not integer; e.g. 1.5×, 2×, 0.5×
+        var rounded = Math.Round(ratio, 2);
+        if (Math.Abs(rounded - Math.Round(rounded)) < 0.001)
+            return $"scaled {(int)Math.Round(rounded)}×";
+        return $"scaled {rounded:0.##}×";
+    }
+
+    // === Step name lookups for bottom nav ========================================
+    // EF RecipeStep has no Heading field (it's an EF entity, not a StepNode union);
+    // section steps live in _allSteps with IsSection=true. _navigableSteps is filtered
+    // to !IsSection so all entries have meaningful Text. We use the first sentence
+    // (truncated) as the display name, falling back to "Step N".
+    private string PreviousStepName()
+    {
+        var idx = _currentStepIndex - 1;
+        if (idx < 0 || idx >= _navigableSteps.Count) return "Previous";
+        return DisplayNameForStep(_navigableSteps[idx], idx);
+    }
+
+    private string NextStepName()
+    {
+        var idx = _currentStepIndex + 1;
+        if (idx < 0 || idx >= _navigableSteps.Count) return "Next";
+        return DisplayNameForStep(_navigableSteps[idx], idx);
+    }
+
+    private static string DisplayNameForStep(RecipeStep step, int navigableIndex)
+    {
+        var text = step.Text ?? string.Empty;
+        // Strip [name](#id) link markdown to plain ingredient names for nav display.
+        var stripped = IngredientLinkPatterns.Pattern.Replace(text, m => m.Groups[1].Value).Trim();
+        if (string.IsNullOrWhiteSpace(stripped)) return $"Step {navigableIndex + 1}";
+
+        // First sentence — split on ., !, ?, newline.
+        var endIdx = stripped.IndexOfAny(new[] { '.', '!', '?', '\n', '\r' });
+        var sentence = endIdx > 0 ? stripped.Substring(0, endIdx) : stripped;
+        sentence = sentence.Trim();
+        if (string.IsNullOrEmpty(sentence)) return $"Step {navigableIndex + 1}";
+
+        const int maxLen = 48;
+        if (sentence.Length > maxLen)
+            sentence = sentence.Substring(0, maxLen - 1).TrimEnd() + "…";
+        return sentence;
+    }
+
+    // === Bottom-nav button styling ===============================================
+    private string PrevButtonStyle()
+    {
+        var disabled = _currentStepIndex == 0;
+        var op = disabled ? "0.4" : "1";
+        return $"flex: 1; height: 64px; border-radius: 14px; background: rgba(255,255,255,0.06); border: 0; color: #FBF6E7; font-size: 15px; font-weight: 500; cursor: {(disabled ? "not-allowed" : "pointer")}; opacity: {op}; display: flex; align-items: center; justify-content: flex-start; padding: 0 20px; gap: 14px;";
+    }
+
+    private string NextButtonStyle()
+    {
+        // Always enabled here — the Finish-button branch handles the last-step case.
+        return "flex: 2; height: 64px; border-radius: 14px; background: var(--accent); border: 0; color: #fff; font-size: 17px; font-weight: 500; cursor: pointer; opacity: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 24px;";
+    }
+
+    /// <summary>Finish button shares NextButtonStyle's accent fill but uses a check icon
+    /// affordance instead of arrowR. Disabled while the RecipeMade write is in flight.</summary>
+    private string FinishButtonStyle()
+    {
+        var op = _finishInFlight ? "0.6" : "1";
+        var cur = _finishInFlight ? "wait" : "pointer";
+        return $"flex: 2; height: 64px; border-radius: 14px; background: var(--accent); border: 0; color: #fff; font-size: 17px; font-weight: 500; cursor: {cur}; opacity: {op}; display: flex; align-items: center; justify-content: space-between; padding: 0 24px;";
+    }
+
+    private bool _finishInFlight;
+
+    /// <summary>
+    /// Plan 07-09 Feature 2 — log a RecipeMade row, clear the in-progress + active-timer
+    /// localStorage entries, toast success, and navigate back to /recipes/{id}. Failure
+    /// surfaces via toast and leaves the user on the cooking page so they can retry.
+    /// </summary>
+    private async Task FinishCooking()
+    {
+        if (_recipe == null) return;
+        if (!UserService.CurrentUserId.HasValue) return;
+        if (_finishInFlight) return;
+
+        _finishInFlight = true;
+        try
+        {
+            await RecipeMadeService.LogMadeAsync(RecipeId, UserService.CurrentUserId.Value);
+            await ClearSessionAsync();
+            Toast.Show("Recipe completed!", CbToastSeverity.Success);
+            Navigation.NavigateTo($"/recipes/{RecipeId}");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Toast.Show("Couldn't log the cook — you no longer have access to this recipe.", CbToastSeverity.Error);
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Couldn't save: {ex.Message}", CbToastSeverity.Error);
+        }
+        finally
+        {
+            _finishInFlight = false;
+        }
+    }
+
+    // === Keyboard navigation =====================================================
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowRight" || e.Key == "PageDown")
+        {
+            NextStep();
+        }
+        else if (e.Key == "ArrowLeft" || e.Key == "PageUp")
+        {
+            PreviousStep();
+        }
+        else if (e.Key == "Escape")
+        {
+            _ = ExitCooking();
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -245,12 +634,16 @@ else if (_loaded)
             _targetServings = 1;
             _navigableSteps = new();
             _allSteps = new();
+            _recipeIngredientsParsed = new();
             _preppedIngredients = new();
             _activeTimers = new();
+            _pausedTimers = new();
             _completedTimers = new();
             _stepAiQuestion = "";
             _stepAiReply = "";
             _stepAiBusy = false;
+            _stepAiOpen = false;
+            _rootFocusRequested = true;
         }
     }
 
@@ -284,6 +677,42 @@ else if (_loaded)
             _allSteps = _recipe.Steps.OrderBy(s => s.Order).ToList();
             _navigableSteps = _allSteps.Where(s => !s.IsSection).ToList();
 
+            // Plan 07-09 Feature 2 — hydrate the in-progress session from
+            // localStorage if it matches THIS recipe. Mismatched entries are
+            // cleared by readInProgressForRecipe so a stale session can't bleed
+            // across recipes. Wrapped in try because JS interop fails during
+            // prerender; in that case we just start fresh.
+            try
+            {
+                var saved = await JS.InvokeAsync<InProgressEntry?>(
+                    "CookbotSession.readInProgressForRecipe", RecipeId);
+                if (saved != null && _navigableSteps.Count > 0)
+                {
+                    if (saved.CurrentStepIndex >= 0 && saved.CurrentStepIndex < _navigableSteps.Count)
+                        _currentStepIndex = saved.CurrentStepIndex;
+                    if (saved.ScaledServings >= 1 && saved.ScaledServings <= 100)
+                        _targetServings = saved.ScaledServings;
+                }
+                // Persist either the hydrated state OR the initial state so Home can
+                // surface the "Resume cooking" band immediately. saveInProgress
+                // preserves the original startedAtIso when the recipeId matches.
+                await JS.InvokeAsync<string?>(
+                    "CookbotSession.saveInProgress", RecipeId, _currentStepIndex, _targetServings);
+            }
+            catch (JSException) { /* prerender or module not yet loaded */ }
+            catch (JSDisconnectedException) { }
+            _recipeIngredientsParsed = _recipe.RecipeIngredients
+                .OrderBy(ri => ri.RecipeLocalId)
+                .Select(ri => new ParsedIngredient
+                {
+                    LocalId = ri.RecipeLocalId,
+                    Name = ri.Ingredient?.Name ?? string.Empty,
+                    Amount = ri.Amount,
+                    Unit = ri.Unit,
+                    Note = ri.Note
+                })
+                .ToList();
+
             if (!_navigableSteps.Any())
             {
                 Navigation.NavigateTo($"/recipes/{RecipeId}");
@@ -305,7 +734,21 @@ else if (_loaded)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("CookingTimers.init", _dotNetRef);
-            await JS.InvokeVoidAsync("CookingTimers.requestNotificationPermission");
+            try
+            {
+                var permission = await JS.InvokeAsync<string>("CookingTimers.requestNotificationPermission");
+                _notificationsGranted = string.Equals(permission, "granted", StringComparison.OrdinalIgnoreCase);
+                StateHasChanged();
+            }
+            catch (JSException) { /* graceful — denied or unsupported */ }
+            catch (JSDisconnectedException) { }
+        }
+
+        if (_rootFocusRequested && _recipe != null)
+        {
+            _rootFocusRequested = false;
+            try { await _rootRef.FocusAsync(); }
+            catch { /* graceful — element not yet rendered or focus rejected */ }
         }
     }
 
@@ -315,6 +758,7 @@ else if (_loaded)
         {
             _currentStepIndex++;
             ClearStepAiState();
+            _ = PersistSessionAsync();
         }
     }
 
@@ -324,13 +768,63 @@ else if (_loaded)
         {
             _currentStepIndex--;
             ClearStepAiState();
+            _ = PersistSessionAsync();
         }
+    }
+
+    /// <summary>
+    /// Plan 07-09 Feature 2 — writes the current session shape to localStorage
+    /// so a refresh / nav-away preserves the user's progress. Single-recipe scope:
+    /// the entry is keyed on RecipeId and CookbotSession.readInProgressForRecipe
+    /// clears any mismatched entry. Fail-soft: JS interop hiccups never throw.
+    /// </summary>
+    private async Task PersistSessionAsync()
+    {
+        if (_recipe == null) return;
+        try
+        {
+            await JS.InvokeAsync<string?>(
+                "CookbotSession.saveInProgress", RecipeId, _currentStepIndex, _targetServings);
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    /// <summary>Clears the in-progress + active-timer localStorage entries on Finish/Exit.</summary>
+    private async Task ClearSessionAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("CookbotSession.clearInProgress");
+            await JS.InvokeVoidAsync("CookbotSession.clearActiveTimer");
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    /// <summary>Shape of the saved in-progress entry — matches CookbotSession.readInProgress payload.</summary>
+    private sealed record InProgressEntry(int RecipeId, int CurrentStepIndex, int ScaledServings, string? StartedAtIso)
+    {
+        // STJ requires a parameterless constructor or matching property names — the
+        // record constructor pairs with the JS keys via JsonNamingPolicy.CamelCase
+        // applied by Blazor's default JS interop options.
     }
 
     private void ClearStepAiState()
     {
         _stepAiReply = "";
         _stepAiQuestion = "";
+        _stepAiOpen = false;
+    }
+
+    private void ToggleStepAiPanel()
+    {
+        _stepAiOpen = !_stepAiOpen;
+        if (!_stepAiOpen)
+        {
+            _stepAiReply = "";
+            _stepAiQuestion = "";
+        }
     }
 
     private async Task AskStepAiAsync()
@@ -364,7 +858,7 @@ else if (_loaded)
         }
         catch (Exception ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Toast.Show(ex.Message, CbToastSeverity.Error);
         }
         finally
         {
@@ -375,6 +869,47 @@ else if (_loaded)
 
     private static string RenderStepAiMarkdown(string content) =>
         string.IsNullOrEmpty(content) ? "" : Markdown.ToHtml(content);
+
+    /// <summary>
+    /// Shared "Ask about this step" panel — used from both the timer hero (so the
+    /// user can ask while a timer is running) and the step-text hero. Hidden when
+    /// _aiCookAssistVisible is false (host kill-switch / per-user toggle / no key).
+    /// </summary>
+    private RenderFragment RenderStepAiPanel() => __builder =>
+    {
+        <CbCard Style="margin-top: 28px; background: rgba(255,255,255,0.04); color: #FBF6E7; border-color: rgba(255,255,255,0.08);">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <Icon Name="@Icon.Names.Spark" Size="16" />
+                <strong style="font-size: 14px;">Ask about this step</strong>
+            </div>
+            <div style="font-size: 12px; opacity: 0.85; margin-bottom: 12px;">
+                Sends this recipe (YAML, scaled to your servings) and the current step to the assistant.
+            </div>
+            <CbTextarea @bind-Value="_stepAiQuestion"
+                        Placeholder="e.g. How do I know when it's reduced enough?"
+                        Rows="2"
+                        Disabled="_stepAiBusy" />
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                          StartIcon="@Icon.Names.Send"
+                          Disabled="@(_stepAiBusy || string.IsNullOrWhiteSpace(_stepAiQuestion))"
+                          OnClick="AskStepAiAsync">
+                    @(_stepAiBusy ? "Thinking…" : "Get help")
+                </CbButton>
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="ToggleStepAiPanel">
+                    Close
+                </CbButton>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_stepAiReply))
+            {
+                <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 14px 0;" />
+                <div style="font-size: 12px; opacity: 0.85; margin-bottom: 6px;">Answer</div>
+                <div class="cooking-ai-reply recipe-body" style="color: #FBF6E7;">
+                    @((MarkupString)RenderStepAiMarkdown(_stepAiReply))
+                </div>
+            }
+        </CbCard>
+    };
 
     private string? GetSectionHeader(RecipeStep currentStep)
     {
@@ -387,6 +922,18 @@ else if (_loaded)
             }
         }
         return null;
+    }
+
+    private async Task ScrollToIngredient(int recipeLocalId)
+    {
+        // D-D3 + D-D4: chip click → JS-interop scroll-and-highlight; fail-soft on disconnect.
+        try
+        {
+            await JS.InvokeAsync<bool>("RecipeChipComposer.scrollIntoViewWithHighlight",
+                $"ingredient-{recipeLocalId}");
+        }
+        catch (JSDisconnectedException) { /* graceful — circuit lost */ }
+        catch (JSException) { /* graceful — module not loaded */ }
     }
 
     private async Task StartTimer(string timerId, StepTimer timer)
@@ -407,12 +954,140 @@ else if (_loaded)
         var timerPart = timer.Label ?? $"{timer.Duration} {timer.Unit}";
         var displayLabel = $"{recipeName} — {stepPart} — {timerPart}";
         await JS.InvokeVoidAsync("CookingTimers.start", timerId, durationSeconds, displayLabel);
+
+        // Plan 07-09 Feature 1 — register the active timer in localStorage so Home
+        // can render the "Resume cooking" band even after a refresh / nav-away.
+        // Single-timer scope per design decision (CONTEXT: punt on multi-timer for v1).
+        try
+        {
+            await JS.InvokeVoidAsync("CookbotSession.saveActiveTimer",
+                RecipeId,
+                $"{stepPart} — {timerPart}",
+                durationSeconds);
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
     }
 
     private async Task StopTimer(string timerId)
     {
         await JS.InvokeVoidAsync("CookingTimers.stop", timerId);
         _activeTimers.Remove(timerId);
+        _pausedTimers.Remove(timerId);
+
+        // Clear the persisted active-timer entry — when the last in-memory timer is
+        // stopped/completed, Home should drop the band on its next render.
+        try
+        {
+            if (_activeTimers.Count == 0)
+            {
+                await JS.InvokeVoidAsync("CookbotSession.clearActiveTimer");
+            }
+        }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    private async Task StopCurrentStepTimer()
+    {
+        var id = _currentStepTimerId;
+        if (id is null) return;
+        await StopTimer(id);
+    }
+
+    /// <summary>
+    /// Pauses the current step's timer. The remaining seconds are captured in
+    /// _pausedTimers; the JS interval is cleared so OnTimerTick stops firing.
+    /// _activeTimers retains the timer so the right-rail list keeps showing it
+    /// (with the frozen "remaining" display) and ResumeCurrentStepTimer can
+    /// re-arm it from the saved seconds.
+    /// </summary>
+    private async Task PauseCurrentStepTimer()
+    {
+        var id = _currentStepTimerId;
+        if (id is null) return;
+        if (!_activeTimers.TryGetValue(id, out var remaining)) return;
+        if (_pausedTimers.ContainsKey(id)) return;
+
+        // Clear JS-side interval but keep the C# state.
+        try { await JS.InvokeVoidAsync("CookingTimers.stop", id); }
+        catch (JSDisconnectedException) { }
+        catch (JSException) { }
+
+        _pausedTimers[id] = remaining;
+        // _activeTimers keeps the same value so the displayed remaining time freezes.
+    }
+
+    /// <summary>
+    /// Resumes the current step's timer from the saved remaining time. Re-arms the
+    /// JS interval which will start invoking OnTimerTick again until completion.
+    /// </summary>
+    private async Task ResumeCurrentStepTimer()
+    {
+        var id = _currentStepTimerId;
+        if (id is null) return;
+        if (!_pausedTimers.TryGetValue(id, out var savedRemaining)) return;
+
+        // Find the underlying StepTimer for label.
+        StepTimer? underlying = null;
+        foreach (var st in CurrentStep.Timers)
+        {
+            if (BuildTimerId(st) == id) { underlying = st; break; }
+        }
+
+        var recipeName = _recipe?.Name ?? "Recipe";
+        var stepPart = $"Step {_currentStepIndex + 1}";
+        var timerPart = underlying?.Label ?? (underlying != null ? $"{underlying.Duration} {underlying.Unit}" : "Timer");
+        var displayLabel = $"{recipeName} — {stepPart} — {timerPart}";
+
+        _activeTimers[id] = savedRemaining;
+        _pausedTimers.Remove(id);
+        await JS.InvokeVoidAsync("CookingTimers.start", id, savedRemaining, displayLabel);
+    }
+
+    private async Task ResetCurrentStepTimer()
+    {
+        var id = _currentStepTimerId;
+        if (id is null) return;
+        // Find the underlying StepTimer for this timer id.
+        StepTimer? underlying = null;
+        foreach (var t in CurrentStep.Timers)
+        {
+            if (BuildTimerId(t) == id) { underlying = t; break; }
+        }
+        await StopTimer(id);
+        if (underlying != null)
+        {
+            await StartTimer(id, underlying);
+        }
+    }
+
+    private async Task AddThirtySecondsToCurrentStepTimer()
+    {
+        var id = _currentStepTimerId;
+        if (id is null) return;
+        if (!_activeTimers.TryGetValue(id, out var remaining)) return;
+
+        // Find underlying timer to get the original total duration so we don't lose its label.
+        StepTimer? underlying = null;
+        foreach (var t in CurrentStep.Timers)
+        {
+            if (BuildTimerId(t) == id) { underlying = t; break; }
+        }
+        if (underlying is null) return;
+
+        // Stop current ticking and restart with remaining + 30s. cooking-timers.js drives
+        // the canonical countdown — we re-arm it server-side then call start() to reset
+        // the JS-side endTime. _notify only fires when the JS-side timer hits zero, so
+        // the +30s just delays expiration cleanly.
+        var newSeconds = remaining + 30;
+        await JS.InvokeVoidAsync("CookingTimers.stop", id);
+        _activeTimers[id] = newSeconds;
+        var recipeName = _recipe?.Name ?? "Recipe";
+        var stepPart = $"Step {_currentStepIndex + 1}";
+        var timerPart = underlying.Label ?? $"{underlying.Duration} {underlying.Unit}";
+        var displayLabel = $"{recipeName} — {stepPart} — {timerPart}";
+        await JS.InvokeVoidAsync("CookingTimers.start", id, newSeconds, displayLabel);
     }
 
     [JSInvokable]
@@ -430,6 +1105,17 @@ else if (_loaded)
     {
         _activeTimers.Remove(timerId);
         _completedTimers.Add(timerId);
+        // Clear the persisted active-timer entry on completion. fail-soft via the
+        // catch in InvokeAsync — JS module guard already handles JSDisconnected.
+        if (_activeTimers.Count == 0)
+        {
+            _ = InvokeAsync(async () =>
+            {
+                try { await JS.InvokeVoidAsync("CookbotSession.clearActiveTimer"); }
+                catch (JSException) { }
+                catch (JSDisconnectedException) { }
+            });
+        }
         InvokeAsync(StateHasChanged);
     }
 
@@ -440,6 +1126,7 @@ else if (_loaded)
 
     private static string FormatTime(int totalSeconds)
     {
+        if (totalSeconds < 0) totalSeconds = 0;
         var minutes = totalSeconds / 60;
         var seconds = totalSeconds % 60;
         return $"{minutes:D2}:{seconds:D2}";
@@ -451,7 +1138,7 @@ else if (_loaded)
         if (parts.Length < 2) return timerId;
         var stepNum = parts[0].Replace("step", "");
         var label = parts[1];
-        return $"Step {stepNum} \u2014 {label}";
+        return $"Step {stepNum} — {label}";
     }
 
     private void TogglePrepped(int ingredientId, bool isPrepped)
@@ -464,8 +1151,12 @@ else if (_loaded)
 
     private void IncrementServings()
     {
-        _targetServings++;
-        _stepAiReply = "";
+        if (_targetServings < 100)
+        {
+            _targetServings++;
+            _stepAiReply = "";
+            _ = PersistSessionAsync();
+        }
     }
 
     private void DecrementServings()
@@ -474,11 +1165,18 @@ else if (_loaded)
         {
             _targetServings--;
             _stepAiReply = "";
+            _ = PersistSessionAsync();
         }
     }
 
-    private void ExitCooking()
+    private async Task ExitCooking()
     {
+        // Exit preserves the in-progress entry (so the user can resume from Home),
+        // but clears the active-timer band — leaving the page implicitly "stops"
+        // the running browser timer (see DisposeAsync → CookingTimers.dispose).
+        try { await JS.InvokeVoidAsync("CookbotSession.clearActiveTimer"); }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
         Navigation.NavigateTo($"/recipes/{RecipeId}");
     }
 

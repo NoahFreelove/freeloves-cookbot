@@ -1,0 +1,41 @@
+@namespace CookBot.Web.Components.Atoms
+@typeparam TValue
+
+@* CbDropdownItem — Phase 5 / Plan 05-04 / DIALOG-04 / D-26.
+   Child of CbDropdown<TValue>. Receives the parent via [CascadingParameter] and
+   calls parent.SelectAsync(Value) on click. Renders as <button class="cb-dropdown-item">
+   so native keyboard Tab order works. *@
+
+<button type="button"
+        class="cb-dropdown-item @(IsSelected ? "selected" : "")"
+        role="menuitem"
+        @onclick="HandleClick">
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <Icon Name="@Icon" Size="14" />
+    }
+    @if (ChildContent != null)
+    {
+        @ChildContent
+    }
+    else
+    {
+        @Label
+    }
+</button>
+
+@code {
+    [CascadingParameter] private CbDropdown<TValue>? Parent { get; set; }
+
+    [Parameter, EditorRequired] public TValue Value { get; set; } = default!;
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool IsSelected => Parent is not null && Parent.IsSelected(Value);
+
+    private async Task HandleClick()
+    {
+        if (Parent is not null) await Parent.SelectAsync(Value);
+    }
+}

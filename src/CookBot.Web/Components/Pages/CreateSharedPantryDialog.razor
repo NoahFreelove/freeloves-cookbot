@@ -1,23 +1,24 @@
 @inject CookBot.Application.Services.PantryService PantryService
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Create Shared Pantry</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudTextField @bind-Value="_pantryName" Label="Pantry Name" Variant="Variant.Outlined"
-                      Placeholder="e.g. Family Kitchen" Class="mb-2" />
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Create"
-                   Disabled="@string.IsNullOrWhiteSpace(_pantryName)">Create</MudButton>
-    </DialogActions>
-</MudDialog>
+@* Phase 7 / Plan 07-02: "Create Shared Pantry" dialog migrated to CbDialog slots.
+   Renders inside CbDialogHost; Title is supplied at ShowAsync call. *@
+
+<div>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+        <span>Pantry name</span>
+        <CbInput @bind-Value="_pantryName" Placeholder="e.g. Family Kitchen" />
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Create"
+                  Disabled="@string.IsNullOrWhiteSpace(_pantryName)">Create</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
     [Parameter] public int OwnerUserId { get; set; }
 
     private string _pantryName = "";
@@ -27,9 +28,9 @@
         if (string.IsNullOrWhiteSpace(_pantryName)) return;
 
         var pantry = await PantryService.CreateSharedPantryAsync(OwnerUserId, _pantryName.Trim());
-        Snackbar.Add($"Shared pantry \"{pantry.Name}\" created!", Severity.Success);
-        MudDialog.Close(DialogResult.Ok(pantry));
+        Toast.Show($"Shared pantry \"{pantry.Name}\" created!", CbToastSeverity.Success);
+        DialogInstance?.Close(CbDialogResult.Ok(pantry));
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 }

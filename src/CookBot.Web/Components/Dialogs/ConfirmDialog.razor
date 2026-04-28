@@ -1,0 +1,29 @@
+@namespace CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@using CookBot.Web.Components.Atoms
+
+@* ConfirmDialog — Phase 7 / Plan 07-01.
+   Generic Cb-native yes/cancel confirmation dialog. Returns CbDialogResult.Ok(true)
+   on confirm and Cancel() on dismiss. *@
+
+<div>
+    <p style="margin:0 0 18px 0;line-height:1.5;font-size:14px;color:var(--ink-2);">@Message</p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">@CancelLabel</CbButton>
+        <CbButton Variant="@(Destructive ? CbButton.CbButtonVariant.Accent : CbButton.CbButtonVariant.Primary)"
+                  OnClick="Confirm">@ConfirmLabel</CbButton>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
+
+    [Parameter] public string Title { get; set; } = "Are you sure?";
+    [Parameter] public string Message { get; set; } = "";
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
+    [Parameter] public string CancelLabel { get; set; } = "Cancel";
+    [Parameter] public bool Destructive { get; set; }
+
+    private void Cancel() => DialogInstance?.Cancel();
+    private void Confirm() => DialogInstance?.Close(CbDialogResult.Ok(true));
+}

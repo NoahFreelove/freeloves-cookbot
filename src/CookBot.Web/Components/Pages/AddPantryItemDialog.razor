@@ -1,41 +1,72 @@
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @using CookBot.Application.Services
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Add Pantry Item</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudAutocomplete T="Ingredient" @bind-Value="_selectedIngredient"
-                         SearchFunc="SearchIngredients" ToStringFunc="@(i => i?.Name ?? "")"
-                         Label="Ingredient" Variant="Variant.Outlined" Class="mb-4"
-                         Dense="true" />
-        <MudTextField @bind-Value="_newIngredientName" Label="Or add new ingredient"
-                      Variant="Variant.Outlined" Class="mb-4" HelperText="Leave blank to use selection above" />
-        <MudNumericField T="double?" @bind-Value="_amount" Label="Amount (optional)" Variant="Variant.Outlined"
-                         Step="0.25" Class="mb-4"
-                         HelperText="Leave blank to track only that you have it (in stock), not a quantity." />
-        <MudAutocomplete T="string" @bind-Value="_unit" Label="Unit" Variant="Variant.Outlined" Class="mb-4"
-                         SearchFunc="SearchUnits" CoerceValue="true"
-                         Disabled="@(!_amount.HasValue)"
-                         HelperText="@(_amount.HasValue ? null : "Not used when amount is blank.")" />
-        <MudDatePicker @bind-Date="_expiration" Label="Expiration Date (optional)"
-                       Variant="Variant.Outlined" Clearable="true" />
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
-                   Disabled="@(!CanSubmit)">Add</MudButton>
-    </DialogActions>
-</MudDialog>
+@* Phase 7 / Plan 07-02: pantry "Add item" dialog using CbDialog slots.
+   Renders inside CbDialogHost; Title is supplied at ShowAsync call.
+   Ingredient picker is a CbSelect over the loaded ingredient list plus a CbInput
+   "or add new ingredient" name field. Amount uses CbInput type="number".
+   Expiration date uses native HTML <input type="date">. *@
+
+<div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Ingredient</span>
+            <CbSelect TValue="int?" @bind-Value="_selectedIngredientId" Placeholder="Select an existing ingredient…">
+                @foreach (var ing in Ingredients)
+                {
+                    <CbOption TValue="int?" Value="@(ing.Id)" Label="@ing.Name" />
+                }
+            </CbSelect>
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Or add new ingredient</span>
+            <CbInput @bind-Value="_newIngredientName" Placeholder="Leave blank to use selection above" />
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Amount (optional)</span>
+            <CbInput Type="number" @bind-Value="_amountText" Placeholder="Leave blank to track only that you have it (in stock)." />
+            <span style="font-size:11.5px;color:var(--ink-3);">
+                Leave blank to track only that you have it (in stock), not a quantity.
+            </span>
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Unit</span>
+            <CbSelect TValue="string" @bind-Value="_unit" Disabled="@(!HasAmount)">
+                @foreach (var u in CommonUnits)
+                {
+                    <CbOption TValue="string" Value="@u" Label="@u" />
+                }
+            </CbSelect>
+            @if (!HasAmount)
+            {
+                <span style="font-size:11.5px;color:var(--ink-3);">Not used when amount is blank.</span>
+            }
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Expiration date (optional)</span>
+            <input type="date" class="cb-input" value="@(_expiration?.ToString("yyyy-MM-dd"))"
+                   @onchange="OnExpirationChanged" />
+        </label>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Submit"
+                  Disabled="@(!CanSubmit)">Add</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
     [Parameter] public List<Ingredient> Ingredients { get; set; } = new();
 
-    private Ingredient? _selectedIngredient;
+    private int? _selectedIngredientId;
     private string _newIngredientName = "";
-    private double? _amount;
+    private string _amountText = "";
     private string _unit = "cup";
     private DateTime? _expiration;
 
@@ -46,29 +77,30 @@
         "piece", "slice", "clove", "bunch", "can", "bottle", "bag"
     };
 
-    private Task<IEnumerable<string>> SearchUnits(string value, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return Task.FromResult(CommonUnits.AsEnumerable());
-
-        return Task.FromResult(CommonUnits.Where(u =>
-            u.Contains(value, StringComparison.OrdinalIgnoreCase)));
-    }
+    private bool HasAmount =>
+        !string.IsNullOrWhiteSpace(_amountText) &&
+        double.TryParse(_amountText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) &&
+        v > 0;
 
     private bool CanSubmit =>
-        (_selectedIngredient != null || !string.IsNullOrWhiteSpace(_newIngredientName))
-        && (!_amount.HasValue || _amount.Value > 0);
+        (_selectedIngredientId.HasValue || !string.IsNullOrWhiteSpace(_newIngredientName))
+        && (string.IsNullOrWhiteSpace(_amountText) || HasAmount);
 
-    private Task<IEnumerable<Ingredient>> SearchIngredients(string value, CancellationToken ct)
+    private void OnExpirationChanged(ChangeEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(value))
-            return Task.FromResult(Ingredients.AsEnumerable());
-
-        return Task.FromResult(Ingredients.Where(i =>
-            i.Name.Contains(value, StringComparison.OrdinalIgnoreCase)));
+        var raw = e.Value as string;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            _expiration = null;
+        }
+        else if (DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeLocal, out var dt))
+        {
+            _expiration = dt;
+        }
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 
     private async Task Submit()
     {
@@ -91,23 +123,23 @@
         }
         else
         {
-            ingredientId = _selectedIngredient!.Id;
+            ingredientId = _selectedIngredientId!.Value;
         }
 
         double amount;
         string unit;
-        if (!_amount.HasValue)
+        if (!HasAmount)
         {
             amount = 1;
             unit = PantryAiImport.UnmeasuredUnit;
         }
         else
         {
-            amount = _amount.Value;
+            amount = double.Parse(_amountText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture);
             unit = string.IsNullOrWhiteSpace(_unit) ? "cup" : _unit;
         }
 
-        MudDialog.Close(DialogResult.Ok(new PantryItemResult(ingredientId, amount, unit, _expiration)));
+        DialogInstance?.Close(CbDialogResult.Ok(new PantryItemResult(ingredientId, amount, unit, _expiration)));
     }
 
     public record PantryItemResult(int IngredientId, double Amount, string Unit, DateTime? Expiration);

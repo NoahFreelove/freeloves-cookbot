@@ -2,6 +2,9 @@
 @using System.Text
 @using System.Text.RegularExpressions
 @using CookBot.Application.DTOs
+@using CookBot.Application.Services
+@using CookBot.Domain.Recipes
+@using CookBot.Infrastructure.AI
 @using Markdig
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject CurrentUserService UserService
@@ -10,259 +13,324 @@
 @inject CookBot.Application.AI.IAiRecipeGenerator AiRecipeGenerator
 @inject CookBot.Application.Recipes.JsonRecipeSerializer CanonicalSerializer
 @inject AiApiKeyResolutionService AiKeyResolver
-@using CookBot.Application.Services
-@using CookBot.Infrastructure.AI
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilder
 @inject CookBot.Application.Services.PantryService PantryService
 @inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
-@inject ISnackbar Snackbar
-@inject IDialogService DialogService
+@inject ICbToastService Toast
+@inject ICbDialogService CbDialogService
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
+
+@* Phase 7 / Plan 07-04 / AIC-01..05.
+   AiChat.razor — full rewrite of the markup against Phase 5 atoms per
+   `.planning/design-handoff/project/screens/ai-chat.jsx`.
+
+   Hard invariants preserved verbatim from the previous (Mud-based) implementation:
+     - IAiRecipeGenerator orchestrator wiring (validate → repair → fail; never throws).
+     - StructuredResult<RecipeDocument> drives Save / Edit-anyway / Retry surfaces.
+     - SecretRedactor / PromptInjectionGuard run inside AnthropicAiService and
+       AiRecipeGenerator — this page is a presentation surface only.
+     - SaveRecipeDialog / CookbookReferenceDialog / SharedKeysDialog launched via
+       ICbDialogService (Phase 7 / 07-01 / 07-05 migrations).
+     - POLISH-01: legacy three-tier ExtractRecipeContent extractor stays DELETED
+       (no projection from rendered text — RecipeDocument is the single source).
+     - AI-off contract: full-screen "AI disabled" / "API key missing" panes
+       redirect users to /profile via inline CbButton; sidebar already hides the
+       /ai entry when AI off (Phase 5 Sidebar.razor).
+     - AssembleMessagesForAiCall (D-23): pre-Phase-2 conversation transient note
+       prepended; stamp FormatVersion=2 on save (D-22).
+     - AssistantContentPipeline: Markdig with DisableHtml() — raw HTML can't
+       reach the DOM (AI-08-AUDIT / D-15).
+
+   Layout (per ai-chat.jsx):
+     - 380px chat rail (paper-2 bg) + flex right canvas
+     - Left rail: scrollable message stream + bottom chat input with
+       suggestion chips + accent send button
+     - Right canvas: drafting save-bar + streaming RecipeDocument card
+       (eyebrow + title + 2-col ingredients/method)
+     - Streaming caret on active chat turn + active step (cb-blink keyframe)
+     - Drafting pulse dot on save-bar chip (cb-pulse keyframe)
+
+   Hard invariant: zero Mud* symbols in this file. *@
 
 <PageTitle>CookBot - AI Assistant</PageTitle>
 
 <UserGuard>
 @if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
 {
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
-        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">AI is disabled on this server</MudText>
-        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;">
+        <Icon Name="@Icon.Names.Spark" Size="40" />
+        <h2 style="font-size:22px;letter-spacing:-0.022em;margin:0;">AI is disabled on this server</h2>
+        <p style="color:var(--ink-3);font-size:13.5px;text-align:center;max-width:420px;margin:0;">
             The administrator set <code>CookBot:AiFeaturesEnabled</code> to false. Recipe management and cooking features still work locally.
-        </MudText>
+        </p>
     </div>
 }
 else if (_profile?.AiEnabled == false)
 {
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
-        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">AI features are disabled.</MudText>
-        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
-            Enable AI in your <MudLink Href="/profile">Profile Settings</MudLink> to use the assistant.
-        </MudText>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;">
+        <Icon Name="@Icon.Names.Spark" Size="40" />
+        <h2 style="font-size:22px;letter-spacing:-0.022em;margin:0;">AI features are disabled</h2>
+        <p style="color:var(--ink-3);font-size:13.5px;text-align:center;max-width:420px;margin:0;">
+            Enable AI in your Profile Settings to use the assistant.
+        </p>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="@(() => Navigation.NavigateTo("/profile"))">
+            Open Profile
+        </CbButton>
     </div>
 }
 else if (_profile != null && _profile.AiEnabled && _effectiveAi == null)
 {
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
-        <MudIcon Icon="@Icons.Material.Filled.VpnKey" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">No API access configured</MudText>
-        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
-            Add your own Anthropic key in <MudLink Href="/profile">Profile</MudLink>, or ask another user on this device to share their key with you.
-        </MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" StartIcon="@Icons.Material.Filled.Share"
-                   OnClick="OpenSharedKeysDialog">
-            Shared keys
-        </MudButton>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;">
+        <Icon Name="@Icon.Names.Spark" Size="40" />
+        <h2 style="font-size:22px;letter-spacing:-0.022em;margin:0;">No API access configured</h2>
+        <p style="color:var(--ink-3);font-size:13.5px;text-align:center;max-width:480px;margin:0;">
+            Add your own Anthropic key in Profile, or ask another user on this device to share their key with you.
+        </p>
+        <div style="display:flex;gap:8px;">
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="@(() => Navigation.NavigateTo("/profile"))">
+                Open Profile
+            </CbButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Share" OnClick="OpenSharedKeysDialog">
+                Shared keys
+            </CbButton>
+        </div>
     </div>
 }
 else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
 {
-<div style="display: flex; gap: 24px; height: calc(100vh - 180px);">
-    <div style="width: 25%; min-width: 250px; flex-shrink: 0;">
-        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: 100%; overflow-y: auto; box-sizing: border-box;">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-                <MudText Typo="Typo.h6">Conversations</MudText>
-                <MudSpacer />
-                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" Class="text-none"
-                           Style="text-transform: none; min-width: 0;"
-                           StartIcon="@Icons.Material.Filled.Share" OnClick="OpenSharedKeysDialog">
-                    Shared keys
-                </MudButton>
-                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="NewConversation" />
-            </MudStack>
-            <MudList T="int" Dense="true" @bind-SelectedValue="_selectedConversationId">
-                @foreach (var conv in _conversations)
-                {
-                    <MudListItem Value="@conv.Id" OnClick="@(() => LoadConversation(conv))">
-                        <MudStack Row="true" AlignItems="AlignItems.Center">
-                            <MudText Typo="Typo.body2" Style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                @conv.Title
-                            </MudText>
-                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                           OnClick="@(() => DeleteConversation(conv))" />
-                        </MudStack>
-                    </MudListItem>
-                }
-            </MudList>
+    @* ── Two-column AI Chat shell ─────────────────────────────────────────
+       The page sits inside MainLayout's main column (24px padding); we
+       pull padding off the inner shell so the rail's paper-2 background
+       extends edge-to-edge inside the page bounds. *@
+    <div style="display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 96px);min-height:520px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--paper);">
 
-            <MudDivider Class="my-3" />
-            <MudExpansionPanels Elevation="0">
-                <MudExpansionPanel Dense="true" Style="background: transparent;">
-                    <TitleContent>
-                        <MudStack Spacing="0">
-                            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Assistant instructions</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                System prompt saved on your profile. Tokens and <code>{{cookbook_recipes:ID}}</code> expand when you send a message; the editor keeps the raw template.
-                            </MudText>
-                        </MudStack>
-                    </TitleContent>
-                    <ChildContent>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">Insert placeholders (chips):</MudText>
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
-                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="@(() => InsertToken("{{experience_level}}"))">+ Experience</MudChip>
-                        <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="@(() => InsertToken("{{unit_system}}"))">+ Units</MudChip>
-                        <MudChip T="string" Color="Color.Warning" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="@(() => InsertToken("{{equipment}}"))">+ Equipment</MudChip>
-                        <MudChip T="string" Style="background-color: var(--mud-palette-tertiary); color: white;" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="@(() => InsertToken("{{dietary_preferences}}"))">+ Diet</MudChip>
-                        <MudChip T="string" Color="Color.Secondary" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="@(() => InsertToken("{{pantry}}"))">+ Pantry</MudChip>
-                        <MudChip T="string" Color="Color.Info" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="InsertCookbookReferenceTokenAsync">+ Reference cookbook</MudChip>
-                        <MudChip T="string" Color="Color.Error" Variant="Variant.Filled" Size="Size.Small"
-                                 OnClick="@(() => InsertToken("{{recipe_format}}"))">+ Recipe Fmt</MudChip>
-                    </MudStack>
+        @* ── Left rail: chat conversation + input ─────────────────────── *@
+        <section style="border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--paper-2);min-width:0;">
 
-                    <MudTextField @bind-Value="_promptTemplate" Variant="Variant.Outlined"
-                                  Lines="18" Class="mb-2" Style="font-family: monospace; font-size: 12px;"
-                                  Label="Template" HelperText="Defines tone, constraints, and how recipes should be formatted." />
+            @* Header inside rail: model id + new-conversation + shared-keys *@
+            <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:11.5px;color:var(--ink-3);font-weight:500;letter-spacing:0.04em;text-transform:uppercase;">generate</div>
+                    <div style="font-size:12.5px;color:var(--ink-3);">@(_effectiveAi?.ModelId ?? "claude") · streaming</div>
+                </div>
+                <button type="button" class="cb-btn ghost" style="padding:6px 10px;font-size:12px;"
+                        title="Shared API keys" aria-label="Shared API keys" @onclick="OpenSharedKeysDialog">
+                    <Icon Name="@Icon.Names.Share" Size="13" />
+                </button>
+                <button type="button" class="cb-btn ghost" style="padding:6px 10px;font-size:12px;"
+                        title="New conversation" aria-label="New conversation" @onclick="NewConversation">
+                    <Icon Name="@Icon.Names.Plus" Size="13" />
+                </button>
+            </div>
 
-                    @if (_promptTemplate?.Contains("{{recipe_format}}") != true)
+            @* Conversation list (compact rows) *@
+            @if (_conversations.Any())
+            {
+                <div style="padding:10px 12px;border-bottom:1px solid var(--line);max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
+                    @foreach (var conv in _conversations)
                     {
-                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                            Missing recipe_format token.
-                        </MudAlert>
+                        <div role="button" tabindex="0"
+                             class="@($"ai-conv-row{(conv.Id == _selectedConversationId ? " is-active" : string.Empty)}")"
+                             style="@ConvRowStyle(conv.Id == _selectedConversationId)"
+                             @onclick="() => LoadConversation(conv)"
+                             @onkeydown="@(e => OnConvRowKeyDown(e, conv))">
+                            <span style="flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@conv.Title</span>
+                            <button type="button" class="cb-btn ghost"
+                                    style="padding:4px;border:0;"
+                                    title="Delete conversation"
+                                    aria-label="@($"Delete conversation {conv.Title}")"
+                                    @onclick="() => DeleteConversation(conv)"
+                                    @onclick:stopPropagation="true">
+                                <Icon Name="@Icon.Names.Trash" Size="12" />
+                            </button>
+                        </div>
                     }
+                </div>
+            }
 
-                    <MudStack Row="true" Spacing="1">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                   OnClick="SavePromptTemplate" StartIcon="@Icons.Material.Filled.Save">
-                            Save
-                        </MudButton>
-                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                                   OnClick="ResetPromptTemplate" StartIcon="@Icons.Material.Filled.RestartAlt">
-                            Reset
-                        </MudButton>
-                    </MudStack>
-                    </ChildContent>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
-        </MudPaper>
-    </div>
-
-    <div style="flex: 1; min-width: 0;">
-        <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
-            <div style="flex: 1; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column;" @ref="_chatContainer">
-                @if (!_messages.Any())
+            @* Message stream *@
+            <div style="flex:1;padding:24px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:18px;min-height:0;" @ref="_chatContainer">
+                @if (!_messages.Any() && !_isStreaming && !_isDraftingRecipe)
                 {
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
-                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6" Class="mt-4">Ask me anything about cooking!</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
-                            I can suggest recipes, help with substitutions, explain techniques, and more.
-                        </MudText>
+                    <div style="margin:auto;text-align:center;color:var(--ink-3);">
+                        <Icon Name="@Icon.Names.Spark" Size="32" />
+                        <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:10px;">Ask me anything about cooking</div>
+                        <div style="font-size:12.5px;margin-top:4px;">I can suggest recipes, help with substitutions, or build a structured recipe for you.</div>
                     </div>
                 }
-                <div style="flex: 1;"></div>
+
                 @{
                     var lastMessage = _messages.LastOrDefault();
                 }
                 @foreach (var msg in _messages)
                 {
-                    <div class="d-flex @(msg.Role == "user" ? "justify-end" : "justify-start") mb-3">
-                        <MudPaper Class="pa-3" Elevation="1"
-                                  Style="@($"max-width: 80%; border-radius: 12px; {(msg.Role == "user" ? "background: #E65100; color: white;" : "background: #FFF3E0;")}")">
-                            @if (msg.Role == "assistant")
-                            {
-                                <div class="recipe-body">@((MarkupString)RenderContent(msg.Content))</div>
-                                @* D-24: Save button visibility keys off the typed structured-output result for the
-                                   most-recent assistant turn. Free-form chat turns and pre-Phase-2 turns never
-                                   produce a non-null _lastStructuredRecipe, so the button stays hidden. *@
-                                @if (msg == lastMessage && _lastStructuredRecipe?.Ok == true)
-                                {
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Save" Class="mt-2"
-                                               OnClick="SaveRecipeFromMessageAsync">
-                                        Save Recipe to Cookbook
-                                    </MudButton>
-                                }
-                            }
-                            else
-                            {
-                                <MudText>@msg.Content</MudText>
-                            }
-                        </MudPaper>
+                    var isLast = msg == lastMessage;
+                    var streamingThisTurn = isLast && (_isStreaming || _isDraftingRecipe);
+                    @RenderTurn(msg, streamingThisTurn)
+                }
+                @if (_isStreaming && string.IsNullOrEmpty(_streamingContent))
+                {
+                    @* Awaiting first chunk — placeholder turn *@
+                    <div>
+                        <div style="font-size:11.5px;color:var(--accent);margin-bottom:5px;font-weight:500;display:flex;align-items:center;gap:6px;">
+                            <Icon Name="@Icon.Names.Spark" Size="11" /> CookBot
+                        </div>
+                        <div style="font-size:13.5px;line-height:1.55;color:var(--ink-2);">
+                            <span style="color:var(--ink-3);">Thinking</span><span class="cb-caret"></span>
+                        </div>
                     </div>
                 }
-                @if (_isStreaming)
+                else if (_isStreaming)
                 {
-                    <div class="d-flex justify-start mb-3">
-                        <MudPaper Class="pa-3" Elevation="1" Style="max-width: 80%; border-radius: 12px; background: #FFF3E0;">
-                            <div class="recipe-body">@((MarkupString)RenderContent(_streamingContent))</div>
-                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
-                        </MudPaper>
+                    <div>
+                        <div style="font-size:11.5px;color:var(--accent);margin-bottom:5px;font-weight:500;display:flex;align-items:center;gap:6px;">
+                            <Icon Name="@Icon.Names.Spark" Size="11" /> CookBot
+                        </div>
+                        <div class="recipe-body" style="font-size:13.5px;line-height:1.55;color:var(--ink-2);">
+                            @((MarkupString)RenderContent(_streamingContent))<span class="cb-caret"></span>
+                        </div>
                     </div>
                 }
-                @if (_isDraftingRecipe)
+
+                @if (_lastStructuredRecipe is { Ok: false, Validation: not null })
                 {
-                    @* UI-SPEC Surface 1: Drafting indicator while IAiRecipeGenerator runs the
-                       structured-output pipeline (compose-then-reveal — no partial JSON streamed). *@
-                    <div class="d-flex justify-start mb-3">
-                        <MudPaper Class="pa-3" Elevation="1"
-                                  Style="max-width: 80%; border-radius: 12px; background: #FFF3E0;">
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">Drafting recipe…</MudText>
-                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Size="Size.Small" Class="mt-2" />
-                        </MudPaper>
-                    </div>
-                }
-                else if (_lastStructuredRecipe is { Ok: false, Validation: not null })
-                {
-                    @* UI-SPEC Surface 3: Edit-and-save-anyway when the orchestrator exhausted its
-                       2-retry budget on validation errors. The user lands in the editor with
-                       parser-best-effort fields populated; standard validation gate still applies. *@
-                    <div class="d-flex justify-start mb-3">
-                        <MudPaper Class="pa-3" Elevation="1"
-                                  Style="max-width: 80%; border-radius: 12px; background: #FFF3E0;">
-                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                                The AI could not produce a valid recipe after 2 attempts.
-                                You can edit the draft below and save it manually.
-                            </MudAlert>
-                            <MudStack Row="true" Spacing="1" Class="mt-2">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.Edit"
-                                           OnClick="OpenDraftInEditor">
-                                    Edit and save anyway
-                                </MudButton>
-                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                                           OnClick="RetryRecipeGeneration">
-                                    Try again
-                                </MudButton>
-                            </MudStack>
-                        </MudPaper>
+                    @* Surface 3 — edit-and-save-anyway after orchestrator exhausts retries *@
+                    <div style="background:var(--paper);border:1px solid var(--line-strong);border-radius:12px;padding:14px;">
+                        <div style="font-size:13px;font-weight:600;color:var(--accent);display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                            <Icon Name="@Icon.Names.Flag" Size="13" /> Could not validate recipe
+                        </div>
+                        <p style="font-size:12.5px;color:var(--ink-2);line-height:1.5;margin:0 0 10px 0;">
+                            The AI could not produce a valid recipe after 2 attempts. You can edit the draft below or try again.
+                        </p>
+                        <div style="display:flex;gap:6px;">
+                            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Pencil" OnClick="OpenDraftInEditor">
+                                Edit and save anyway
+                            </CbButton>
+                            <CbButton Variant="CbButton.CbButtonVariant.Subtle" OnClick="RetryRecipeGeneration">
+                                Try again
+                            </CbButton>
+                        </div>
                     </div>
                 }
             </div>
 
-            <MudDivider Class="my-2" />
-            <MudStack Row="true" Spacing="2">
-                <MudTextField @bind-Value="_userInput" Label="Ask CookBot..." Variant="Variant.Outlined"
-                              Immediate="true" OnKeyDown="HandleKeyDown" Disabled="@(_isStreaming || _isDraftingRecipe)"
-                              Style="flex: 1;" />
-                <MudButton Variant="Variant.Filled" Color="Color.Secondary"
-                           StartIcon="@Icons.Material.Filled.Restaurant"
-                           OnClick="GenerateRecipeFromInput"
-                           Disabled="@(_isStreaming || _isDraftingRecipe || string.IsNullOrWhiteSpace(_userInput))">
-                    Generate Recipe
-                </MudButton>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Send"
-                           OnClick="SendMessage" Disabled="@(_isStreaming || _isDraftingRecipe || string.IsNullOrWhiteSpace(_userInput))">
-                    Send
-                </MudButton>
-            </MudStack>
-        </MudPaper>
+            @* Chat input *@
+            <div style="padding:14px 18px 18px;border-top:1px solid var(--line);background:var(--paper-2);">
+                <div style="background:var(--paper);border:1px solid var(--line-strong);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+                    <textarea class="cb-textarea ai-prompt"
+                              placeholder="Refine the recipe…"
+                              rows="2"
+                              disabled="@(_isStreaming || _isDraftingRecipe)"
+                              style="border:0;padding:0;background:transparent;min-height:0;resize:none;font-size:13.5px;line-height:1.45;color:var(--ink-1);"
+                              @bind="_userInput"
+                              @bind:event="oninput"
+                              @onkeydown="HandleKeyDown"></textarea>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <button type="button" class="cb-chip" style="cursor:pointer;border:0;font-family:inherit;"
+                                @onclick='() => InsertSuggestion("make spicier")'>make spicier</button>
+                        <button type="button" class="cb-chip" style="cursor:pointer;border:0;font-family:inherit;"
+                                @onclick='() => InsertSuggestion("half it")'>half it</button>
+                        <button type="button" class="cb-chip" style="cursor:pointer;border:0;font-family:inherit;"
+                                @onclick='() => InsertSuggestion("vegan")'>vegan</button>
+                        <div style="flex:1;"></div>
+                        <button type="button" class="ai-send"
+                                title="Generate recipe"
+                                aria-label="Generate recipe"
+                                disabled="@(_isStreaming || _isDraftingRecipe || string.IsNullOrWhiteSpace(_userInput))"
+                                @onclick="GenerateRecipeFromInput"
+                                style="@SendBtnStyle(true)">
+                            <Icon Name="@Icon.Names.Spark" Size="14" />
+                        </button>
+                        <button type="button" class="ai-send"
+                                title="Send chat message"
+                                aria-label="Send chat message"
+                                disabled="@(_isStreaming || _isDraftingRecipe || string.IsNullOrWhiteSpace(_userInput))"
+                                @onclick="SendMessage"
+                                style="@SendBtnStyle(false)">
+                            <Icon Name="@Icon.Names.Send" Size="15" />
+                        </button>
+                    </div>
+                </div>
+                <div style="font-size:11px;color:var(--ink-4);margin-top:8px;text-align:center;">
+                    Recipe stays a draft until you save it
+                </div>
+            </div>
+        </section>
+
+        @* ── Right canvas: streaming recipe card ──────────────────────── *@
+        <section style="overflow:auto;padding:32px 48px;position:relative;min-width:0;">
+
+            @* Save bar *@
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    @if (_isDraftingRecipe)
+                    {
+                        <span class="cb-chip" style="background:var(--accent-soft);color:var(--accent-ink);">
+                            <span style="width:6px;height:6px;border-radius:3px;background:var(--accent);display:inline-block;animation:cb-pulse 1.4s ease-in-out infinite;"></span>
+                            drafting
+                        </span>
+                    }
+                    else if (_lastStructuredRecipe?.Ok == true)
+                    {
+                        <span class="cb-chip" style="background:var(--accent-soft);color:var(--accent-ink);">
+                            <Icon Name="@Icon.Names.Check" Size="11" /> ready
+                        </span>
+                    }
+                    else if (_lastStructuredRecipe is { Ok: false, Validation: null, SanitizedError: not null })
+                    {
+                        <span class="cb-chip" style="background:var(--warn-soft);color:var(--warn);font-weight:600;">
+                            <Icon Name="@Icon.Names.Flag" Size="11" /> AI error
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="cb-chip">
+                            <Icon Name="@Icon.Names.Bolt" Size="11" /> empty canvas
+                        </span>
+                    }
+                    <span style="font-size:12.5px;color:@(_lastStructuredRecipe is { Ok: false, Validation: null, SanitizedError: not null } ? "var(--warn)" : "var(--ink-3)");">
+                        @_canvasStatusText
+                    </span>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Copy"
+                              Disabled="@(_lastStructuredRecipe?.Ok != true)"
+                              OnClick="CopyRecipeJsonAsync">
+                        Copy JSON
+                    </CbButton>
+                    <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Save"
+                              Disabled="@(_lastStructuredRecipe?.Ok != true)"
+                              OnClick="SaveRecipeFromMessageAsync">
+                        Save to cookbook
+                    </CbButton>
+                </div>
+            </div>
+
+            @* Recipe card — placeholder skeleton when no recipe; bound to canonical RecipeDocument when ready *@
+            <CbCard Padding="40" Style="background:var(--paper);">
+                @if (_lastStructuredRecipe?.Ok == true && _lastStructuredRecipe.Value is RecipeDocument doc)
+                {
+                    @RenderRecipeDocument(doc)
+                }
+                else if (_isDraftingRecipe)
+                {
+                    @RenderDraftingSkeleton()
+                }
+                else
+                {
+                    @RenderEmptyCanvas()
+                }
+            </CbCard>
+        </section>
     </div>
-</div>
 }
 else
 {
-    <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Class="pa-8">
-        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-    </MudStack>
+    @* Loading skeleton while user/profile resolves *@
+    <div style="display:flex;align-items:center;justify-content:center;min-height:60vh;color:var(--ink-3);">
+        Loading…
+    </div>
 }
 </UserGuard>
 
@@ -278,7 +346,6 @@ else
     private bool _isStreaming;
     private ElementReference _chatContainer;
     private string _systemPrompt = "";
-    private string _promptTemplate = PromptBuilderService.DefaultTemplate;
 
     private int? _loadedUserId;
 
@@ -298,6 +365,24 @@ else
 
     private static readonly Regex CookbookRecipeTokenRegex = new(@"\{\{cookbook_recipes:(\d+)\}\}", RegexOptions.Compiled);
 
+    private string _canvasStatusText
+    {
+        get
+        {
+            if (_isDraftingRecipe) return "validating against canonical schema…";
+            if (_lastStructuredRecipe?.Ok == true && _lastStructuredRecipe.Value is { } doc)
+                return $"{doc.Ingredients.Count} ingredients · {CountContentSteps(doc)} steps";
+            if (_lastStructuredRecipe is { Ok: false, Validation: not null })
+                return "validation failed — review draft";
+            if (_lastStructuredRecipe is { Ok: false, Validation: null, SanitizedError: { } err })
+                return MapToSanitizedSnackbarCopy(err);
+            return "send a recipe request to generate";
+        }
+    }
+
+    private static int CountContentSteps(RecipeDocument doc) =>
+        doc.Steps.Count(s => s is ContentStep);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
@@ -306,7 +391,6 @@ else
             var user = await UserService.GetCurrentUserAsync();
             _profile = user?.Profile;
             _effectiveAi = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
-            _promptTemplate = _profile?.AiSystemPromptTemplate ?? PromptBuilderService.DefaultTemplate;
             await LoadConversations();
             await BuildSystemPrompt();
             StateHasChanged();
@@ -315,10 +399,9 @@ else
 
     private async Task OpenSharedKeysDialog()
     {
-        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<SharedKeysDialog>("Shared API keys", options);
-        var result = await dialog.Result;
-        if (result is { Canceled: false } && UserService.CurrentUserId is int uid)
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Md, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<SharedKeysDialog>("Shared API keys", null, options);
+        if (result != null && !result.Canceled && UserService.CurrentUserId is int uid)
         {
             _effectiveAi = await AiKeyResolver.ResolveAsync(uid);
             StateHasChanged();
@@ -365,6 +448,14 @@ else
         _lastStructuredRecipe = null;
     }
 
+    private void OnConvRowKeyDown(KeyboardEventArgs e, AiConversation conv)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            LoadConversation(conv);
+        }
+    }
+
     private async Task NewConversation()
     {
         _currentConversation = null;
@@ -385,6 +476,19 @@ else
             _messages.Clear();
             _lastStructuredRecipe = null;
         }
+    }
+
+    private void InsertSuggestion(string text)
+    {
+        if (string.IsNullOrWhiteSpace(_userInput))
+        {
+            _userInput = text;
+        }
+        else
+        {
+            _userInput = _userInput.TrimEnd() + " " + text;
+        }
+        StateHasChanged();
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -427,7 +531,7 @@ else
         catch (Exception ex)
         {
             // UI-SPEC Surface 4: sanitized snackbar copy — never bind raw ex.Message.
-            Snackbar.Add(MapToSanitizedSnackbarCopy(ex.Message), Severity.Error);
+            Toast.Show(MapToSanitizedSnackbarCopy(ex.Message), CbToastSeverity.Error);
             _messages.RemoveAt(_messages.Count - 1);
         }
         finally
@@ -487,7 +591,7 @@ else
             else if (result.SanitizedError is not null && result.Validation is null)
             {
                 // Transport / auth / refusal — sanitized snackbar copy.
-                Snackbar.Add(MapToSanitizedSnackbarCopy(result.SanitizedError), Severity.Error);
+                Toast.Show(MapToSanitizedSnackbarCopy(result.SanitizedError), CbToastSeverity.Error);
             }
             // else: validation failure — _lastStructuredRecipe drives the DRAFT_FAILED bubble.
         }
@@ -499,7 +603,7 @@ else
         {
             // Defensive: orchestrator promises never to throw, but if a future change breaks
             // that, route through the sanitized snackbar mapper instead of binding ex.Message.
-            Snackbar.Add(MapToSanitizedSnackbarCopy(ex.Message), Severity.Error);
+            Toast.Show(MapToSanitizedSnackbarCopy(ex.Message), CbToastSeverity.Error);
         }
         finally
         {
@@ -509,9 +613,11 @@ else
     }
 
     /// <summary>
-    /// UI-SPEC Surface 4 — maps a sanitized error string to one of the prescriptive copy
-    /// templates. The input has already been redacted by SecretRedactor at the IAiService
-    /// boundary; this is a pure UX-copy mapping.
+    /// UI-SPEC Surface 4 — maps a sanitized error string to a user-facing toast.
+    /// The input has already been redacted by SecretRedactor at the IAiService boundary;
+    /// this routes well-known failure modes to actionable copy and falls through to the
+    /// raw sanitized text otherwise (truncated) so model errors like "invalid model id"
+    /// or "rate limit" surface to the user instead of a generic "something went wrong".
     /// </summary>
     private static string MapToSanitizedSnackbarCopy(string? sanitizedError)
     {
@@ -519,20 +625,44 @@ else
             return "Something went wrong with the AI. Please try again.";
 
         var lower = sanitizedError.ToLowerInvariant();
-        if (lower.Contains("401") || lower.Contains("authentication") || lower.Contains("api key"))
-            return "Could not connect to the AI — check your API key in Profile settings.";
-        if (lower.Contains("transport failure") || lower.Contains("network") || lower.Contains("timeout"))
+
+        if (lower.Contains("401") || lower.Contains("authentication") || lower.Contains("invalid api key") || lower.Contains("invalid x-api-key"))
+            return "Could not authenticate with the AI — check your API key in Profile settings.";
+
+        if (lower.Contains("403") || lower.Contains("permission") || lower.Contains("not allowed"))
+            return "API key does not have permission for this model. Pick a different model in Profile.";
+
+        if (lower.Contains("404") || lower.Contains("not_found") || lower.Contains("not found") || lower.Contains("model") && lower.Contains("does not exist"))
+            return "The configured AI model was not found. Pick a different model in Profile.";
+
+        if (lower.Contains("429") || lower.Contains("rate") && lower.Contains("limit"))
+            return "AI rate limit hit. Wait a moment and try again.";
+
+        if (lower.Contains("overloaded") || lower.Contains("503") || lower.Contains("502"))
+            return "Anthropic is temporarily overloaded. Try again in a moment.";
+
+        if (lower.Contains("transport failure") || lower.Contains("network") || lower.Contains("timeout") || lower.Contains("refused"))
             return "Could not reach the AI. Check your internet connection and try again.";
+
         if (lower.Contains("declined"))
             return "The AI declined this request. Try a different prompt.";
-        return "Something went wrong with the AI. Please try again.";
+
+        if (lower.Contains("empty content") || lower.Contains("deserialization"))
+            return "AI returned a malformed response. Try again or simplify the prompt.";
+
+        // Fallback: surface the actual sanitized error (truncated). The redactor already
+        // stripped any API key from the string at the IAiService boundary.
+        const int maxLen = 220;
+        var trimmed = sanitizedError.Trim();
+        if (trimmed.Length > maxLen) trimmed = trimmed[..maxLen] + "…";
+        return $"AI error: {trimmed}";
     }
 
     private async Task SaveRecipeFromMessageAsync()
     {
         if (_lastStructuredRecipe?.Ok != true || _lastStructuredRecipe.Value is null)
         {
-            Snackbar.Add("No recipe is available to save.", Severity.Warning);
+            Toast.Show("No recipe is available to save.", CbToastSeverity.Warning);
             return;
         }
 
@@ -544,7 +674,7 @@ else
 
         if (!cookbooks.Any())
         {
-            Snackbar.Add("Create a cookbook first!", Severity.Warning);
+            Toast.Show("Create a cookbook first!", CbToastSeverity.Warning);
             return;
         }
 
@@ -553,25 +683,42 @@ else
         // RecipeFormatParser.TryParse handles raw-JSON input (the non-frontmatter branch).
         var recipeJson = CanonicalSerializer.SerializeIndented(_lastStructuredRecipe.Value);
 
-        var parameters = new DialogParameters<SaveRecipeDialog>
+        // Phase 7 / Plan 07-01: SaveRecipeDialog migrated to CbDialogService.
+        var parameters = new CbDialogParameters
         {
-            { x => x.Cookbooks, cookbooks },
-            { x => x.RecipeContent, recipeJson },
+            ["Cookbooks"] = cookbooks,
+            ["RecipeContent"] = recipeJson,
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<SaveRecipeDialog>("Save Recipe", parameters, options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<SaveRecipeDialog>("Save Recipe to Cookbook", parameters, options);
         if (result != null && !result.Canceled)
         {
-            Snackbar.Add("Recipe saved to cookbook!", Severity.Success);
+            Toast.Show("Recipe saved to cookbook!", CbToastSeverity.Success);
         }
     }
+
+    private async Task CopyRecipeJsonAsync()
+    {
+        if (_lastStructuredRecipe?.Ok != true || _lastStructuredRecipe.Value is null) return;
+        var json = CanonicalSerializer.SerializeIndented(_lastStructuredRecipe.Value);
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("navigator.clipboard.writeText", json);
+            Toast.Show("Recipe JSON copied to clipboard.", CbToastSeverity.Success);
+        }
+        catch
+        {
+            Toast.Show("Could not copy to clipboard.", CbToastSeverity.Error);
+        }
+    }
+
+    [Inject] private IJSRuntime JsRuntime { get; set; } = default!;
 
     private async Task OpenDraftInEditor()
     {
         if (_lastStructuredRecipe?.RawResponse is null)
         {
-            Snackbar.Add("No draft is available to edit.", Severity.Warning);
+            Toast.Show("No draft is available to edit.", CbToastSeverity.Warning);
             return;
         }
 
@@ -590,20 +737,21 @@ else
                     .ToListAsync();
                 if (cookbooks.Any())
                 {
-                    var parameters = new DialogParameters<SaveRecipeDialog>
+                    // Phase 7 / Plan 07-01: SaveRecipeDialog migrated to CbDialogService.
+                    var parameters = new CbDialogParameters
                     {
-                        { x => x.Cookbooks, cookbooks },
-                        { x => x.RecipeContent, rawJson },
+                        ["Cookbooks"] = cookbooks,
+                        ["RecipeContent"] = rawJson,
                     };
-                    var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-                    await DialogService.ShowAsync<SaveRecipeDialog>("Save Recipe", parameters, options);
+                    var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+                    await CbDialogService.ShowAsync<SaveRecipeDialog>("Save Recipe to Cookbook", parameters, options);
                     return;
                 }
             }
         }
 
         // D-09 fallback: parser couldn't coerce — surface the raw JSON for manual edit.
-        Snackbar.Add("The AI draft could not be parsed automatically. Copy it from the chat and paste into the recipe editor.", Severity.Info);
+        Toast.Show("The AI draft could not be parsed automatically. Copy it from the chat and paste into the recipe editor.", CbToastSeverity.Info);
     }
 
     private async Task RetryRecipeGeneration()
@@ -662,29 +810,6 @@ else
         _selectedConversationId = _currentConversation.Id;
     }
 
-    private void InsertToken(string token)
-    {
-        if (!_promptTemplate.EndsWith("\n"))
-            _promptTemplate += "\n";
-        _promptTemplate += token + "\n";
-        StateHasChanged();
-    }
-
-    private async Task InsertCookbookReferenceTokenAsync()
-    {
-        if (!UserService.CurrentUserId.HasValue) return;
-
-        var parameters = new DialogParameters<CookbookReferenceDialog>
-        {
-            { x => x.UserId, UserService.CurrentUserId.Value },
-        };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CookbookReferenceDialog>("Reference cookbook", parameters, options);
-        var result = await dialog.Result;
-        if (result != null && !result.Canceled && result.Data is int cookbookId)
-            InsertToken($"{{{{cookbook_recipes:{cookbookId}}}}}");
-    }
-
     private async Task<string> ExpandCookbookRecipeTokensAsync(string template, int userId)
     {
         var matches = CookbookRecipeTokenRegex.Matches(template);
@@ -738,24 +863,6 @@ else
         return sb.ToString().TrimEnd();
     }
 
-    private void ResetPromptTemplate()
-    {
-        _promptTemplate = PromptBuilderService.DefaultTemplate;
-        StateHasChanged();
-    }
-
-    private async Task SavePromptTemplate()
-    {
-        if (_profile == null) return;
-        _profile.AiSystemPromptTemplate = _promptTemplate == PromptBuilderService.DefaultTemplate
-            ? null
-            : _promptTemplate;
-        DbContext.UserProfiles.Update(_profile);
-        await DbContext.SaveChangesAsync();
-        await BuildSystemPrompt();
-        Snackbar.Add("System prompt saved!", Severity.Success);
-    }
-
     /// <summary>
     /// AI-08-AUDIT (D-15): rendered through the locked-down pipeline. DisableHtml() strips
     /// raw HTML blocks/inlines so attacker-injected &lt;img src='https://exfil/log'&gt; or
@@ -767,4 +874,211 @@ else
         if (string.IsNullOrEmpty(content)) return "";
         return Markdig.Markdown.ToHtml(content, AssistantContentPipeline);
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Render helpers (presentation only)
+    // ──────────────────────────────────────────────────────────────────────
+
+    private RenderFragment RenderTurn(CookBot.Domain.Interfaces.AiMessage msg, bool streamingThisTurn) => __builder =>
+    {
+        if (msg.Role == "user")
+        {
+            <div>
+                <div style="font-size:11.5px;color:var(--ink-3);margin-bottom:5px;font-weight:500;">You</div>
+                <div style="font-size:14px;line-height:1.5;color:var(--ink);background:var(--paper);padding:12px 14px;border-radius:12px;border:1px solid var(--line);">
+                    @msg.Content
+                </div>
+            </div>
+        }
+        else
+        {
+            <div>
+                <div style="font-size:11.5px;color:var(--accent);margin-bottom:5px;font-weight:500;display:flex;align-items:center;gap:6px;">
+                    <Icon Name="@Icon.Names.Spark" Size="11" /> CookBot
+                </div>
+                <div class="recipe-body" style="font-size:13.5px;line-height:1.55;color:var(--ink-2);">
+                    @((MarkupString)RenderContent(msg.Content))
+                    @if (streamingThisTurn)
+                    {
+                        <span class="cb-caret"></span>
+                    }
+                </div>
+            </div>
+        }
+    };
+
+    private RenderFragment RenderRecipeDocument(RecipeDocument doc) => __builder =>
+    {
+        var ingredients = doc.Ingredients;
+        var contentSteps = doc.Steps.OfType<ContentStep>().ToList();
+        var stepCount = contentSteps.Count;
+
+        <CbEyebrow>
+            @{
+                var headerParts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(doc.Tags?.FirstOrDefault())) headerParts.Add(doc.Tags!.First());
+                if (doc.PrepTimeMinutes is int p && doc.CookTimeMinutes is int c) headerParts.Add($"{p + c} min");
+                else if (doc.CookTimeMinutes is int c2) headerParts.Add($"{c2} min");
+                else if (doc.PrepTimeMinutes is int p2) headerParts.Add($"{p2} min");
+                if (doc.Servings > 0) headerParts.Add($"serves {doc.Servings}");
+            }
+            @string.Join(" · ", headerParts.DefaultIfEmpty("recipe"))
+        </CbEyebrow>
+
+        <h1 style="font-size:44px;line-height:1.05;letter-spacing:-0.03em;margin:12px 0 14px 0;text-wrap:balance;">
+            @doc.Name
+        </h1>
+
+        @if (doc.Tags is { Count: > 0 } tags)
+        {
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:24px;">
+                @foreach (var tag in tags.Take(8))
+                {
+                    <CbChip Variant="CbChip.CbChipVariant.Tag" Label="@tag" />
+                }
+            </div>
+        }
+        else
+        {
+            <div style="margin-bottom:14px;"></div>
+        }
+
+        <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:36px;">
+            @* Ingredients *@
+            <div>
+                <CbEyebrow>Ingredients</CbEyebrow>
+                <div style="margin-top:10px;">
+                    @foreach (var ing in ingredients)
+                    {
+                        <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;">
+                            <span class="num" style="width:90px;color:var(--ink-2);font-weight:500;flex-shrink:0;">
+                                @FormatIngredientQuantity(ing)
+                            </span>
+                            <span style="color:var(--ink-2);">
+                                @ing.Name@(string.IsNullOrEmpty(ing.Note) ? "" : $", {ing.Note}")
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Method *@
+            <div>
+                <CbEyebrow>Method</CbEyebrow>
+                <div style="margin-top:10px;">
+                    @{
+                        var contentIndex = 0;
+                    }
+                    @foreach (var step in doc.Steps)
+                    {
+                        if (step is ContentStep cs)
+                        {
+                            var stepIdx = contentIndex;
+                            var isLast = stepIdx == stepCount - 1;
+                            var numStyle = isLast
+                                ? "width:28px;height:28px;border-radius:14px;background:var(--accent-soft);display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--accent);flex-shrink:0;"
+                                : "width:28px;height:28px;border-radius:14px;background:var(--cream-2);display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--ink-2);flex-shrink:0;";
+                            <div style="display:flex;gap:16px;padding:12px 0;border-bottom:1px solid var(--line);">
+                                <span class="num" style="@numStyle">@(stepIdx + 1)</span>
+                                <span style="font-size:14px;line-height:1.55;color:var(--ink-2);">
+                                    @cs.Text
+                                </span>
+                            </div>
+                            contentIndex++;
+                        }
+                        else if (step is SectionStep ss)
+                        {
+                            <div style="padding:14px 0 6px 0;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;">
+                                @ss.Heading
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderDraftingSkeleton() => __builder =>
+    {
+        <CbEyebrow>drafting</CbEyebrow>
+        <div style="display:flex;gap:10px;align-items:center;margin:12px 0 14px 0;">
+            <div style="height:36px;flex:1;max-width:480px;background:var(--cream-2);border-radius:8px;animation:cb-pulse 1.4s ease-in-out infinite;"></div>
+        </div>
+        <div style="height:14px;max-width:540px;background:var(--cream-2);border-radius:6px;margin-bottom:8px;animation:cb-pulse 1.4s ease-in-out infinite;"></div>
+        <div style="height:14px;max-width:420px;background:var(--cream-2);border-radius:6px;margin-bottom:28px;animation:cb-pulse 1.4s ease-in-out infinite;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:36px;">
+            <div>
+                <CbEyebrow>Ingredients</CbEyebrow>
+                <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+                    @for (var i = 0; i < 6; i++)
+                    {
+                        <div style="height:18px;background:var(--cream-2);border-radius:4px;animation:cb-pulse 1.4s ease-in-out infinite;"></div>
+                    }
+                </div>
+            </div>
+            <div>
+                <CbEyebrow>Method</CbEyebrow>
+                <div style="margin-top:10px;display:flex;flex-direction:column;gap:14px;">
+                    @for (var i = 0; i < 4; i++)
+                    {
+                        <div style="display:flex;gap:16px;align-items:flex-start;">
+                            <span style="width:28px;height:28px;border-radius:14px;background:var(--cream-2);flex-shrink:0;animation:cb-pulse 1.4s ease-in-out infinite;"></span>
+                            <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                                <div style="height:14px;background:var(--cream-2);border-radius:4px;animation:cb-pulse 1.4s ease-in-out infinite;"></div>
+                                <div style="height:14px;width:78%;background:var(--cream-2);border-radius:4px;animation:cb-pulse 1.4s ease-in-out infinite;"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderEmptyCanvas() => __builder =>
+    {
+        <CbEyebrow>recipe canvas</CbEyebrow>
+        <h1 style="font-size:36px;line-height:1.1;letter-spacing:-0.03em;margin:12px 0 14px 0;color:var(--ink-3);">
+            Your next recipe will appear here.
+        </h1>
+        <p style="font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:520px;">
+            Type a request on the left — pantry, mood, weeknight constraint — and tap the spark
+            button to generate. The recipe canvas updates atomically once the canonical document
+            is validated.
+        </p>
+    };
+
+    private static string FormatIngredientQuantity(IngredientEntry ing)
+    {
+        // Compact display: "1.5 cup", "8 fillet", "to taste" (when amount is 0 with no unit)
+        if (ing.Amount <= 0 && string.IsNullOrEmpty(ing.Unit)) return "—";
+        var amount = ing.Amount % 1 == 0
+            ? ((int)ing.Amount).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : ing.Amount.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        return string.IsNullOrEmpty(ing.Unit) ? amount : $"{amount} {ing.Unit}";
+    }
+
+    private static string ConvRowStyle(bool active) =>
+        active
+            ? "display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;cursor:pointer;background:var(--accent-soft);color:var(--accent-ink);"
+            : "display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;cursor:pointer;color:var(--ink-2);";
+
+    private static string SendBtnStyle(bool isGenerate) =>
+        isGenerate
+            ? "width:30px;height:30px;border-radius:15px;border:0;background:var(--accent-soft);color:var(--accent-ink);display:grid;place-items:center;cursor:pointer;"
+            : "width:30px;height:30px;border-radius:15px;border:0;background:var(--accent);color:#fff;display:grid;place-items:center;cursor:pointer;";
 }
+
+@* Inline page-scoped CSS — animated caret used by the active assistant turn.
+   Lives next to the markup that consumes it; cb-blink keyframe is registered
+   globally in cookbot-design.css. *@
+<style>
+    .cb-caret {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        margin-left: 2px;
+        background: var(--accent);
+        vertical-align: text-bottom;
+        animation: cb-blink 1s steps(2) infinite;
+    }
+</style>

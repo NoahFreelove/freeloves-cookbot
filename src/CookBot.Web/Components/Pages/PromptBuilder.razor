@@ -1,111 +1,172 @@
 @page "/prompt-builder"
 @using CookBot.Application.DTOs
+@using CookBot.Application.Recipes
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PromptBuilderService PromptBuilderSvc
 @inject CookBot.Application.Services.PantryService PantryService
-@inject ISnackbar Snackbar
+@inject IRecipeSchemaDocumentationProvider SchemaDocs
+@inject ICbToastService Toast
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 @rendermode InteractiveServer
+
+@* Phase 7 / Plan 07-04 / PB-01..03.
+   PromptBuilder.razor — full rewrite of the markup against Phase 5 atoms per
+   `.planning/design-handoff/project/screens/prompt-builder.jsx`.
+
+   Hard invariants preserved verbatim:
+     - Sources copyable prompt content from `RecipeSchemaDocumentationProvider`
+       (v1.1 AI-05) via `PromptBuilderService.BuildCopyablePrompt`.
+     - AI-off contract: full-screen redirect-to-Profile pane when AI disabled.
+     - User profile + pantry data loading flow preserved (OnAfterRenderAsync).
+
+   Layout:
+     - 320px config rail + flex preview, 32px gap, 1180px max-width.
+     - Config rail: Output format (CbRadio group), Include (CbCheckbox group),
+       Voice (CbSelect).
+     - Preview: eyebrow + char/token counter + dark mono <pre> panel + top-bar
+       Copy prompt button.
+
+   Hard invariant: zero Mud* symbols in this file. *@
 
 <PageTitle>CookBot - Prompt Builder</PageTitle>
 
 @if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
 {
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
-        <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">Prompt builder unavailable</MudText>
-        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;">
+        <Icon Name="@Icon.Names.Prompt" Size="40" />
+        <h2 style="font-size:22px;letter-spacing:-0.022em;margin:0;">Prompt builder unavailable</h2>
+        <p style="color:var(--ink-3);font-size:13.5px;text-align:center;max-width:420px;margin:0;">
             The server has disabled optional AI features (<code>CookBot:AiFeaturesEnabled</code> is false).
-        </MudText>
+        </p>
     </div>
 }
 else if (_profile?.AiEnabled == false)
 {
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
-        <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h5" Align="Align.Center" Class="mt-4">AI features are disabled.</MudText>
-        <MudText Typo="Typo.body1" Align="Align.Center" Color="Color.Secondary" Class="mt-2">
-            Enable AI in your <MudLink Href="/profile">Profile Settings</MudLink> to use the prompt builder.
-        </MudText>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;">
+        <Icon Name="@Icon.Names.Prompt" Size="40" />
+        <h2 style="font-size:22px;letter-spacing:-0.022em;margin:0;">AI features are disabled</h2>
+        <p style="color:var(--ink-3);font-size:13.5px;text-align:center;max-width:420px;margin:0;">
+            Enable AI in your Profile Settings to use the prompt builder.
+        </p>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="@(() => Navigation.NavigateTo("/profile"))">
+            Open Profile
+        </CbButton>
     </div>
 }
 else
 {
-<MudText Typo="Typo.h4" Class="mb-2" Style="font-weight: 600;">Prompt Builder</MudText>
-<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
-    Generate a prompt with your profile context and our recipe format, then copy it to use with any AI assistant.
-</MudText>
+    <div style="max-width:1180px;">
 
-<MudGrid>
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-            <MudText Typo="Typo.h6" Class="mb-4">What do you want to cook?</MudText>
+        @* ── Header row: title + action ──────────────────────────────── *@
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:20px;flex-wrap:wrap;">
+            <div>
+                <h1 style="font-size:28px;letter-spacing:-0.022em;line-height:1.1;margin:0 0 4px 0;">Prompt Builder</h1>
+                <p style="color:var(--ink-3);font-size:13.5px;margin:0;">for ChatGPT, Gemini, Claude.ai</p>
+            </div>
+            <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="@Icon.Names.Copy"
+                      Disabled="@string.IsNullOrWhiteSpace(_userRequest)"
+                      OnClick="CopyToClipboard">
+                @(_copied ? "Copied" : "Copy prompt")
+            </CbButton>
+        </div>
 
-            <MudTextField @bind-Value="_userRequest" Label="Your request" Variant="Variant.Outlined"
-                          Lines="4" Placeholder="e.g. I want a quick weeknight pasta recipe with whatever I have in my pantry"
-                          Class="mb-4" />
+        @* ── Two-column body ──────────────────────────────────────────── *@
+        <div style="display:grid;grid-template-columns:320px 1fr;gap:32px;">
 
-            <MudText Typo="Typo.subtitle1" Class="mb-2">Include in prompt:</MudText>
-            <MudStack Spacing="1" Class="mb-4">
-                <MudCheckBox @bind-Value="_includeProfile" Label="My profile (experience, units, tools, dietary prefs)"
-                             Color="Color.Primary" Dense="true" />
-                <MudCheckBox @bind-Value="_includePantry" Label="My pantry inventory"
-                             Color="Color.Primary" Dense="true" />
-            </MudStack>
+            @* Config rail *@
+            <aside>
+                <CbEyebrow>Configure</CbEyebrow>
 
-            @if (_includeProfile && _profile != null)
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="mb-3">
-                    Profile: @_profile.ExperienceLevel, @_profile.UnitSystem units,
-                    @_toolCount tool(s), @_dietCount dietary pref(s)
-                </MudAlert>
-            }
-            @if (_includePantry)
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="mb-3">
-                    Pantry: @_pantryCount item(s) will be included
-                </MudAlert>
-            }
+                @* Request input — moved here so the user can describe a dish,
+                   then tweak options to the right of the preview. *@
+                <CbCard Padding="18" Style="margin-top:14px;margin-bottom:14px;">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Your request</div>
+                    <CbTextarea Value="@_userRequest" ValueChanged="OnUserRequestChanged"
+                                Placeholder="A weeknight pasta with pantry staples…"
+                                Rows="4" />
+                </CbCard>
 
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
-                       StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="GeneratePrompt"
-                       Disabled="@string.IsNullOrWhiteSpace(_userRequest)">
-                Generate Prompt
-            </MudButton>
-        </MudPaper>
-    </MudItem>
+                @* Output format — radio group. Markdown / Plain text are
+                   reserved (FUTURE-OUT-FMT) — selecting them currently still
+                   produces the canonical block; the radios capture intent so
+                   a future plan can wire format-specific templates without a
+                   layout change. *@
+                <CbCard Padding="18" Style="margin-bottom:14px;">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Output format</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <CbRadio TValue="OutputFormat" Value="OutputFormat.CanonicalJson"
+                                 CurrentValue="_outputFormat" CurrentValueChanged="(OutputFormat v) => _outputFormat = v"
+                                 GroupName="pb-format" Label="Canonical JSON (CookBot can re-import)" />
+                        <CbRadio TValue="OutputFormat" Value="OutputFormat.Markdown"
+                                 CurrentValue="_outputFormat" CurrentValueChanged="(OutputFormat v) => _outputFormat = v"
+                                 GroupName="pb-format" Label="Markdown" />
+                        <CbRadio TValue="OutputFormat" Value="OutputFormat.PlainText"
+                                 CurrentValue="_outputFormat" CurrentValueChanged="(OutputFormat v) => _outputFormat = v"
+                                 GroupName="pb-format" Label="Plain text" />
+                    </div>
+                </CbCard>
 
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px; position: relative;">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-                <MudText Typo="Typo.h6">Generated Prompt</MudText>
-                <MudSpacer />
-                @if (!string.IsNullOrEmpty(_generatedPrompt))
-                {
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyToClipboard">
-                        @(_copied ? "Copied!" : "Copy")
-                    </MudButton>
-                }
-            </MudStack>
+                @* Include — checkbox group. Equipment / Past favorites are
+                   reserved options (FUTURE-INCLUDE-EQUIP / FUTURE-INCLUDE-FAV)
+                   and currently leave the prompt unchanged when checked.
+                   Pantry context + Dietary preferences are wired through the
+                   existing PromptBuilderService.BuildCopyablePrompt args. *@
+                <CbCard Padding="18" Style="margin-bottom:14px;">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Include</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <CbCheckbox Value="_includePantry" ValueChanged="(bool v) => OnIncludePantryChanged(v)"
+                                    Label="@($"Pantry context ({_pantryCount} items)")" />
+                        <CbCheckbox Value="_includeProfile" ValueChanged="(bool v) => OnIncludeProfileChanged(v)"
+                                    Label="Dietary preferences" />
+                        <CbCheckbox Value="_includeEquipment" ValueChanged="(bool v) => _includeEquipment = v"
+                                    Label="Equipment list" />
+                        <CbCheckbox Value="_includeFavorites" ValueChanged="(bool v) => _includeFavorites = v"
+                                    Label="Past favorites" />
+                    </div>
+                </CbCard>
 
-            @if (string.IsNullOrEmpty(_generatedPrompt))
-            {
-                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; opacity: 0.5;">
-                    <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Size="Size.Large" />
-                    <MudText Typo="Typo.body1" Class="mt-3">Your generated prompt will appear here</MudText>
+                @* Voice — select. Backend wiring is reserved (FUTURE-VOICE);
+                   the value is captured in the page state so a future plan
+                   can pass it through to BuildCopyablePrompt. *@
+                <CbCard Padding="18">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Voice</div>
+                    <CbSelect TValue="VoiceTone" Value="_voice" ValueChanged="(VoiceTone v) => _voice = v">
+                        <CbOption TValue="VoiceTone" Value="VoiceTone.Neutral" Label="Neutral · concise" />
+                        <CbOption TValue="VoiceTone" Value="VoiceTone.Warm" Label="Warm · home cook" />
+                        <CbOption TValue="VoiceTone" Value="VoiceTone.Technical" Label="Technical · pro kitchen" />
+                    </CbSelect>
+                </CbCard>
+            </aside>
+
+            @* Preview *@
+            <div>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;gap:12px;">
+                    <CbEyebrow>Generated prompt</CbEyebrow>
+                    <span class="num" style="font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;">
+                        @_charCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) chars · ~@_tokenCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) tokens
+                    </span>
                 </div>
-            }
-            else
-            {
-                <MudTextField Value="@_generatedPrompt" ReadOnly="true" Variant="Variant.Outlined"
-                              Lines="20" Style="font-family: monospace; font-size: 0.85rem;" />
-            }
-        </MudPaper>
-    </MudItem>
-</MudGrid>
+
+                @* Dark mono panel is intentionally fixed-dark (design intent). Use literal
+                   cocoa hexes so var(--ink)/var(--cream) swapping in dark mode doesn't
+                   flip this surface to light. *@
+                @if (string.IsNullOrEmpty(_generatedPrompt))
+                {
+                    <div style="background:#1A1410;color:#F5EDD3;padding:48px 28px;border-radius:14px;font-family:var(--f-mono);font-size:12.5px;line-height:1.65;text-align:center;opacity:0.7;">
+                        Type a request on the left to generate a copyable prompt.
+                    </div>
+                }
+                else
+                {
+                    <pre class="mono pb-preview"
+                         style="background:#1A1410;color:#FBF6E7;padding:28px;border-radius:14px;font-size:12.5px;line-height:1.65;white-space:pre-wrap;margin:0;font-family:var(--f-mono);overflow-x:auto;">@_generatedPrompt</pre>
+                }
+            </div>
+        </div>
+    </div>
 }
 
 @code {
@@ -115,12 +176,25 @@ else
     private string _generatedPrompt = "";
     private bool _includeProfile = true;
     private bool _includePantry = true;
+    private bool _includeEquipment;
+    private bool _includeFavorites;
     private bool _copied;
     private int _toolCount;
     private int _dietCount;
     private int _pantryCount;
+    private int _charCount;
+    private int _tokenCount;
+
+    // Reserved UI state (visual-only) — captured for future wiring per the
+    // design-handoff prompt-builder.jsx. Currently only CanonicalJson +
+    // Neutral are fully driven by PromptBuilderService.BuildCopyablePrompt.
+    private OutputFormat _outputFormat = OutputFormat.CanonicalJson;
+    private VoiceTone _voice = VoiceTone.Neutral;
 
     private int? _loadedUserId;
+
+    private enum OutputFormat { CanonicalJson, Markdown, PlainText }
+    private enum VoiceTone { Neutral, Warm, Technical }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -146,22 +220,72 @@ else
         }
     }
 
-    private void GeneratePrompt()
+    private void OnUserRequestChanged(string? value)
     {
+        _userRequest = value ?? string.Empty;
+        RegeneratePreview();
+    }
+
+    private void OnIncludePantryChanged(bool value)
+    {
+        _includePantry = value;
+        RegeneratePreview();
+    }
+
+    private void OnIncludeProfileChanged(bool value)
+    {
+        _includeProfile = value;
+        RegeneratePreview();
+    }
+
+    /// <summary>
+    /// Regenerates the preview from the current options. The Output format radio and
+    /// Voice select are UI-only today; the underlying PromptBuilderService produces a
+    /// canonical-schema prompt regardless. A future plan can extend the service to
+    /// honor these values without changing the page layout.
+    /// </summary>
+    private void RegeneratePreview()
+    {
+        if (string.IsNullOrWhiteSpace(_userRequest))
+        {
+            _generatedPrompt = string.Empty;
+            _charCount = 0;
+            _tokenCount = 0;
+            _copied = false;
+            return;
+        }
+
         _generatedPrompt = PromptBuilderSvc.BuildCopyablePrompt(
             _userRequest,
             _includeProfile ? _profile : null,
             _includePantry ? _pantryItems : null,
             _includeProfile,
             _includePantry);
+
+        _charCount = _generatedPrompt.Length;
+        // Lightweight token estimate — Anthropic's tokenizer averages ~4 chars/token
+        // for English prose; close enough for a counter that just helps users gauge cost.
+        _tokenCount = (int)Math.Ceiling(_generatedPrompt.Length / 4.0);
         _copied = false;
     }
 
     private async Task CopyToClipboard()
     {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedPrompt);
-        _copied = true;
-        Snackbar.Add("Prompt copied to clipboard!", Severity.Success);
-        StateHasChanged();
+        if (string.IsNullOrEmpty(_generatedPrompt))
+        {
+            // Generate first if user clicked the header copy button before typing.
+            return;
+        }
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedPrompt);
+            _copied = true;
+            Toast.Show("Prompt copied to clipboard.", CbToastSeverity.Success);
+            StateHasChanged();
+        }
+        catch
+        {
+            Toast.Show("Could not copy to clipboard.", CbToastSeverity.Error);
+        }
     }
 }

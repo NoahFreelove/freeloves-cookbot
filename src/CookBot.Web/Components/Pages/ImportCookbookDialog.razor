@@ -1,36 +1,48 @@
+@* Phase 7 / Plan 07-01: import-cookbook-from-JSON dialog.
+   Renders inside CbDialogHost; supplies Body + Footer markup only. *@
 @inject CurrentUserService UserService
 @inject CookbookTransferService TransferService
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 @inject NavigationManager Navigation
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Import cookbook</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudText Typo="Typo.body2" Class="mb-3">
-            Upload a <strong>.json</strong> file exported from CookBot. A new cookbook will be created in your account.
-        </MudText>
-        <MudTextField @bind-Value="_overrideName" Label="Cookbook name (optional)" Variant="Variant.Outlined"
-                      Class="mb-3" HelperText="Leave blank to use the name from the file." />
-        <InputFile OnChange="OnFileSelected" accept=".json,application/json" class="mb-2" />
-        @if (_busy)
-        {
-            <MudProgressLinear Indeterminate="true" Class="mt-2" />
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-    </DialogActions>
-</MudDialog>
+<div>
+    <p style="font-size:13.5px;color:var(--ink-2);line-height:1.5;margin:0 0 14px 0;">
+        Upload a <strong>.json</strong> file exported from CookBot. A new cookbook will be created in your account.
+    </p>
+
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);margin-bottom:14px;">
+        <span>Cookbook name (optional)</span>
+        <CbInput @bind-Value="_overrideName" Placeholder="Leave blank to use the name from the file." />
+    </label>
+
+    <InputFile OnChange="OnFileSelected" accept=".json,application/json" />
+
+    @if (_busy)
+    {
+        <div style="margin-top:14px;height:3px;width:100%;background:var(--cream-2);border-radius:999px;overflow:hidden;position:relative;">
+            <div style="position:absolute;inset:0;background:linear-gradient(90deg, transparent, var(--accent), transparent);animation:cb-import-shimmer 1.4s ease-in-out infinite;"></div>
+        </div>
+    }
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+    </div>
+</div>
+
+<style>
+    @@keyframes cb-import-shimmer {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+</style>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     private string? _overrideName;
     private bool _busy;
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
@@ -47,26 +59,26 @@
             var doc = TransferService.Deserialize(json, out var errors);
             if (doc == null)
             {
-                Snackbar.Add(string.Join(" ", errors), Severity.Error);
+                Toast.Show(string.Join(" ", errors), CbToastSeverity.Error);
                 return;
             }
             if (errors.Count > 0)
             {
                 // Partial-success surface (UI-SPEC Surface 8): some recipes failed validation
                 // but the envelope is intact. Show a warning so the user sees per-recipe issues.
-                Snackbar.Add($"Import completed with {errors.Count} warning(s): {string.Join(" | ", errors)}", Severity.Warning);
+                Toast.Show($"Import completed with {errors.Count} warning(s): {string.Join(" | ", errors)}", CbToastSeverity.Warning);
             }
 
             var newId = await TransferService.ImportAsNewCookbookAsync(
                 UserService.CurrentUserId.Value, doc,
                 string.IsNullOrWhiteSpace(_overrideName) ? null : _overrideName.Trim());
-            Snackbar.Add("Cookbook imported.", Severity.Success);
-            MudDialog.Close(DialogResult.Ok(newId));
+            Toast.Show("Cookbook imported.", CbToastSeverity.Success);
+            DialogInstance?.Close(CbDialogResult.Ok(newId));
             Navigation.NavigateTo($"/cookbooks/{newId}");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+            Toast.Show($"Import failed: {ex.Message}", CbToastSeverity.Error);
         }
         finally
         {

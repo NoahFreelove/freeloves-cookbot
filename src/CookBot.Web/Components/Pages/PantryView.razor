@@ -1,130 +1,177 @@
 @page "/pantry"
 @using CookBot.Application.DTOs
+@using CookBot.Application.Services
+@using CookBot.Domain.Enums
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PantryService PantryService
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inject ICbDialogService CbDialogService
+@inject ICbToastService Toast
 @inject AiApiKeyResolutionService AiKeyResolver
 @rendermode InteractiveServer
+
+@* Phase 7 / Plan 07-02 / PA-01..04.
+   Custom Razor rewrite against Phase 5 atoms per
+   `.planning/design-handoff/project/screens/pantry.jsx`.
+   - TopBar right-slot actions (AI standardize / AI populate hidden when AI off + Add item + Create shared pantry).
+   - Sub-line "{N} items · last sync {ago}".
+   - 4-tile summary strip (In stock / Running low / Expiring this week / Out).
+   - Search row + filter buttons (All / Low only / Expiring).
+   - Categorized stock cards grouped by IngredientCategory with status badges.
+   Multi-pantry switcher (personal + shared) preserved as a compact pill row;
+   manage-members + delete-pantry actions preserved on owned shared pantries.
+   Phase 7 hard invariant: zero Mud* symbols in this file. *@
 
 <PageTitle>CookBot - Pantry</PageTitle>
 
 <UserGuard>
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-    <MudText Typo="Typo.h4" Style="font-weight: 600;">My Pantries</MudText>
-    <MudSpacer />
-    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.GroupAdd"
-               OnClick="ShowCreateSharedPantryDialog">Create Shared Pantry</MudButton>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-               OnClick="ShowAddDialog">Add Item</MudButton>
-    @if (_aiPantryToolsVisible)
-    {
-        <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.AutoAwesome"
-                   OnClick="ShowAiPopulateDialog">Fill with AI</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Tertiary" StartIcon="@Icons.Material.Filled.CleaningServices"
-                   OnClick="ShowAiStandardizeDialog">Standardize pantry</MudButton>
-    }
-</MudStack>
+    <div style="max-width:1180px;">
 
-@if (_pantries.Any())
-{
-    <MudTabs @bind-ActivePanelIndex="_activePantryIndex" Rounded="true" ApplyEffectsToContainer="true"
-             PanelClass="pa-4" Elevation="2" Style="border-radius: 12px;">
-        @foreach (var pantry in _pantries)
+        @* ── Header ────────────────────────────────────────────────────────── *@
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:240px;">
+                <h1 style="font-size:32px;letter-spacing:-0.025em;line-height:1.05;margin:0;">Pantry</h1>
+                <div style="font-size:13px;color:var(--ink-3);margin-top:6px;">@SubLine</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.User" OnClick="ShowCreateSharedPantryDialog">
+                    Create shared pantry
+                </CbButton>
+                @if (_aiPantryToolsVisible)
+                {
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Spark" OnClick="ShowAiStandardizeDialog">
+                        AI standardize
+                    </CbButton>
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Spark" OnClick="ShowAiPopulateDialog">
+                        AI populate
+                    </CbButton>
+                }
+                <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Plus"
+                          OnClick="ShowAddDialog" Disabled="@(!_pantries.Any())">
+                    Add item
+                </CbButton>
+            </div>
+        </div>
+
+        @* ── Pantry switcher (personal + shared, when more than one) ───────── *@
+        @if (_pantries.Count > 1)
         {
-            <MudTabPanel Text="@pantry.Name" Icon="@(pantry.IsPersonal ? Icons.Material.Filled.Person : Icons.Material.Filled.Group)">
-                @if (pantry.OwnerId == UserService.CurrentUserId)
+            <div role="tablist" aria-label="Pantries"
+                 style="display:flex;gap:6px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:18px;width:fit-content;">
+                @for (var i = 0; i < _pantries.Count; i++)
                 {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            @(pantry.IsPersonal ? "Personal pantry" : "Shared pantry")
-                        </MudText>
-                        <MudSpacer />
-                        @if (!pantry.IsPersonal)
-                        {
-                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.People"
-                                       OnClick="@(() => ShowManageMembersDialog(pantry))">
-                                Manage Members
-                            </MudButton>
-                        }
-                        <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.DeleteOutline"
-                                   OnClick="@(() => ConfirmDeletePantry(pantry))">
-                            Delete pantry
-                        </MudButton>
-                    </MudStack>
+                    var idx = i;
+                    var p = _pantries[i];
+                    var active = idx == _activePantryIndex;
+                    <button type="button" role="tab" aria-selected="@active"
+                            @onclick="() => SwitchPantry(idx)"
+                            style="@TabBtnStyle(active)">
+                        <Icon Name="@(p.IsPersonal ? Icon.Names.User : Icon.Names.Pantry)" Size="14" />
+                        <span>@p.Name</span>
+                    </button>
                 }
-                @if (_pantryItems.Any())
-                {
-                    <MudDataGrid Items="@_pantryItems" Dense="true" Striped="true" Hover="true"
-                                 Style="border-radius: 12px;">
-                        <Columns>
-                            <PropertyColumn Property="x => x.Ingredient.Name" Title="Ingredient" />
-                            <TemplateColumn Title="Amount">
-                                <CellTemplate>
-                                    @if (string.Equals(context.Item.Unit, CookBot.Application.Services.PantryAiImport.UnmeasuredUnit, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">—</MudText>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.body2">@context.Item.Amount.ToString("F2")</MudText>
-                                    }
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <TemplateColumn Title="Unit">
-                                <CellTemplate>
-                                    @CookBot.Application.Services.UnitParser.ToDisplayString(context.Item.Unit)
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <TemplateColumn Title="Expiration">
-                                <CellTemplate>
-                                    @if (context.Item.ExpirationDate.HasValue)
-                                    {
-                                        var daysLeft = (context.Item.ExpirationDate.Value - DateTime.UtcNow).Days;
-                                        var color = daysLeft < 0 ? Color.Error : daysLeft < 3 ? Color.Warning : Color.Success;
-                                        <MudChip T="string" Size="Size.Small" Color="@color" Variant="Variant.Filled">
-                                            @context.Item.ExpirationDate.Value.ToString("MMM dd")
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">-</MudText>
-                                    }
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <TemplateColumn>
-                                <CellTemplate>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
-                                                   OnClick="@(() => DeleteItem(context.Item))" />
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                    </MudDataGrid>
-                }
-                else
-                {
-                    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
-                        <MudIcon Icon="@Icons.Material.Filled.Kitchen" Size="Size.Large" Color="Color.Secondary" />
-                        <MudText Typo="Typo.h6" Class="mt-4">Pantry is empty</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Add ingredients to track what you have on hand.</MudText>
-                    </MudPaper>
-                }
-            </MudTabPanel>
+            </div>
         }
-    </MudTabs>
-}
-else
-{
-    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
-        <MudIcon Icon="@Icons.Material.Filled.Kitchen" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h6" Class="mt-4">No pantries yet</MudText>
-        <MudText Typo="Typo.body2" Color="Color.Secondary">Loading...</MudText>
-    </MudPaper>
-}
+
+        @if (_activePantry is { } pantry)
+        {
+            @* ── Owner action row for the active pantry ────────────────────── *@
+            @if (pantry.OwnerId == UserService.CurrentUserId)
+            {
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+                    <span style="font-size:12.5px;color:var(--ink-3);">
+                        @(pantry.IsPersonal ? "Personal pantry" : "Shared pantry")
+                    </span>
+                    <div style="flex:1;"></div>
+                    @if (!pantry.IsPersonal)
+                    {
+                        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.User"
+                                  OnClick="@(() => ShowManageMembersDialog(pantry))">
+                            Manage members
+                        </CbButton>
+                    }
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Trash"
+                              OnClick="@(() => ConfirmDeletePantry(pantry))">
+                        Delete pantry
+                    </CbButton>
+                </div>
+            }
+
+            @* ── 4-tile summary strip (PA-02) ─────────────────────────────── *@
+            <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:28px;">
+                @RenderTile("In stock", _summary.InStock, "var(--green)")
+                @RenderTile("Running low", _summary.Low, "var(--warn)")
+                @RenderTile("Expiring this week", _summary.Expiring, "var(--accent)")
+                @RenderTile("Out", _summary.Out, "var(--ink-3)")
+            </div>
+
+            @* ── Search row + filter buttons (PA-03) ──────────────────────── *@
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+                <div style="position:relative;flex:1;max-width:360px;">
+                    <div style="position:absolute;left:12px;top:11px;color:var(--ink-3);pointer-events:none;">
+                        <Icon Name="@Icon.Names.Search" Size="15" />
+                    </div>
+                    <input type="text"
+                           placeholder="Find an item…"
+                           aria-label="Search pantry"
+                           value="@_searchText"
+                           @oninput="OnSearchInput"
+                           style="width:100%;height:38px;padding:0 14px 0 36px;background:var(--paper);border:1px solid var(--line);border-radius:19px;font-size:13.5px;font-family:inherit;outline:none;color:var(--ink-1);" />
+                </div>
+                @RenderFilterButton(StockFilter.All, "All")
+                @RenderFilterButton(StockFilter.LowOnly, "Low only")
+                @RenderFilterButton(StockFilter.Expiring, "Expiring")
+            </div>
+
+            @* ── Categorized stock cards (PA-04) ──────────────────────────── *@
+            var visibleItems = ApplyFilters(_pantryItems).ToList();
+            var categories = GroupByCategory(visibleItems).ToList();
+
+            if (categories.Count == 0)
+            {
+                <CbCard Padding="48" Style="text-align:center;">
+                    <Icon Name="@Icon.Names.Pantry" Size="40" />
+                    <h3 style="font-size:18px;margin:14px 0 6px 0;">
+                        @(_pantryItems.Any() ? "No items match your filters" : "Pantry is empty")
+                    </h3>
+                    <p style="color:var(--ink-3);font-size:13.5px;margin:0;">
+                        @(_pantryItems.Any() ? "Try a different filter or clear the search." : "Add ingredients to track what you have on hand.")
+                    </p>
+                </CbCard>
+            }
+            else
+            {
+                foreach (var cat in categories)
+                {
+                    var rows = cat.Items;
+                    <section style="margin-bottom:28px;">
+                        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;">
+                            <h3 style="font-size:14px;letter-spacing:-0.01em;margin:0;">@cat.Name</h3>
+                            <span style="font-size:12px;color:var(--ink-3);">
+                                @rows.Count item@(rows.Count == 1 ? "" : "s")
+                            </span>
+                        </div>
+                        <CbCard Padding="0" Style="overflow:hidden;">
+                            @for (var ri = 0; ri < rows.Count; ri++)
+                            {
+                                var item = rows[ri];
+                                var status = StatusOf(item);
+                                var isLast = ri == rows.Count - 1;
+                                @RenderItemRow(item, status, isLast)
+                            }
+                        </CbCard>
+                    </section>
+                }
+            }
+        }
+        else if (_loaded)
+        {
+            <CbCard Padding="40" Style="text-align:center;">
+                <p style="font-size:14.5px;color:var(--ink-2);margin:0;">No pantries yet.</p>
+            </CbCard>
+        }
+    </div>
 </UserGuard>
 
 @code {
@@ -136,6 +183,52 @@ else
     private bool _aiPantryToolsVisible;
     private UserProfile? _profile;
     private EffectiveAiCredentials? _aiCredentials;
+    private bool _loaded;
+
+    private string _searchText = string.Empty;
+    private StockFilter _filter = StockFilter.All;
+
+    private enum StockFilter { All, LowOnly, Expiring }
+
+    private enum ItemStatus { InStock, Low, Expiring, Out }
+
+    private record CategoryGroup(string Name, List<PantryItem> Items);
+
+    private record SummaryCounts(int InStock, int Low, int Expiring, int Out);
+
+    private SummaryCounts _summary = new(0, 0, 0, 0);
+
+    private Pantry? _activePantry =>
+        _pantries.Count > 0 && _activePantryIndex >= 0 && _activePantryIndex < _pantries.Count
+            ? _pantries[_activePantryIndex]
+            : null;
+
+    private string SubLine
+    {
+        get
+        {
+            var n = _pantryItems.Count;
+            var lastSync = _pantryItems
+                .Select(p => (DateTime?)p.UpdatedAt)
+                .DefaultIfEmpty(null)
+                .Max();
+            var syncTxt = lastSync.HasValue ? FormatAgo(lastSync.Value) : "—";
+            return $"{n} item{(n == 1 ? "" : "s")} · last sync {syncTxt}";
+        }
+    }
+
+    private static string FormatAgo(DateTime utc)
+    {
+        var diff = DateTime.UtcNow - utc;
+        if (diff.TotalSeconds < 60) return "just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return utc.ToLocalTime().ToString("MMM d");
+    }
+
+    private static string TabBtnStyle(bool active) =>
+        $"display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:0;border-radius:8px;font-size:13px;cursor:pointer;color:{(active ? "var(--ink-1)" : "var(--ink-3)")};background:{(active ? "var(--cream-2)" : "transparent")};font-family:inherit;";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -156,6 +249,7 @@ else
                 _activePantryIndex = 0;
                 await LoadPantryItems();
                 _previousPantryIndex = _activePantryIndex;
+                _loaded = true;
                 StateHasChanged();
                 return;
             }
@@ -179,43 +273,256 @@ else
 
     private async Task LoadPantryItems()
     {
-        if (_pantries.Any() && _activePantryIndex >= 0 && _activePantryIndex < _pantries.Count)
+        if (_activePantry is { } p)
         {
-            var pantry = _pantries[_activePantryIndex];
             _pantryItems = await DbContext.PantryItems
-                .Include(p => p.Ingredient)
-                .Where(p => p.PantryId == pantry.Id)
-                .OrderBy(p => p.Ingredient.Name)
+                .Include(pi => pi.Ingredient)
+                .Where(pi => pi.PantryId == p.Id)
+                .OrderBy(pi => pi.Ingredient.Name)
                 .ToListAsync();
         }
         else
         {
             _pantryItems = new();
         }
+        RecomputeSummary();
     }
+
+    private async Task SwitchPantry(int idx)
+    {
+        if (idx == _activePantryIndex) return;
+        _activePantryIndex = idx;
+        _previousPantryIndex = idx;
+        await LoadPantryItems();
+        StateHasChanged();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchText = e.Value as string ?? "";
+    }
+
+    private RenderFragment RenderTile(string label, int value, string color) => __builder =>
+    {
+        <div class="cb-card" style="padding:16px;display:flex;align-items:center;gap:12px;">
+            <div style="width:8px;height:36px;border-radius:4px;background:@color;flex-shrink:0;"></div>
+            <div>
+                <div class="num" style="font-size:26px;font-weight:600;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;">@value</div>
+                <div style="font-size:11.5px;color:var(--ink-3);">@label</div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderFilterButton(StockFilter target, string label) => __builder =>
+    {
+        var active = _filter == target;
+        var bg = active ? "var(--cream-2)" : "transparent";
+        <button type="button" class="cb-btn ghost"
+                aria-pressed="@active"
+                style="@($"padding:6px 12px;font-size:12.5px;background:{bg};")"
+                @onclick="() => _filter = target">
+            @label
+        </button>
+    };
+
+    private RenderFragment RenderItemRow(PantryItem item, ItemStatus status, bool isLast) => __builder =>
+    {
+        var rowBg = status == ItemStatus.Expiring ? "rgba(194,65,12,0.04)" : "transparent";
+        var border = isLast ? "none" : "1px solid var(--line)";
+        var qtyText = QuantityText(item);
+        <div style="display:grid;grid-template-columns:1fr 120px 110px 80px;align-items:center;padding:12px 18px;border-bottom:@border;background:@rowBg;">
+            <div style="font-size:14px;font-weight:500;color:var(--ink-1);">@item.Ingredient.Name</div>
+            <div class="num" style="font-size:13.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;">@qtyText</div>
+            <div>
+                @switch (status)
+                {
+                    case ItemStatus.InStock:
+                        <CbBadge Status="CbBadge.CbBadgeStatus.InStock" />
+                        break;
+                    case ItemStatus.Low:
+                        <CbBadge Status="CbBadge.CbBadgeStatus.Low" />
+                        break;
+                    case ItemStatus.Expiring:
+                        <CbBadge Status="CbBadge.CbBadgeStatus.Expiring" Label="@ExpiringLabel(item)" />
+                        break;
+                    case ItemStatus.Out:
+                        <CbBadge Status="CbBadge.CbBadgeStatus.Out" />
+                        break;
+                }
+            </div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;">
+                <button type="button"
+                        aria-label="@($"Add {item.Ingredient.Name} to grocery list")"
+                        title="Add to grocery list"
+                        disabled
+                        style="background:transparent;border:0;color:var(--ink-4);cursor:not-allowed;padding:4px;display:grid;place-items:center;">
+                    <Icon Name="@Icon.Names.Cart" Size="15" />
+                </button>
+                <button type="button"
+                        aria-label="@($"Remove {item.Ingredient.Name}")"
+                        title="Remove from pantry"
+                        @onclick="@(() => DeleteItem(item))"
+                        style="background:transparent;border:0;color:var(--ink-3);cursor:pointer;padding:4px;display:grid;place-items:center;">
+                    <Icon Name="@Icon.Names.Trash" Size="15" />
+                </button>
+            </div>
+        </div>
+    };
+
+    private static string QuantityText(PantryItem item)
+    {
+        if (string.Equals(item.Unit, PantryAiImport.UnmeasuredUnit, StringComparison.OrdinalIgnoreCase))
+            return "—";
+        var amt = item.Amount % 1 == 0 ? item.Amount.ToString("F0") : item.Amount.ToString("F2");
+        var unit = UnitParser.ToDisplayString(item.Unit);
+        return string.IsNullOrWhiteSpace(unit) ? amt : $"{amt} {unit}";
+    }
+
+    private static ItemStatus StatusOf(PantryItem item)
+    {
+        // Out: measured row whose Amount has dropped to 0 (or below).
+        var isStaple = string.Equals(item.Unit, PantryAiImport.UnmeasuredUnit, StringComparison.OrdinalIgnoreCase);
+        if (!isStaple && item.Amount <= 0) return ItemStatus.Out;
+
+        // Expiring: within 7 days of today (also covers already-expired so it surfaces).
+        if (item.ExpirationDate.HasValue)
+        {
+            var daysLeft = (item.ExpirationDate.Value - DateTime.UtcNow).TotalDays;
+            if (daysLeft <= 7) return ItemStatus.Expiring;
+        }
+
+        // Low: measured row with Amount below the per-unit "running low" threshold.
+        if (!isStaple && IsLowAmount(item.Amount, item.Unit)) return ItemStatus.Low;
+
+        return ItemStatus.InStock;
+    }
+
+    private static bool IsLowAmount(double amount, string unit)
+    {
+        // Heuristic — matches design-handoff's "running low" intent. Actual smart
+        // pantry-match (FUTURE-13) will replace this once user-configurable per-item
+        // thresholds land. The thresholds below are intentionally conservative so
+        // we don't over-flag staples that just happen to be small.
+        var u = unit?.Trim().ToLowerInvariant() ?? "";
+        return u switch
+        {
+            "kg" or "liter" or "gallon" or "lb" => amount < 0.5,
+            "g" or "ml"                          => amount < 100,
+            "oz" or "fl oz"                       => amount < 4,
+            "cup" or "pint" or "quart"            => amount < 1,
+            "tbsp"                                => amount < 2,
+            "tsp"                                 => amount < 3,
+            "piece" or "slice" or "clove" or "bunch" or "can" or "bottle" or "bag" => amount < 2,
+            _ => false,
+        };
+    }
+
+    private static string ExpiringLabel(PantryItem item)
+    {
+        if (!item.ExpirationDate.HasValue) return "expiring";
+        var daysLeft = (int)Math.Floor((item.ExpirationDate.Value - DateTime.UtcNow).TotalDays);
+        if (daysLeft < 0) return "expired";
+        if (daysLeft == 0) return "expires today";
+        if (daysLeft == 1) return "expires tomorrow";
+        return $"expires in {daysLeft}d";
+    }
+
+    private void RecomputeSummary()
+    {
+        int inStock = 0, low = 0, exp = 0, outOf = 0;
+        foreach (var item in _pantryItems)
+        {
+            switch (StatusOf(item))
+            {
+                case ItemStatus.InStock: inStock++; break;
+                case ItemStatus.Low: low++; break;
+                case ItemStatus.Expiring: exp++; break;
+                case ItemStatus.Out: outOf++; break;
+            }
+        }
+        _summary = new SummaryCounts(inStock, low, exp, outOf);
+    }
+
+    private IEnumerable<PantryItem> ApplyFilters(IEnumerable<PantryItem> source)
+    {
+        var s = _searchText.Trim();
+        if (s.Length > 0)
+            source = source.Where(p => p.Ingredient.Name.Contains(s, StringComparison.OrdinalIgnoreCase));
+
+        return _filter switch
+        {
+            StockFilter.LowOnly  => source.Where(p => StatusOf(p) == ItemStatus.Low || StatusOf(p) == ItemStatus.Out),
+            StockFilter.Expiring => source.Where(p => StatusOf(p) == ItemStatus.Expiring),
+            _ => source,
+        };
+    }
+
+    private static IEnumerable<CategoryGroup> GroupByCategory(IEnumerable<PantryItem> items) =>
+        items
+            .GroupBy(i => i.Ingredient.Category)
+            .OrderBy(g => CategoryOrder(g.Key))
+            .Select(g => new CategoryGroup(CategoryDisplay(g.Key), g.OrderBy(i => i.Ingredient.Name).ToList()));
+
+    private static int CategoryOrder(IngredientCategory c) => c switch
+    {
+        IngredientCategory.Pantry     => 0,
+        IngredientCategory.Grains     => 1,
+        IngredientCategory.Canned     => 2,
+        IngredientCategory.Spices     => 3,
+        IngredientCategory.Condiments => 4,
+        IngredientCategory.Produce    => 5,
+        IngredientCategory.Dairy      => 6,
+        IngredientCategory.Meat       => 7,
+        IngredientCategory.Seafood    => 8,
+        IngredientCategory.Bakery     => 9,
+        IngredientCategory.Frozen     => 10,
+        IngredientCategory.Beverages  => 11,
+        IngredientCategory.Snacks     => 12,
+        IngredientCategory.Other      => 13,
+        _                              => 14,
+    };
+
+    private static string CategoryDisplay(IngredientCategory c) => c switch
+    {
+        IngredientCategory.Pantry     => "Pantry staples",
+        IngredientCategory.Grains     => "Grains",
+        IngredientCategory.Canned     => "Canned goods",
+        IngredientCategory.Spices     => "Spices",
+        IngredientCategory.Condiments => "Condiments & sauces",
+        IngredientCategory.Produce    => "Produce",
+        IngredientCategory.Dairy      => "Dairy",
+        IngredientCategory.Meat       => "Meat",
+        IngredientCategory.Seafood    => "Seafood",
+        IngredientCategory.Bakery     => "Bakery",
+        IngredientCategory.Frozen     => "Frozen",
+        IngredientCategory.Beverages  => "Beverages",
+        IngredientCategory.Snacks     => "Snacks",
+        IngredientCategory.Other      => "Other",
+        _                              => c.ToString(),
+    };
+
+    @* ── Dialog / mutation handlers (CbDialogService) ──────────────────────── *@
 
     private async Task ShowAddDialog()
     {
-        if (!_pantries.Any()) return;
+        if (!_pantries.Any() || _activePantry is null) return;
 
         var ingredients = await DbContext.Ingredients.OrderBy(i => i.Name).ToListAsync();
-        var parameters = new DialogParameters<AddPantryItemDialog>
+        var parameters = new CbDialogParameters
         {
-            { x => x.Ingredients, ingredients },
+            ["Ingredients"] = ingredients,
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<AddPantryItemDialog>("Add Pantry Item", parameters, options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<AddPantryItemDialog>("Add pantry item", parameters, options);
         if (result != null && !result.Canceled && result.Data is AddPantryItemDialog.PantryItemResult data)
         {
-            var pantry = _pantries[_activePantryIndex];
             await PantryService.AddOrUpdateAsync(
-                pantry.Id,
+                _activePantry.Id,
                 data.IngredientId,
                 data.Amount,
                 data.Unit,
                 data.Expiration);
-            Snackbar.Add("Pantry item added!", Severity.Success);
+            Toast.Show("Pantry item added!", CbToastSeverity.Success);
             await LoadPantryItems();
         }
     }
@@ -225,20 +532,20 @@ else
         DbContext.PantryItems.Remove(item);
         await DbContext.SaveChangesAsync();
         _pantryItems.Remove(item);
-        Snackbar.Add("Item removed from pantry.", Severity.Info);
+        RecomputeSummary();
+        Toast.Show("Item removed from pantry.", CbToastSeverity.Info);
     }
 
     private async Task ShowCreateSharedPantryDialog()
     {
         if (!UserService.CurrentUserId.HasValue) return;
 
-        var parameters = new DialogParameters<CreateSharedPantryDialog>
+        var parameters = new CbDialogParameters
         {
-            { x => x.OwnerUserId, UserService.CurrentUserId.Value },
+            ["OwnerUserId"] = UserService.CurrentUserId.Value,
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CreateSharedPantryDialog>("Create Shared Pantry", parameters, options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<CreateSharedPantryDialog>("Create shared pantry", parameters, options);
         if (result != null && !result.Canceled)
         {
             await LoadPantries();
@@ -250,24 +557,22 @@ else
 
     private async Task ShowAiPopulateDialog()
     {
-        if (!_pantries.Any() || _profile == null) return;
+        if (_activePantry is null || _profile == null) return;
         if (_aiCredentials == null)
         {
-            Snackbar.Add("Configure API access in Profile (your own key or a shared key) to use AI pantry fill.", Severity.Warning);
+            Toast.Show("Configure API access in Profile (your own key or a shared key) to use AI pantry fill.", CbToastSeverity.Warning);
             return;
         }
 
-        var pantry = _pantries[_activePantryIndex];
-        var parameters = new DialogParameters<AiPopulatePantryDialog>
+        var parameters = new CbDialogParameters
         {
-            { x => x.PantryId, pantry.Id },
-            { x => x.Profile, _profile },
-            { x => x.ApiKey, _aiCredentials.ApiKey },
-            { x => x.ModelId, _aiCredentials.ModelId },
+            ["PantryId"] = _activePantry.Id,
+            ["Profile"] = _profile,
+            ["ApiKey"] = _aiCredentials.ApiKey,
+            ["ModelId"] = _aiCredentials.ModelId,
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<AiPopulatePantryDialog>("AI pantry import", parameters, options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Md, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<AiPopulatePantryDialog>("AI pantry import", parameters, options);
         if (result != null && !result.Canceled)
         {
             await LoadPantryItems();
@@ -276,45 +581,43 @@ else
 
     private async Task ShowAiStandardizeDialog()
     {
-        if (!_pantries.Any() || _profile == null) return;
+        if (_activePantry is null || _profile == null) return;
         if (_aiCredentials == null)
         {
-            Snackbar.Add("Configure API access in Profile (your own key or a shared key) to use AI pantry tools.", Severity.Warning);
+            Toast.Show("Configure API access in Profile (your own key or a shared key) to use AI pantry tools.", CbToastSeverity.Warning);
             return;
         }
 
         if (!_pantryItems.Any())
         {
-            Snackbar.Add("Add items to this pantry before standardizing.", Severity.Info);
+            Toast.Show("Add items to this pantry before standardizing.", CbToastSeverity.Info);
             return;
         }
 
-        var pantry = _pantries[_activePantryIndex];
-        var parameters = new DialogParameters<AiStandardizePantryDialog>
+        var parameters = new CbDialogParameters
         {
-            { x => x.PantryId, pantry.Id },
-            { x => x.CurrentItems, _pantryItems },
-            { x => x.Profile, _profile },
-            { x => x.ApiKey, _aiCredentials.ApiKey },
-            { x => x.ModelId, _aiCredentials.ModelId },
+            ["PantryId"] = _activePantry.Id,
+            ["CurrentItems"] = _pantryItems,
+            ["Profile"] = _profile,
+            ["ApiKey"] = _aiCredentials.ApiKey,
+            ["ModelId"] = _aiCredentials.ModelId,
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<AiStandardizePantryDialog>("Standardize pantry", parameters, options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Md, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<AiStandardizePantryDialog>("Standardize pantry", parameters, options);
         if (result != null && !result.Canceled)
             await LoadPantryItems();
     }
 
     private async Task ShowManageMembersDialog(Pantry pantry)
     {
-        var parameters = new DialogParameters<ManagePantryMembersDialog>
+        var parameters = new CbDialogParameters
         {
-            { x => x.PantryId, pantry.Id },
-            { x => x.PantryName, pantry.Name },
-            { x => x.OwnerUserId, pantry.OwnerId },
+            ["PantryId"] = pantry.Id,
+            ["PantryName"] = pantry.Name,
+            ["OwnerUserId"] = pantry.OwnerId,
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        await DialogService.ShowAsync<ManagePantryMembersDialog>("Manage Members", parameters, options);
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        await CbDialogService.ShowAsync<ManagePantryMembersDialog>("Manage members — \"" + pantry.Name + "\"", parameters, options);
     }
 
     private async Task ConfirmDeletePantry(Pantry pantry)
@@ -323,22 +626,26 @@ else
             ? "Remove your personal pantry and all items? An empty personal pantry will be created again the next time you open this page."
             : $"Delete shared pantry \"{pantry.Name}\"? All members lose access and all items are removed. This cannot be undone.";
 
-        var confirm = await DialogService.ShowMessageBox(
-            "Delete pantry?",
-            message,
-            yesText: "Delete",
-            cancelText: "Cancel");
-        if (confirm != true || !UserService.CurrentUserId.HasValue)
+        var parameters = new CbDialogParameters
+        {
+            ["Title"] = "Delete pantry",
+            ["Message"] = message,
+            ["ConfirmLabel"] = "Delete",
+            ["Destructive"] = true,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.ExtraSmall, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<ConfirmDialog>("Delete pantry", parameters, options);
+        if (result == null || result.Canceled || result.Data is not true || !UserService.CurrentUserId.HasValue)
             return;
 
         var ok = await PantryService.TryDeleteOwnedPantryAsync(pantry.Id, UserService.CurrentUserId.Value);
         if (!ok)
         {
-            Snackbar.Add("You can only delete pantries you own.", Severity.Error);
+            Toast.Show("You can only delete pantries you own.", CbToastSeverity.Error);
             return;
         }
 
-        Snackbar.Add("Pantry deleted.", Severity.Success);
+        Toast.Show("Pantry deleted.", CbToastSeverity.Success);
         await LoadPantries();
         if (_activePantryIndex >= _pantries.Count)
             _activePantryIndex = Math.Max(0, _pantries.Count - 1);

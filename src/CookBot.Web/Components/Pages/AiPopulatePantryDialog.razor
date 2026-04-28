@@ -1,35 +1,44 @@
 @using CookBot.Application.Services
 @using CookBot.Domain.Entities
 @inject PantryAiPopulationService PantryAi
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 @rendermode InteractiveServer
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Fill pantry from description (AI)</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-            Describe what you have in plain language. The assistant replies with a JSON array (see system prompt). You can say things like “I always keep milk on hand” without a quantity — those import as <strong>in stock</strong> (not measured). Expiration can be left blank for staples or things you do not track. Items <strong>merge</strong> into this pantry (amounts add when units convert).
-        </MudText>
-        <MudTextField @bind-Value="_text" Label="What do you have?" Variant="Variant.Outlined"
-                     Lines="8" Placeholder="e.g. Half a gallon of milk expiring next Friday, 3 cloves garlic, a big bag of AP flour (about 5 lb left)..."
-                     Disabled="_busy" Class="mb-2" />
-        @if (_busy && !string.IsNullOrEmpty(_status))
-        {
-            <MudText Typo="Typo.caption" Color="Color.Primary">@_status</MudText>
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="@(_busy || string.IsNullOrWhiteSpace(_text))">
+@* Phase 7 / Plan 07-02: "Fill pantry from description (AI)" dialog migrated to
+   CbDialog slots. AI integration logic (PantryAiPopulationService.PopulatePantryAsync)
+   preserved verbatim — only markup changes. *@
+
+<div>
+    <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55;margin:0 0 14px 0;">
+        Describe what you have in plain language. The assistant replies with a JSON array (see system prompt).
+        You can say things like “I always keep milk on hand” without a quantity — those import as <strong>in stock</strong> (not measured).
+        Expiration can be left blank for staples or things you do not track. Items <strong>merge</strong> into this pantry (amounts add when units convert).
+    </p>
+
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+        <span>What do you have?</span>
+        <CbTextarea @bind-Value="_text"
+                    Rows="8"
+                    Disabled="_busy"
+                    Placeholder="e.g. Half a gallon of milk expiring next Friday, 3 cloves garlic, a big bag of AP flour (about 5 lb left)..." />
+    </label>
+
+    @if (_busy && !string.IsNullOrEmpty(_status))
+    {
+        <p style="font-size:12px;color:var(--accent-ink);margin:10px 0 0 0;">@_status</p>
+    }
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel" Disabled="_busy">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Submit"
+                  Disabled="@(_busy || string.IsNullOrWhiteSpace(_text))">
             @(_busy ? "Working..." : "Send to AI")
-        </MudButton>
-    </DialogActions>
-</MudDialog>
+        </CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     [Parameter] public int PantryId { get; set; }
     [Parameter] public UserProfile Profile { get; set; } = null!;
@@ -40,13 +49,13 @@
     private bool _busy;
     private string _status = "";
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 
     private async Task Submit()
     {
         if (string.IsNullOrWhiteSpace(ApiKey))
         {
-            Snackbar.Add("Configure API access in Profile (your own key or a shared key) first.", Severity.Warning);
+            Toast.Show("Configure API access in Profile (your own key or a shared key) first.", CbToastSeverity.Warning);
             return;
         }
 
@@ -66,17 +75,17 @@
 
             if (!result.Success)
             {
-                Snackbar.Add(result.Error ?? "AI import failed.", Severity.Error);
+                Toast.Show(result.Error ?? "AI import failed.", CbToastSeverity.Error);
                 return;
             }
 
             foreach (var line in result.Messages)
-                Snackbar.Add(line, Severity.Success);
-            MudDialog.Close(DialogResult.Ok(true));
+                Toast.Show(line, CbToastSeverity.Success);
+            DialogInstance?.Close(CbDialogResult.Ok(true));
         }
         catch (Exception ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Toast.Show(ex.Message, CbToastSeverity.Error);
         }
         finally
         {

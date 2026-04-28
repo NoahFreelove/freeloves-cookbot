@@ -1,0 +1,33 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* CbBadge — Phase 5 / ATOM-08 / D-18.
+   Renders a status pill (in-stock / low / expiring / out) on top of the .cb-chip
+   geometry, with status-specific tint via the cb-badge-* CSS rules appended below
+   the dark-mode block in cookbot-design.css. *@
+
+<span class="@ClassAttr">@(string.IsNullOrEmpty(Label) ? DefaultLabel : Label)</span>
+
+@code {
+    public enum CbBadgeStatus { InStock, Low, Expiring, Out }
+
+    [Parameter, EditorRequired] public CbBadgeStatus Status { get; set; }
+    [Parameter] public string? Label { get; set; }
+
+    private string ClassAttr => Status switch
+    {
+        CbBadgeStatus.InStock  => "cb-chip cb-badge cb-badge-in-stock",
+        CbBadgeStatus.Low      => "cb-chip cb-badge cb-badge-low",
+        CbBadgeStatus.Expiring => "cb-chip cb-badge cb-badge-expiring",
+        CbBadgeStatus.Out      => "cb-chip cb-badge cb-badge-out",
+        _                       => "cb-chip cb-badge"
+    };
+
+    private string DefaultLabel => Status switch
+    {
+        CbBadgeStatus.InStock  => "in stock",
+        CbBadgeStatus.Low      => "running low",
+        CbBadgeStatus.Expiring => "expiring",
+        CbBadgeStatus.Out      => "out",
+        _                       => ""
+    };
+}

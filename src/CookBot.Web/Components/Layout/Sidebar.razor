@@ -1,0 +1,59 @@
+@namespace CookBot.Web.Components.Layout
+@using Microsoft.Extensions.Options
+@using CookBot.Application.DTOs
+@using Microsoft.AspNetCore.Components.Routing
+@inject CurrentUserService UserService
+@inject IOptions<CookBotSettings> CookBotSettingsOptions
+
+@* Sidebar — Phase 5 / Plan 05-05 / SHELL-02 / D-20.
+   Replaces NavMenu.razor. 232px paper-2 column with Logo + 4 always-visible nav rows
+   + 1px divider + 2 AI rows (hidden when AiEnabled = false on user OR host) + flex
+   spacer + Profile row at bottom. AI-off contract: read user.Profile.AiEnabled in
+   BOTH OnInitializedAsync (prerender) AND OnAfterRenderAsync (post-circuit) — matches
+   existing NavMenu.razor pattern verbatim — D-29 (no flicker on first paint). *@
+
+<aside class="side" style="width:232px;">
+    <a href="/"
+       style="display:flex;align-items:center;gap:8px;padding:4px 6px 12px;text-decoration:none;color:inherit;cursor:pointer;"
+       aria-label="Go to home">
+        <div style="width:28px;height:28px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px;letter-spacing:-0.04em;">cb</div>
+        <div style="font-weight:600;font-size:15px;letter-spacing:-0.02em;color:var(--ink);">CookBot</div>
+    </a>
+
+    <NavRow IconName="@Icon.Names.Home"   Label="Home"          Href="/"              MatchMode="NavLinkMatch.All" />
+    <NavRow IconName="@Icon.Names.Book"   Label="Cookbooks"     Href="/cookbooks" />
+    <NavRow IconName="@Icon.Names.Pantry" Label="Pantry"        Href="/pantry" />
+    <NavRow IconName="@Icon.Names.Cart"   Label="Grocery Lists" Href="/grocery-lists" />
+
+    <div style="height:1px;background:var(--line);margin:10px 8px;"></div>
+
+    <NavRow IconName="@Icon.Names.Spark"  Label="AI Assistant"   Href="/ai"             Hidden="@(!_aiEnabled)" />
+    <NavRow IconName="@Icon.Names.Prompt" Label="Prompt Builder" Href="/prompt-builder" Hidden="@(!_aiEnabled)" MatchMode="NavLinkMatch.All" />
+
+    <div style="flex:1;"></div>
+
+    <NavRow IconName="@Icon.Names.User"   Label="Profile"        Href="/profile"        MatchMode="NavLinkMatch.All" />
+</aside>
+
+@code {
+    private bool _aiEnabled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAiEnabledAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var prev = _aiEnabled;
+        await RefreshAiEnabledAsync();
+        if (prev != _aiEnabled) StateHasChanged();
+    }
+
+    private async Task RefreshAiEnabledAsync()
+    {
+        if (!UserService.CurrentUserId.HasValue) { _aiEnabled = false; return; }
+        var user = await UserService.GetCurrentUserAsync();
+        _aiEnabled = CookBotSettingsOptions.Value.AiFeaturesEnabled && (user?.Profile?.AiEnabled ?? false);
+    }
+}

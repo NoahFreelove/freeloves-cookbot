@@ -1,0 +1,36 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* Custom-styled switch toggle (D-16 / ATOM-09).
+   Native <input type="checkbox"> is hidden via CSS (.cb-toggle input { display: none; })
+   and remains in the DOM for accessibility/focus. The visual track + thumb live in
+   sibling spans driven by the input:checked sibling-selector in cookbot-design.css. *@
+
+<label class="cb-toggle">
+    @* role="switch" promotes the native checkbox semantics from "checkbox" to
+       "switch" per A11Y-03 (Plan 07-06). The label wrapper supplies the
+       accessible name from @Label; if @Label is empty, the consumer should
+       supply additional context via surrounding text. *@
+    <input type="checkbox" role="switch" checked="@Value" @onchange="HandleChange" disabled="@Disabled" />
+    <span class="track"><span class="thumb"></span></span>
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span>@Label</span>
+    }
+</label>
+
+@code {
+    [Parameter] public bool Value { get; set; }
+    [Parameter] public EventCallback<bool> ValueChanged { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        var newValue = e.Value is bool b && b;
+        if (newValue != Value)
+        {
+            Value = newValue;
+            await ValueChanged.InvokeAsync(newValue);
+        }
+    }
+}

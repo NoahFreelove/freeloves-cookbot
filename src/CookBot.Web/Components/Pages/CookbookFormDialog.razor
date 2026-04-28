@@ -1,27 +1,37 @@
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">@MudDialog.Title</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudTextField @bind-Value="Name" Label="Name" Variant="Variant.Outlined"
-                      Required="true" RequiredError="Name is required" Class="mb-4" />
-        <MudTextField @bind-Value="Description" Label="Description" Variant="Variant.Outlined"
-                      Lines="3" />
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
-                   Disabled="@string.IsNullOrWhiteSpace(Name)">Save</MudButton>
-    </DialogActions>
-</MudDialog>
+@* Phase 7 / Plan 07-01: cookbook create/edit form dialog.
+   Renders inside CbDialogHost; Title is supplied at ShowAsync call. *@
+
+<div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Name</span>
+            <CbInput @bind-Value="Name" Placeholder="Cookbook name" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Description</span>
+            <CbTextarea @bind-Value="Description" Rows="3" Placeholder="Optional description" />
+        </label>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Submit"
+                  Disabled="@string.IsNullOrWhiteSpace(Name)">Save</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
     [Parameter] public string Name { get; set; } = "";
     [Parameter] public string Description { get; set; } = "";
 
-    private void Cancel() => MudDialog.Cancel();
-    private void Submit() => MudDialog.Close(DialogResult.Ok(new CookbookFormResult(Name, Description)));
+    private void Cancel() => DialogInstance?.Cancel();
+
+    private void Submit()
+    {
+        if (string.IsNullOrWhiteSpace(Name)) return;
+        DialogInstance?.Close(CbDialogResult.Ok(new CookbookFormResult(Name, Description)));
+    }
 
     public record CookbookFormResult(string Name, string Description);
 }

@@ -1,68 +1,88 @@
 @page "/recipes/{RecipeId:int}/made"
 @using CookBot.Infrastructure.Data
+@using CookBot.Web.Components.Atoms
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PantryService PantryService
 @inject NavigationManager Navigation
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 @rendermode InteractiveServer
 
 <PageTitle>CookBot - I Made This!</PageTitle>
 
+@*  RecipeMade — Phase 7 / Plan 07-07 rewrite against Phase 5 atoms.
+    Logic is preserved verbatim from the prior markup; only the render tree
+    and the toast call (now ICbToastService) change. *@
+
 <UserGuard>
 @if (_recipe != null)
 {
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
-                       OnClick="GoBack" />
-        <MudText Typo="Typo.h4" Style="font-weight: 600;">I Made This!</MudText>
-    </MudStack>
+    <div class="cb" style="max-width:600px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+            <button type="button"
+                    class="cb-btn ghost"
+                    style="padding:6px 12px;"
+                    aria-label="Back"
+                    @onclick="GoBack">
+                <Icon Name="@Icon.Names.ArrowL" Size="14" />
+            </button>
+            <h1 style="font-size:24px;font-weight:600;margin:0;">I Made This!</h1>
+        </div>
 
-    <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px; max-width: 600px;">
-        <MudText Typo="Typo.h5" Class="mb-4">@_recipe.Name</MudText>
+        <CbCard>
+            <h2 style="font-size:18px;font-weight:600;margin:0 0 16px 0;">@_recipe.Name</h2>
 
-        <MudNumericField @bind-Value="_servingsMultiplier" Label="Servings multiplier"
-                         Variant="Variant.Outlined" Min="0.25" Max="10" Step="0.25"
-                         HelperText="@($"Original: {_recipe.Servings} servings. Adjust if you made more or less.")"
-                         Class="mb-4" />
+            <div style="margin-bottom:16px;">
+                <div class="cb-label">Servings multiplier</div>
+                <input type="number"
+                       class="cb-input"
+                       step="0.25"
+                       min="0.25"
+                       max="10"
+                       value="@_servingsMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="OnServingsMultiplierInput"
+                       style="max-width:160px;" />
+                <div style="margin-top:6px;color:var(--ink-3);font-size:12px;">
+                    Original: @_recipe.Servings servings. Adjust if you made more or less.
+                </div>
+            </div>
 
-        <MudText Typo="Typo.subtitle2" Class="mb-2" Style="font-weight: 600;">
-            Ingredients to deduct from pantry:
-        </MudText>
+            <div class="eyebrow" style="margin-bottom:8px;">Ingredients to deduct from pantry:</div>
 
-        <MudList T="string" Dense="true" Class="mb-4">
-            @foreach (var ri in _recipe.RecipeIngredients.OrderBy(r => r.RecipeLocalId))
-            {
-                var scaled = Math.Round(ri.Amount * _servingsMultiplier, 2);
-                <MudListItem>
-                    <MudText>
+            <ul style="list-style:none;padding:0;margin:0 0 16px 0;display:flex;flex-direction:column;gap:6px;">
+                @foreach (var ri in _recipe.RecipeIngredients.OrderBy(r => r.RecipeLocalId))
+                {
+                    var scaled = Math.Round(ri.Amount * _servingsMultiplier, 2);
+                    <li style="font-size:14px;">
                         <b>@scaled @CookBot.Application.Services.UnitParser.ToDisplayString(ri.Unit)</b>
                         @ri.Ingredient.Name
-                    </MudText>
-                </MudListItem>
+                    </li>
+                }
+            </ul>
+
+            @if (_deducted)
+            {
+                <div class="cb-card"
+                     style="background:var(--green-soft);border-color:var(--green);padding:12px;margin-bottom:16px;">
+                    Pantry updated! @_deductedCount ingredient(s) deducted.
+                </div>
             }
-        </MudList>
 
-        @if (_deducted)
-        {
-            <MudAlert Severity="Severity.Success" Class="mb-4">
-                Pantry updated! @_deductedCount ingredient(s) deducted.
-            </MudAlert>
-        }
-
-        <MudStack Row="true" Spacing="2">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.CheckCircle"
-                       OnClick="DeductFromPantry" Disabled="@_deducted">
-                Deduct from Pantry
-            </MudButton>
-            <MudButton Variant="Variant.Text" OnClick="GoBack">Cancel</MudButton>
-        </MudStack>
-    </MudPaper>
+            <div style="display:flex;gap:8px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Primary"
+                          StartIcon="@Icon.Names.Check"
+                          OnClick="DeductFromPantry"
+                          Disabled="@_deducted">
+                    Deduct from Pantry
+                </CbButton>
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="GoBack">Cancel</CbButton>
+            </div>
+        </CbCard>
+    </div>
 }
 else if (_loaded)
 {
-    <MudText>Recipe not found or you do not have access.</MudText>
+    <p>Recipe not found or you do not have access.</p>
 }
 </UserGuard>
 
@@ -116,6 +136,16 @@ else if (_loaded)
         }
     }
 
+    private void OnServingsMultiplierInput(ChangeEventArgs e)
+    {
+        if (e.Value is string s
+            && double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            && parsed >= 0.25 && parsed <= 10)
+        {
+            _servingsMultiplier = parsed;
+        }
+    }
+
     private async Task DeductFromPantry()
     {
         if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
@@ -131,7 +161,7 @@ else if (_loaded)
         }
 
         _deducted = true;
-        Snackbar.Add($"Deducted {_deductedCount} ingredients from pantry!", Severity.Success);
+        Toast.Show($"Deducted {_deductedCount} ingredients from pantry!", CbToastSeverity.Success);
     }
 
     private void GoBack() => Navigation.NavigateTo($"/recipes/{RecipeId}");

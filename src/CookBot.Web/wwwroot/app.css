@@ -51,3 +51,34 @@ body.dark-mode .recipe-body h2, body.dark-mode .recipe-body h3 {
     right: 0.75rem;
     top: 0.5rem;
 }
+
+/* === Recipe Chip Composer (Phase 3) === */
+.chip-highlight-pulse {
+    background: var(--mud-palette-info-lighten);
+    box-shadow: 0 0 0 2px var(--mud-palette-info);
+    border-radius: 8px;
+    transition: background 300ms ease-out, box-shadow 300ms ease-out;
+}
+
+.timer-suggestion {
+    text-decoration: underline dotted;
+    text-decoration-color: var(--mud-palette-warning);
+    cursor: pointer;
+}
+
+.chip-flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 2.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 4px;
+}
+
+.chip-flow [contenteditable] {
+    outline: none;
+    min-width: 4ch;
+    padding: 0 2px;
+}

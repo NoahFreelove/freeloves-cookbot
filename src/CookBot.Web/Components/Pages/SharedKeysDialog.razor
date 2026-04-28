@@ -3,141 +3,168 @@
 @inject AiApiKeyShareService ShareService
 @inject AiApiKeyResolutionService AiKeyResolver
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 @rendermode InteractiveServer
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Shared API keys</MudText>
-    </TitleContent>
-    <DialogContent>
-        @if (!UserService.CurrentUserId.HasValue)
+@* Phase 7 / Plan 07-05: SharedKeysDialog migrated to CbDialog slots (D-27).
+   Body shows three sections — outgoing shares (manage who you share with),
+   incoming shares info (who shares with you + active key status), and a
+   preferred-owner picker when multiple sharers exist. Footer hosts Close.
+   Inner dropdowns + buttons use Cb atoms. Toasts via ICbToastService. *@
+
+<div>
+    @if (!UserService.CurrentUserId.HasValue)
+    {
+        <p style="margin:0;font-size:14px;color:var(--ink-3);">Select a user in the header first.</p>
+    }
+    else
+    {
+        <p style="margin:0 0 16px 0;font-size:13px;color:var(--ink-3);">
+            People you share with can use your Anthropic key for CookBot AI features.
+            They never see the key, and you can revoke access anytime.
+        </p>
+
+        <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:8px;">Share your key with</div>
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:16px;">
+            <div style="flex:1;">
+                <CbSelect TValue="int" @bind-Value="_addRecipientId">
+                    <CbOption TValue="int" Value="0" Label="Select user…" />
+                    @foreach (var u in _eligibleRecipients)
+                    {
+                        <CbOption TValue="int" Value="@u.Id" Label="@u.DisplayName" />
+                    }
+                </CbSelect>
+            </div>
+            <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="AddShareAsync"
+                      Disabled="@(_addRecipientId == 0)">
+                Add
+            </CbButton>
+        </div>
+
+        @if (_outgoing.Any())
         {
-            <MudText Color="Color.Secondary">Select a user in the header first.</MudText>
+            <div style="font-size:12px;color:var(--ink-3);margin-bottom:6px;">Currently shared with</div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+                @foreach (var p in _outgoing)
+                {
+                    <div class="cb-card" style="padding:10px 12px;display:flex;align-items:center;gap:10px;">
+                        <span style="flex:1;font-size:13px;color:var(--ink);">@p.DisplayName</span>
+                        <button type="button"
+                                class="cb-btn ghost"
+                                style="padding:4px 8px;color:var(--warn);"
+                                aria-label="@($"Revoke share for {p.DisplayName}")"
+                                @onclick="@(() => RevokeOutgoingAsync(p.UserId))">
+                            <Icon Name="@Icon.Names.Link" Size="14" />
+                            <span style="margin-left:4px;">Revoke</span>
+                        </button>
+                    </div>
+                }
+            </div>
         }
         else
         {
-            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
-                People you share with can use your Anthropic key for CookBot AI features. They never see the key, and you can revoke access anytime.
-            </MudText>
+            <p style="margin:0 0 16px 0;font-size:12px;color:var(--ink-3);">
+                You are not sharing your key with anyone yet.
+            </p>
+        }
 
-            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-2">Share your key with</MudText>
-            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
-                <MudSelect T="int" @bind-Value="_addRecipientId" Label="User" Variant="Variant.Outlined" Style="flex: 1;"
-                           Dense="true">
-                    <MudSelectItem Value="0">Select user…</MudSelectItem>
-                    @foreach (var u in _eligibleRecipients)
-                    {
-                        <MudSelectItem Value="@u.Id">@u.DisplayName</MudSelectItem>
-                    }
-                </MudSelect>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddShareAsync"
-                           Disabled="@(_addRecipientId == 0)">
-                    Add
-                </MudButton>
-            </MudStack>
+        <div style="height:1px;background:var(--line);margin:16px 0;"></div>
 
-            @if (_outgoing.Any())
-            {
-                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">Currently shared with</MudText>
-                <MudStack Spacing="1" Class="mb-4">
-                    @foreach (var p in _outgoing)
-                    {
-                        <MudPaper Class="pa-2" Elevation="0" Outlined="true">
-                            <MudStack Row="true" AlignItems="AlignItems.Center">
-                                <MudText Typo="Typo.body2">@p.DisplayName</MudText>
-                                <MudSpacer />
-                                <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Color="Color.Error" Size="Size.Small"
-                                               aria-label="@($"Revoke share for {p.DisplayName}")"
-                                               OnClick="@(() => RevokeOutgoingAsync(p.UserId))" />
-                            </MudStack>
-                        </MudPaper>
-                    }
-                </MudStack>
-            }
-            else
-            {
-                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">You are not sharing your key with anyone yet.</MudText>
-            }
+        <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:8px;">
+            API access others share with you
+        </div>
 
-            <MudDivider Class="my-4" />
-
-            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-2">API access others share with you</MudText>
-            @if (!_incomingAll.Any())
-            {
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    No one has shared their key with this account. They can add you from the same dialog on their login.
-                </MudText>
-            }
-            else if (_hasOwnKey)
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
-                    <strong>Your own saved Anthropic key is used</strong> for CookBot AI. Incoming shares stay on file if you clear your key later.
-                </MudAlert>
-                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Granted by</MudText>
-                <MudStack Spacing="1">
-                    @foreach (var p in _incomingAll)
-                    {
-                        <MudText Typo="Typo.body2">@p.DisplayName</MudText>
-                    }
-                </MudStack>
-            }
-            else if (!_incomingUsable.Any())
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
-                    One or more people have shared with you, but <strong>none of them currently have an API key saved</strong> on their profile. They need to add a key before you can use shared access.
-                </MudAlert>
-                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-3">Share relationships: @string.Join(", ", _incomingAll.Select(p => p.DisplayName))</MudText>
-            }
-            else if (_effectiveAi?.SharedFromUserId != null)
-            {
-                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-                    CookBot is using API access from <strong>@_effectiveAi.SharedFromDisplayName</strong>. You never see their key; model and billing follow their profile.
-                </MudText>
-                @if (_incomingUsable.Count > 1)
+        @if (!_incomingAll.Any())
+        {
+            <p style="margin:0;font-size:13px;color:var(--ink-3);">
+                No one has shared their key with this account. They can add you from the same
+                dialog on their login.
+            </p>
+        }
+        else if (_hasOwnKey)
+        {
+            <div class="cb-card" style="background:var(--accent-soft);color:var(--accent-ink);padding:12px;margin-bottom:12px;border:none;font-size:13px;">
+                <strong>Your own saved Anthropic key is used</strong> for CookBot AI. Incoming
+                shares stay on file if you clear your key later.
+            </div>
+            <div style="font-size:12px;color:var(--ink-3);margin-bottom:4px;">Granted by</div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+                @foreach (var p in _incomingAll)
                 {
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">Several people could share with you. Change which account to use:</MudText>
-                    <MudSelect T="int" Value="_preferredOwnerId" ValueChanged="OnPreferredOwnerChanged"
-                               Label="Shared key from" Variant="Variant.Outlined" Class="mb-3" FullWidth="true">
-                        <MudSelectItem Value="0">Choose account…</MudSelectItem>
+                    <span style="font-size:13px;color:var(--ink);">@p.DisplayName</span>
+                }
+            </div>
+        }
+        else if (!_incomingUsable.Any())
+        {
+            <div class="cb-card" style="background:var(--warn-soft);color:var(--warn);padding:12px;border:none;font-size:13px;">
+                One or more people have shared with you, but <strong>none of them currently have
+                an API key saved</strong> on their profile. They need to add a key before you can
+                use shared access.
+            </div>
+            <p style="margin:12px 0 0 0;font-size:12px;color:var(--ink-3);">
+                Share relationships: @string.Join(", ", _incomingAll.Select(p => p.DisplayName))
+            </p>
+        }
+        else if (_effectiveAi?.SharedFromUserId != null)
+        {
+            <p style="margin:0 0 12px 0;font-size:13px;color:var(--ink-3);">
+                CookBot is using API access from <strong>@_effectiveAi.SharedFromDisplayName</strong>.
+                You never see their key; model and billing follow their profile.
+            </p>
+            @if (_incomingUsable.Count > 1)
+            {
+                <p style="margin:0 0 8px 0;font-size:12px;color:var(--ink-3);">
+                    Several people could share with you. Change which account to use:
+                </p>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <CbSelect TValue="int" Value="_preferredOwnerId" ValueChanged="OnPreferredOwnerChanged">
+                        <CbOption TValue="int" Value="0" Label="Choose account…" />
                         @foreach (var p in _incomingUsable)
                         {
-                            <MudSelectItem Value="@p.UserId">@p.DisplayName</MudSelectItem>
+                            <CbOption TValue="int" Value="@p.UserId" Label="@p.DisplayName" />
                         }
-                    </MudSelect>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePreferredAsync"
-                               Disabled="@(_preferredOwnerId == 0)">
-                        Save choice
-                    </MudButton>
-                }
-            }
-            else
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-3">
-                    More than one person can share a working key with you. Pick whose key CookBot should use (or add your own key in Profile).
-                </MudAlert>
-                <MudSelect T="int" Value="_preferredOwnerId" ValueChanged="OnPreferredOwnerChanged"
-                           Label="Shared key from" Variant="Variant.Outlined" Class="mb-3" FullWidth="true">
-                    <MudSelectItem Value="0">Choose account…</MudSelectItem>
-                    @foreach (var p in _incomingUsable)
-                    {
-                        <MudSelectItem Value="@p.UserId">@p.DisplayName</MudSelectItem>
-                    }
-                </MudSelect>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePreferredAsync"
-                           Disabled="@(_preferredOwnerId == 0)">
-                    Save choice
-                </MudButton>
+                    </CbSelect>
+                    <div>
+                        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="SavePreferredAsync"
+                                  Disabled="@(_preferredOwnerId == 0)">
+                            Save choice
+                        </CbButton>
+                    </div>
+                </div>
             }
         }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Close">Close</MudButton>
-    </DialogActions>
-</MudDialog>
+        else
+        {
+            <div class="cb-card" style="background:var(--warn-soft);color:var(--warn);padding:12px;margin-bottom:12px;border:none;font-size:13px;">
+                More than one person can share a working key with you. Pick whose key CookBot
+                should use (or add your own key in Profile).
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <CbSelect TValue="int" Value="_preferredOwnerId" ValueChanged="OnPreferredOwnerChanged">
+                    <CbOption TValue="int" Value="0" Label="Choose account…" />
+                    @foreach (var p in _incomingUsable)
+                    {
+                        <CbOption TValue="int" Value="@p.UserId" Label="@p.DisplayName" />
+                    }
+                </CbSelect>
+                <div>
+                    <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="SavePreferredAsync"
+                              Disabled="@(_preferredOwnerId == 0)">
+                        Save choice
+                    </CbButton>
+                </div>
+            </div>
+        }
+    }
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Close">Close</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     private List<User> _allUsers = new();
     private List<AiApiKeyShareService.ShareParty> _outgoing = new();
@@ -147,7 +174,7 @@
     private EffectiveAiCredentials? _effectiveAi;
     private bool _hasOwnKey;
 
-    /// <summary>0 means none selected (MudSelect requires consistent T between select and items).</summary>
+    /// <summary>0 means none selected.</summary>
     private int _addRecipientId;
     private int _preferredOwnerId;
 
@@ -197,11 +224,11 @@
         var err = await ShareService.GrantAsync(UserService.CurrentUserId.Value, _addRecipientId);
         if (err != null)
         {
-            Snackbar.Add(err, Severity.Warning);
+            Toast.Show(err, CbToastSeverity.Warning);
             return;
         }
 
-        Snackbar.Add("Share added.", Severity.Success);
+        Toast.Show("Share added.", CbToastSeverity.Success);
         await ReloadAsync();
     }
 
@@ -209,7 +236,7 @@
     {
         if (!UserService.CurrentUserId.HasValue) return;
         await ShareService.RevokeAsync(UserService.CurrentUserId.Value, recipientId);
-        Snackbar.Add("Share revoked.", Severity.Info);
+        Toast.Show("Share revoked.", CbToastSeverity.Info);
         await ReloadAsync();
     }
 
@@ -223,9 +250,9 @@
     {
         if (!UserService.CurrentUserId.HasValue || _preferredOwnerId == 0) return;
         await ShareService.SetPreferredSharedOwnerAsync(UserService.CurrentUserId.Value, _preferredOwnerId);
-        Snackbar.Add("Preference saved.", Severity.Success);
+        Toast.Show("Preference saved.", CbToastSeverity.Success);
         await ReloadAsync();
     }
 
-    private void Close() => MudDialog.Close();
+    private void Close() => DialogInstance?.Close(CbDialogResult.Ok());
 }

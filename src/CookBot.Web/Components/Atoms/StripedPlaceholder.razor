@@ -1,0 +1,28 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* StripedPlaceholder — Phase 5 / ATOM-06 / DS-06 / D-15.
+   Renders the .cb-ph diagonal-stripe tile for missing imagery.
+   Width / Height accept either "100%", a "180px" string, or a bare numeric "180" (treated as px). *@
+
+<div class="cb-ph" style="width:@WidthAttr;height:@HeightAttr;border-radius:@(BorderRadius)px;@Style">
+    @Label
+</div>
+
+@code {
+    [Parameter] public string Width { get; set; } = "100%";
+    [Parameter] public string Height { get; set; } = "200px";
+    [Parameter] public int BorderRadius { get; set; } = 10;
+    [Parameter] public string Label { get; set; } = "photo";
+    [Parameter] public string? Style { get; set; }
+
+    private string WidthAttr => NormalizeDim(Width);
+    private string HeightAttr => NormalizeDim(Height);
+
+    private static string NormalizeDim(string v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return "100%";
+        if (v.EndsWith('%')) return v;
+        if (v.EndsWith("px") || v.EndsWith("rem") || v.EndsWith("em") || v.EndsWith("vh") || v.EndsWith("vw")) return v;
+        return $"{v}px";
+    }
+}

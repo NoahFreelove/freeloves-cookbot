@@ -1,228 +1,137 @@
 @inherits LayoutComponentBase
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
-@inject IDialogService DialogService
 @inject IJSRuntime JS
 
-<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
+@* MainLayout — Phase 5 / Plan 05-05 / SHELL-01 / D-19 (Phase 7 / Plan 07-07 final).
 
-<MudLayout>
-    <MudAppBar Elevation="1" Color="Color.Primary">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
-                       OnClick="@ToggleDrawer" />
-        <MudIcon Icon="@Icons.Material.Filled.RamenDining" Class="ml-2" />
-        <MudText Typo="Typo.h5" Class="ml-2" Style="font-weight: 600;">CookBot</MudText>
-        <MudSpacer />
-        @if (_users.Any())
-        {
-            <MudSelect T="int" Value="_selectedUserId" ValueChanged="OnUserChanged"
-                       Variant="Variant.Text" Dense="true" Margin="Margin.Dense"
-                       AnchorOrigin="Origin.BottomCenter" TransformOrigin="Origin.TopCenter"
-                       Class="mt-0 mr-2" Style="color: white; max-width: 180px; min-width: 120px;">
-                @foreach (var user in _users)
-                {
-                    <MudSelectItem Value="@user.Id">@user.DisplayName</MudSelectItem>
-                }
-            </MudSelect>
-        }
-        @if (_isAdmin)
-        {
-            <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="mr-1 text-none"
-                       Style="color: white; text-transform: none;"
-                       StartIcon="@Icons.Material.Filled.ManageAccounts"
-                       OnClick="ShowAdminManageUsersDialog">
-                Manage users
-            </MudButton>
-        }
-        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                       Color="Color.Inherit" title="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
-                       OnClick="ToggleDarkMode" Edge="Edge.End" />
-    </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
-        <NavMenu />
-    </MudDrawer>
-    <MudMainContent Class="pt-16 px-4 pb-4">
-        <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+   Cb-only shell: cb-shell CSS grid + Sidebar + TopBar + main column,
+   with CbDialogHost + CbToastHost mounted globally.
+
+   Invariants preserved verbatim from the previous layout:
+     - cookbot_dark_mode localStorage key + body.dark-mode class toggle (D-04)
+     - sessionStorage.cookbot_current_user restore (UserService.CurrentUserId)
+     - Auto-create "Home Chef" admin user when no users exist
+     - CascadingValue Name="CurrentUserId" so existing pages keep reading it
+     - cookbot.applyDefaults() called once on first render (Plan 05-01)
+
+   _isDarkMode field is retained: it drives the body.dark-mode class via the
+   existing JS interop (no theme provider needed; tokens live in cookbot-design.css). *@
+
+<CbDialogHost />
+<CbToastHost />
+
+<div class="cb cb-shell @(_drawerCollapsed ? "is-collapsed" : "")" style="height:100vh;">
+    @if (!_drawerCollapsed)
+    {
+        <Sidebar />
+    }
+    <main style="display:flex;flex-direction:column;min-width:0;">
+        <TopBar IsDarkMode="_isDarkMode"
+                IsDarkModeChanged="OnDarkModeChanged"
+                OnUserSwitched="OnUserSwitched"
+                IsDrawerCollapsed="_drawerCollapsed"
+                OnToggleDrawer="OnToggleDrawer" />
+        <div style="flex:1;overflow:auto;padding:24px;">
             <CascadingValue Value="UserService.CurrentUserId" Name="CurrentUserId">
                 @Body
             </CascadingValue>
-        </MudContainer>
-    </MudMainContent>
-</MudLayout>
+        </div>
+    </main>
+</div>
 
 @code {
-    private bool _drawerOpen = true;
     private List<User> _users = new();
-    private int _selectedUserId;
-    private bool _isAdmin;
     private bool _isDarkMode;
-    private MudTheme _theme = null!;
-
-    [CascadingParameter]
-    private Task<User?>? CurrentUser { get; set; }
+    private bool _drawerCollapsed;
 
     protected override async Task OnInitializedAsync()
     {
-        _theme = new MudTheme
-        {
-            PaletteLight = new PaletteLight
-            {
-                Primary = "#E65100",
-                Secondary = "#2E7D32",
-                AppbarBackground = "#E65100",
-                Background = "#FFF8E1",
-                Surface = "#FFFFFF",
-                DrawerBackground = "#FFF3E0",
-                DrawerText = "#3E2723",
-                TextPrimary = "#3E2723",
-                TextSecondary = "#5D4037",
-            },
-            PaletteDark = new PaletteDark
-            {
-                Primary = "#FF8A50",
-                Secondary = "#66BB6A",
-                AppbarBackground = "#B23B00",
-                Background = "#1A1510",
-                Surface = "#242018",
-                DrawerBackground = "#1E1812",
-                DrawerText = "#EFEBE9",
-                TextPrimary = "#EFEBE9",
-                TextSecondary = "#BCAAA4",
-            },
-            Typography = new Typography
-            {
-                Default = new DefaultTypography
-                {
-                    FontFamily = new[] { "Inter", "Helvetica", "Arial", "sans-serif" }
-                }
-            }
-        };
-
-        // Load users during initialization so the selector renders during prerender
+        // Auto-create Home Chef admin if no users exist (preserved from existing layout).
         _users = await UserService.GetAllUsersAsync();
-
-        // If no users exist at all, auto-create a default one
         if (!_users.Any())
         {
             await UserService.CreateUserAsync("Home Chef", isCookBotAdmin: true);
             _users = await UserService.GetAllUsersAsync();
         }
 
-        // Set a default user during prerender so pages don't show "no user selected"
-        // OnAfterRenderAsync will override this with the sessionStorage value if available
+        // Default user during prerender (preserved). OnAfterRenderAsync overrides with sessionStorage.
         if (!UserService.CurrentUserId.HasValue && _users.Any())
         {
             var defaultUser = _users.FirstOrDefault(u => u.DisplayName == "Home Chef")
                 ?? _users.OrderBy(u => u.Id).First();
             UserService.CurrentUserId = defaultUser.Id;
-            _selectedUserId = defaultUser.Id;
         }
-
-        _isAdmin = await UserService.IsCookBotAdminAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // Restore session from browser storage (JS interop only available after circuit connects)
             try
             {
+                // Apply data-accent / data-density defaults on <html> (Plan 05-01 cookbot-shell.js).
+                await JS.InvokeVoidAsync("cookbot.applyDefaults");
+
+                // Restore session-stored user.
                 var stored = await JS.InvokeAsync<string?>("sessionStorage.getItem", "cookbot_current_user");
                 if (stored != null && int.TryParse(stored, out var savedId) && _users.Any(u => u.Id == savedId))
                 {
                     UserService.CurrentUserId = savedId;
-                    _selectedUserId = savedId;
-                    _isAdmin = await UserService.IsCookBotAdminAsync();
-                    StateHasChanged();
                 }
 
+                // Restore dark-mode preference (preserved verbatim from existing layout).
                 var darkPref = await JS.InvokeAsync<string?>("localStorage.getItem", "cookbot_dark_mode");
                 if (darkPref == "true")
                 {
                     _isDarkMode = true;
                     await JS.InvokeVoidAsync("document.body.classList.toggle", "dark-mode", true);
-                    StateHasChanged();
                 }
+
+                // Restore sidebar collapse preference.
+                var drawerPref = await JS.InvokeAsync<string?>("localStorage.getItem", "cookbot_drawer_collapsed");
+                if (drawerPref == "true")
+                {
+                    _drawerCollapsed = true;
+                }
+
+                StateHasChanged();
             }
             catch (InvalidOperationException)
             {
-                // JS interop not available — skip session restore
+                // JS interop unavailable during prerender — skip session restore.
             }
         }
     }
 
-    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
-
-    private async Task ToggleDarkMode()
+    private async Task OnDarkModeChanged(bool newValue)
     {
-        _isDarkMode = !_isDarkMode;
-        await JS.InvokeVoidAsync("localStorage.setItem", "cookbot_dark_mode", _isDarkMode.ToString().ToLower());
-        await JS.InvokeVoidAsync("document.body.classList.toggle", "dark-mode", _isDarkMode);
+        _isDarkMode = newValue;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "cookbot_dark_mode", newValue.ToString().ToLower());
+            await JS.InvokeVoidAsync("document.body.classList.toggle", "dark-mode", newValue);
+        }
+        catch (InvalidOperationException) { /* prerender — ignore */ }
     }
 
-    private async Task OnUserChanged(int userId)
+    private void OnUserSwitched()
     {
-        if (await UserService.UserHasPasswordAsync(userId))
-        {
-            var user = _users.First(u => u.Id == userId);
-            var parameters = new DialogParameters<PasswordPromptDialog>
-            {
-                { x => x.UserId, userId },
-                { x => x.UserName, user.DisplayName },
-            };
-            var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true };
-            var dialog = await DialogService.ShowAsync<PasswordPromptDialog>("Password Required", parameters, options);
-            var result = await dialog.Result;
-            if (result == null || result.Canceled)
-            {
-                _selectedUserId = UserService.CurrentUserId ?? _selectedUserId;
-                StateHasChanged();
-                return;
-            }
-        }
-
-        _selectedUserId = userId;
-        UserService.CurrentUserId = userId;
-        await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", userId.ToString());
-        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+        // TopBar issues Navigation.NavigateTo(forceLoad: true) after a successful switch,
+        // which reloads the whole page; MainLayout's OnAfterRenderAsync re-runs and re-reads
+        // sessionStorage. No extra work needed here.
     }
 
-    private async Task ShowAdminManageUsersDialog()
+    private async Task OnToggleDrawer()
     {
-        var parameters = new DialogParameters<AdminManageUsersDialog>
+        _drawerCollapsed = !_drawerCollapsed;
+        try
         {
-            { x => x.OnUsersChanged, EventCallback.Factory.Create(this, HandleAdminUsersChanged) },
-        };
-        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
-        await DialogService.ShowAsync<AdminManageUsersDialog>("Manage users", parameters, options);
-    }
-
-    private async Task HandleAdminUsersChanged()
-    {
-        _users = await UserService.GetAllUsersAsync();
-        if (!_users.Any())
-        {
-            await UserService.CreateUserAsync("Home Chef", isCookBotAdmin: true);
-            _users = await UserService.GetAllUsersAsync();
+            await JS.InvokeVoidAsync(
+                "localStorage.setItem",
+                "cookbot_drawer_collapsed",
+                _drawerCollapsed.ToString().ToLower());
         }
-
-        if (UserService.CurrentUserId is int uid && !_users.Any(u => u.Id == uid))
-        {
-            var next = _users[0];
-            UserService.CurrentUserId = next.Id;
-            _selectedUserId = next.Id;
-            await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", next.Id.ToString());
-            Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
-            return;
-        }
-
-        if (!_users.Any(u => u.Id == _selectedUserId))
-            _selectedUserId = UserService.CurrentUserId ?? _users[0].Id;
-
-        StateHasChanged();
+        catch (InvalidOperationException) { /* prerender — ignore */ }
     }
 }

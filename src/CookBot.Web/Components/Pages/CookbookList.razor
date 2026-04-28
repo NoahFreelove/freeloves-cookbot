@@ -1,112 +1,268 @@
 @page "/cookbooks"
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inject ICbDialogService CbDialogService
+@inject ICbToastService Toast
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
+
+@* Phase 7 / Plan 07-01 / CB-01.
+   Custom Razor rewrite against Phase 5 atoms per
+   `.planning/design-handoff/project/screens/cookbook-list.jsx`.
+   3-column grid of "collage" cookbook cards: 180px tinted header with a 3×2
+   striped-tile placeholder, body with title + recipe count + author/share line.
+   Phase 7 hard invariant: zero Mud* symbols in this file. *@
 
 <PageTitle>CookBot - Cookbooks</PageTitle>
 
 <UserGuard>
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-    <MudText Typo="Typo.h4" Style="font-weight: 600;">My Cookbooks</MudText>
-    <MudSpacer />
-    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Upload"
-               OnClick="ShowImportDialog">Import</MudButton>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-               OnClick="ShowCreateDialog">New Cookbook</MudButton>
-</MudStack>
+    <div style="max-width:1180px;">
 
-@if (_cookbooks.Any())
-{
-    <MudGrid>
-        @foreach (var cookbook in _cookbooks)
-        {
-            var cookbookId = cookbook.Id;
-            <MudItem xs="12" sm="6" md="4">
-                <MudCard Elevation="2" Style="border-radius: 12px; cursor: pointer;"
-                         @onclick="() => ViewCookbook(cookbookId)">
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.h6">@cookbook.Name</MudText>
-                        </CardHeaderContent>
-                        <CardHeaderActions>
-                            <MudIconButton Icon="@Icons.Material.Filled.Share" Size="Size.Small"
-                                           OnClick="@(() => ShowShareDialog(cookbook))" />
-                            <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                           OnClick="@(() => ShowEditDialog(cookbook))" />
-                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
-                                           OnClick="@(() => DeleteCookbook(cookbook))" />
-                        </CardHeaderActions>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            @(cookbook.Description ?? "No description")
-                        </MudText>
-                        <MudText Typo="Typo.caption" Class="mt-2">
-                            @cookbook.Recipes.Count recipe(s)
-                        </MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-        }
-    </MudGrid>
-}
-else
-{
-    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
-        <MudIcon Icon="@Icons.Material.Filled.MenuBook" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h6" Class="mt-4">No cookbooks yet</MudText>
-        <MudText Typo="Typo.body2" Color="Color.Secondary">Create your first cookbook to start adding recipes.</MudText>
-    </MudPaper>
-}
+        @* ── Page header (CB-01 top action bar) ─────────────────────────────── *@
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px;">
+            <h1 style="font-size:32px;letter-spacing:-0.025em;line-height:1.05;margin:0;">My Cookbooks</h1>
+            <div style="display:flex;gap:8px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Download" OnClick="ShowImportDialog">
+                    Import
+                </CbButton>
+                <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Plus" OnClick="ShowCreateDialog">
+                    New cookbook
+                </CbButton>
+            </div>
+        </div>
 
-@if (_sharedCookbooks.Any())
-{
-    <MudText Typo="Typo.h5" Class="mt-8 mb-4" Style="font-weight: 600;">Shared with Me</MudText>
-    <MudGrid>
-        @foreach (var share in _sharedCookbooks)
-        {
-            var cookbookId = share.Cookbook.Id;
-            <MudItem xs="12" sm="6" md="4">
-                <MudCard Elevation="2" Style="border-radius: 12px; cursor: pointer; border-left: 4px solid #2E7D32;"
-                         @onclick="() => ViewCookbook(cookbookId)">
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.h6">@share.Cookbook.Name</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                by @share.Cookbook.User.DisplayName
-                            </MudText>
-                        </CardHeaderContent>
-                        <CardHeaderActions>
-                            <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined">
-                                Read Only
-                            </MudChip>
-                        </CardHeaderActions>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            @(share.Cookbook.Description ?? "No description")
-                        </MudText>
-                        <MudText Typo="Typo.caption" Class="mt-2">
-                            @share.Cookbook.Recipes.Count recipe(s)
-                        </MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
+        @* ── Search + filter row + grid/list toggle ─────────────────────────── *@
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+            <div style="position:relative;flex:1;max-width:360px;">
+                <div style="position:absolute;left:12px;top:11px;color:var(--ink-3);pointer-events:none;">
+                    <Icon Name="@Icon.Names.Search" Size="15" />
+                </div>
+                <input type="text"
+                       placeholder="@SearchPlaceholder"
+                       aria-label="Search cookbooks"
+                       value="@_searchText"
+                       @oninput="OnSearchInput"
+                       style="width:100%;height:38px;padding:0 14px 0 36px;background:var(--paper);border:1px solid var(--line);border-radius:19px;font-size:13.5px;font-family:inherit;outline:none;color:var(--ink-1);" />
+            </div>
+            <button type="button" class="cb-btn ghost" style="padding:8px 12px;font-size:13px;" disabled aria-disabled="true" title="Filters (coming soon)">
+                <Icon Name="@Icon.Names.Filter" Size="14" /> Filters
+            </button>
+            <div style="flex:1;"></div>
+            <div role="group" aria-label="Layout"
+                 style="display:flex;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:2px;">
+                <button type="button"
+                        aria-pressed="@(_viewMode == ViewMode.Grid)"
+                        aria-label="Grid view"
+                        title="Grid view"
+                        @onclick="() => _viewMode = ViewMode.Grid"
+                        style="@ToggleBtnStyle(_viewMode == ViewMode.Grid)">
+                    <Icon Name="@Icon.Names.Grid" Size="14" />
+                </button>
+                <button type="button"
+                        aria-pressed="@(_viewMode == ViewMode.List)"
+                        aria-label="List view"
+                        title="List view"
+                        @onclick="() => _viewMode = ViewMode.List"
+                        style="@ToggleBtnStyle(_viewMode == ViewMode.List)">
+                    <Icon Name="@Icon.Names.List" Size="14" />
+                </button>
+            </div>
+        </div>
+
+        @* ── Cookbook cards grid ────────────────────────────────────────────── *@
+        @{
+            var ownedFiltered = FilterByName(_cookbooks.Select(cb =>
+                new CookbookCardModel(cb.Id, cb.Name, cb.Recipes.Count, OwnedAuthorLine(cb), false))).ToList();
+            var sharedFiltered = FilterByName(_sharedCookbooks.Select(s =>
+                new CookbookCardModel(s.Cookbook.Id, s.Cookbook.Name, s.Cookbook.Recipes.Count,
+                    $"{s.Cookbook.User.DisplayName} · shared", true))).ToList();
         }
-    </MudGrid>
-}
+
+        @if (ownedFiltered.Count == 0 && _searchText.Length == 0)
+        {
+            <CbCard Padding="48" Style="text-align:center;">
+                <Icon Name="@Icon.Names.Book" Size="40" />
+                <h3 style="font-size:18px;margin:14px 0 6px 0;">No cookbooks yet</h3>
+                <p style="color:var(--ink-3);font-size:13.5px;margin:0;">Create your first cookbook to start adding recipes.</p>
+            </CbCard>
+        }
+        else
+        {
+            @if (_viewMode == ViewMode.Grid)
+            {
+                <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:18px;">
+                    @foreach (var card in ownedFiltered)
+                    {
+                        @RenderCard(card)
+                    }
+                </div>
+            }
+            else
+            {
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                    @foreach (var card in ownedFiltered)
+                    {
+                        @RenderRow(card)
+                    }
+                </div>
+            }
+        }
+
+        @if (sharedFiltered.Count > 0)
+        {
+            <h2 style="font-size:20px;letter-spacing:-0.02em;margin:40px 0 16px 0;">Shared with me</h2>
+            @if (_viewMode == ViewMode.Grid)
+            {
+                <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:18px;">
+                    @foreach (var card in sharedFiltered)
+                    {
+                        @RenderCard(card)
+                    }
+                </div>
+            }
+            else
+            {
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                    @foreach (var card in sharedFiltered)
+                    {
+                        @RenderRow(card)
+                    }
+                </div>
+            }
+        }
+    </div>
 </UserGuard>
 
 @code {
     private List<Cookbook> _cookbooks = new();
     private List<CookbookShare> _sharedCookbooks = new();
+    private string _searchText = string.Empty;
+    private int? _loadedUserId;
+
+    private enum ViewMode { Grid, List }
+    private ViewMode _viewMode = ViewMode.Grid;
+
+    private record CookbookCardModel(int Id, string Name, int RecipeCount, string AuthorLine, bool ReadOnly);
+
+    private string SearchPlaceholder
+    {
+        get
+        {
+            var totalRecipes = _cookbooks.Sum(c => c.Recipes.Count) + _sharedCookbooks.Sum(s => s.Cookbook.Recipes.Count);
+            var totalCookbooks = _cookbooks.Count + _sharedCookbooks.Count;
+            if (totalCookbooks == 0) return "Search cookbooks…";
+            return $"Search {totalRecipes} recipes across {totalCookbooks} cookbook{(totalCookbooks == 1 ? "" : "s")}…";
+        }
+    }
+
+    // The design palette (cookbook-list.jsx). Indexed by cookbook ID modulo so each
+    // cookbook gets a stable accent across renders. v1.2 has no AccentColor field on
+    // Cookbook (deferred to FUTURE-14 per REQUIREMENTS.md); we cycle through the 4
+    // tokens used in the design handoff.
+    private static readonly string[] CookbookAccentPalette = new[]
+    {
+        "var(--accent-soft)",
+        "var(--cream-2)",
+        "#E1ECDF",
+        "#F0E2C8",
+    };
+
+    private static string AccentFor(int cookbookId) =>
+        CookbookAccentPalette[Math.Abs(cookbookId) % CookbookAccentPalette.Length];
+
+    private static string OwnedAuthorLine(Cookbook cb)
+    {
+        // v1.2 doesn't surface "shared with house" semantics yet; show share count when present.
+        if (cb.Shares != null && cb.Shares.Any())
+            return $"You · shared with {cb.Shares.Count}";
+        return "You · private";
+    }
+
+    private static string ToggleBtnStyle(bool active) =>
+        $"width:30px;height:30px;border:0;border-radius:6px;cursor:pointer;display:grid;place-items:center;color:{(active ? "var(--ink-1)" : "var(--ink-3)")};background:{(active ? "var(--cream-2)" : "transparent")};";
+
+    private IEnumerable<CookbookCardModel> FilterByName(IEnumerable<CookbookCardModel> source)
+    {
+        if (string.IsNullOrWhiteSpace(_searchText)) return source;
+        var q = _searchText.Trim();
+        return source.Where(c => c.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchText = e.Value as string ?? "";
+    }
+
+    private RenderFragment RenderCard(CookbookCardModel card) => __builder =>
+    {
+        <div @key="card.Id"
+             role="button" tabindex="0"
+             class="cb-card"
+             style="overflow:hidden;cursor:pointer;padding:0;"
+             @onclick="() => ViewCookbook(card.Id)"
+             @onkeydown="@(e => OnCardKeyDown(e, card.Id))">
+
+            @* Tinted header with 3×2 striped-tile collage *@
+            <div style="height:180px;background:@AccentFor(card.Id);position:relative;display:flex;align-items:flex-end;padding:16px;">
+                <div style="position:absolute;inset:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+                    @for (var i = 0; i < 6; i++)
+                    {
+                        <div style="background:rgba(255,255,255,0.55);border-radius:4px;background-image:repeating-linear-gradient(135deg, rgba(60,42,18,0.06) 0 1px, transparent 1px 8px);"></div>
+                    }
+                </div>
+            </div>
+
+            @* Body *@
+            <div style="padding:18px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px;">
+                    <h3 style="font-size:17px;letter-spacing:-0.015em;margin:0;line-height:1.2;">@card.Name</h3>
+                    <span class="num" style="font-size:13px;color:var(--ink-3);font-weight:500;font-variant-numeric:tabular-nums;flex-shrink:0;">
+                        @card.RecipeCount <span style="font-weight:400;">@(card.RecipeCount == 1 ? "recipe" : "recipes")</span>
+                    </span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:12px;color:var(--ink-3);">@card.AuthorLine</span>
+                    @if (card.ReadOnly)
+                    {
+                        <CbChip Variant="CbChip.CbChipVariant.Tag" Label="read only" />
+                    }
+                </div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderRow(CookbookCardModel card) => __builder =>
+    {
+        <div @key="card.Id"
+             role="button" tabindex="0"
+             class="cb-card"
+             style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:14px 18px;"
+             @onclick="() => ViewCookbook(card.Id)"
+             @onkeydown="@(e => OnCardKeyDown(e, card.Id))">
+            <div style="width:48px;height:48px;border-radius:8px;background:@AccentFor(card.Id);background-image:repeating-linear-gradient(135deg, rgba(60,42,18,0.06) 0 1px, transparent 1px 8px);flex-shrink:0;"></div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:15px;font-weight:600;letter-spacing:-0.01em;">@card.Name</div>
+                <div style="font-size:12px;color:var(--ink-3);">@card.AuthorLine</div>
+            </div>
+            <span class="num" style="font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums;">
+                @card.RecipeCount <span style="font-weight:400;">@(card.RecipeCount == 1 ? "recipe" : "recipes")</span>
+            </span>
+            @if (card.ReadOnly)
+            {
+                <CbChip Variant="CbChip.CbChipVariant.Tag" Label="read only" />
+            }
+        </div>
+    };
+
+    private void OnCardKeyDown(KeyboardEventArgs e, int cookbookId)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            ViewCookbook(cookbookId);
+        }
+    }
 
     private void ViewCookbook(int id) => Navigation.NavigateTo($"/cookbooks/{id}");
-
-    private int? _loadedUserId;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -124,6 +280,7 @@ else
         {
             _cookbooks = await DbContext.Cookbooks
                 .Include(c => c.Recipes)
+                .Include(c => c.Shares)
                 .Where(c => c.UserId == userId)
                 .OrderByDescending(c => c.UpdatedAt)
                 .ToListAsync();
@@ -142,14 +299,13 @@ else
         if (!UserService.CurrentUserId.HasValue) return;
         var userId = UserService.CurrentUserId.Value;
 
-        var parameters = new DialogParameters<CookbookFormDialog>
+        var parameters = new CbDialogParameters
         {
-            { x => x.Name, "" },
-            { x => x.Description, "" },
+            ["Name"] = "",
+            ["Description"] = "",
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CookbookFormDialog>("New Cookbook", parameters, options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<CookbookFormDialog>("New Cookbook", parameters, options);
         if (result != null && !result.Canceled && result.Data is CookbookFormDialog.CookbookFormResult data)
         {
             var cookbook = new Cookbook
@@ -160,63 +316,15 @@ else
             };
             DbContext.Cookbooks.Add(cookbook);
             await DbContext.SaveChangesAsync();
-            Snackbar.Add("Cookbook created!", Severity.Success);
+            Toast.Show("Cookbook created!", CbToastSeverity.Success);
             await LoadCookbooks();
         }
-    }
-
-    private async Task ShowEditDialog(Cookbook cookbook)
-    {
-        var parameters = new DialogParameters<CookbookFormDialog>
-        {
-            { x => x.Name, cookbook.Name },
-            { x => x.Description, cookbook.Description ?? "" },
-        };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CookbookFormDialog>("Edit Cookbook", parameters, options);
-        var result = await dialog.Result;
-        if (result != null && !result.Canceled && result.Data is CookbookFormDialog.CookbookFormResult data)
-        {
-            cookbook.Name = data.Name;
-            cookbook.Description = data.Description;
-            cookbook.UpdatedAt = DateTime.UtcNow;
-            await DbContext.SaveChangesAsync();
-            Snackbar.Add("Cookbook updated!", Severity.Success);
-            await LoadCookbooks();
-        }
-    }
-
-    private async Task DeleteCookbook(Cookbook cookbook)
-    {
-        bool? confirm = await DialogService.ShowMessageBox(
-            "Delete Cookbook",
-            $"Delete \"{cookbook.Name}\" and all its recipes? This cannot be undone.",
-            yesText: "Delete", cancelText: "Cancel");
-        if (confirm == true)
-        {
-            DbContext.Cookbooks.Remove(cookbook);
-            await DbContext.SaveChangesAsync();
-            Snackbar.Add("Cookbook deleted.", Severity.Info);
-            await LoadCookbooks();
-        }
-    }
-
-    private async Task ShowShareDialog(Cookbook cookbook)
-    {
-        var parameters = new DialogParameters<ShareCookbookDialog>
-        {
-            { x => x.CookbookId, cookbook.Id },
-            { x => x.CookbookName, cookbook.Name },
-        };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        await DialogService.ShowAsync<ShareCookbookDialog>("Share & export cookbook", parameters, options);
-        await LoadCookbooks();
     }
 
     private async Task ShowImportDialog()
     {
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        await DialogService.ShowAsync<ImportCookbookDialog>("Import cookbook", options);
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        await CbDialogService.ShowAsync<ImportCookbookDialog>("Import cookbook", null, options);
         await LoadCookbooks();
     }
 }

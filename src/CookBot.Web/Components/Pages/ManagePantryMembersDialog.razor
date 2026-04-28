@@ -1,47 +1,56 @@
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.PantryService PantryService
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Manage Members - "@PantryName"</MudText>
-    </TitleContent>
-    <DialogContent>
-        @if (_members.Any())
-        {
-            <MudText Typo="Typo.subtitle2" Class="mb-2">Current members:</MudText>
-            <MudStack Spacing="1" Class="mb-4">
-                @foreach (var member in _members)
-                {
-                    <MudStack Row="true" AlignItems="AlignItems.Center">
-                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
-                        <MudText Typo="Typo.body2" Style="flex: 1;">@member.User.DisplayName</MudText>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
-                                       OnClick="@(() => RemoveMember(member))" />
-                    </MudStack>
-                }
-            </MudStack>
-            <MudDivider Class="mb-4" />
-        }
+@* Phase 7 / Plan 07-02: "Manage members" dialog migrated to CbDialog slots.
+   Renders inside CbDialogHost; Title is supplied at ShowAsync call. *@
 
-        <MudSelect T="int" @bind-Value="_selectedUserId" Label="Add member"
-                   Variant="Variant.Outlined" Class="mb-2">
+<div>
+    @if (_members.Any())
+    {
+        <div style="font-size:11.5px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">
+            Current members
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+            @foreach (var member in _members)
+            {
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--cream-2);border-radius:8px;">
+                    <Icon Name="@Icon.Names.User" Size="14" />
+                    <span style="flex:1;font-size:13.5px;color:var(--ink-2);">@member.User.DisplayName</span>
+                    <button type="button"
+                            class="cb-btn ghost"
+                            style="padding:4px 8px;font-size:12px;"
+                            aria-label="@($"Remove {member.User.DisplayName}")"
+                            @onclick="@(() => RemoveMember(member))">
+                        <Icon Name="@Icon.Names.Trash" Size="13" />
+                    </button>
+                </div>
+            }
+        </div>
+        <div style="height:1px;background:var(--line);margin:0 0 16px 0;"></div>
+    }
+
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+        <span>Add member</span>
+        <CbSelect TValue="int" @bind-Value="_selectedUserId" Disabled="@(!_availableUsers.Any())"
+                  Placeholder="@(_availableUsers.Any() ? null : "No users available")">
             @foreach (var user in _availableUsers)
             {
-                <MudSelectItem Value="@user.Id">@user.DisplayName</MudSelectItem>
+                <CbOption TValue="int" Value="@user.Id" Label="@user.DisplayName" />
             }
-        </MudSelect>
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Close">Close</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="AddMember"
-                   Disabled="@(_selectedUserId == 0)">Add</MudButton>
-    </DialogActions>
-</MudDialog>
+        </CbSelect>
+    </label>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Close">Close</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="AddMember"
+                  Disabled="@(_selectedUserId == 0)">Add</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
     [Parameter] public int PantryId { get; set; }
     [Parameter] public string PantryName { get; set; } = "";
     [Parameter] public int OwnerUserId { get; set; }
@@ -78,7 +87,7 @@
         if (_selectedUserId == 0) return;
 
         await PantryService.AddMemberAsync(PantryId, _selectedUserId);
-        Snackbar.Add("Member added!", Severity.Success);
+        Toast.Show("Member added!", CbToastSeverity.Success);
         await LoadMembers();
         StateHasChanged();
     }
@@ -86,10 +95,10 @@
     private async Task RemoveMember(PantryMember member)
     {
         await PantryService.RemoveMemberAsync(PantryId, member.UserId);
-        Snackbar.Add("Member removed.", Severity.Info);
+        Toast.Show("Member removed.", CbToastSeverity.Info);
         await LoadMembers();
         StateHasChanged();
     }
 
-    private void Close() => MudDialog.Close();
+    private void Close() => DialogInstance?.Close(CbDialogResult.Ok(true));
 }

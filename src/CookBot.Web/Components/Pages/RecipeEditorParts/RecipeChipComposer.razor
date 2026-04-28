@@ -1,0 +1,422 @@
+@*  RecipeChipComposer — Phase 6 / Plan 06-04 / ED-03 / ED-09 (absorbs v1.1 EDITOR-01 / EDITOR-07).
+    Custom Razor rewrite against Phase 5 atoms + recipe-chip-composer.js interop.
+
+    Authors a step's chip-aware text editor. Tokenizes Text into [name](#id) link tokens
+    (rendered as <IngredientChip>) and plain text segments (rendered as
+    contenteditable=plaintext-only spans). The JS interop binds input + keydown listeners
+    on each segment span (IDs of the form "{composerId}-seg-{segmentIndex}") so .NET sees
+    every keystroke (OnSegmentInputFromJs) and Backspace at offset 0 deletes the prior
+    chip (OnSegmentKeyDownFromJs — ED-09 keyboard a11y).
+
+    JS-interop fallback (D-D4 / Phase 6 hard invariant): if recipe-chip-composer.js fails
+    to load (ping does not return "ok"), the composer falls back to a plain CbTextarea
+    showing the raw [name](#id) markdown — the recipe still saves correctly.
+
+    Phase 6 hard invariant: zero Mud* components. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Application.Recipes
+@using CookBot.Domain.Interfaces
+@using System.Text.RegularExpressions
+@using Microsoft.JSInterop
+@using CookBot.Web.Components.Atoms
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (_jsInteropAvailable && Interactive)
+{
+    <div class="chip-flow"
+         id="@_composerId"
+         style="position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:2px;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:15px;line-height:1.6;color:var(--ink);">
+        @{ var idx = 0; _renderTokens.Clear(); }
+        @foreach (var token in TokenizeText(Text))
+        {
+            if (token.IsChip)
+            {
+                <IngredientChip @key="@($"chip-{idx}-{token.StartIndex}")"
+                                DisplayName="@token.DisplayName"
+                                IngredientId="@token.IngredientId"
+                                IsResolved="@LookupResolved(token.IngredientId)"
+                                Interactive="true"
+                                OnRemove="@(EventCallback.Factory.Create(this, () => RemoveChip(token.StartIndex, token.Length)))"
+                                OnRequestReplace="@(EventCallback.Factory.Create<int>(this, _ => RequestReplace(token.StartIndex, token.Length)))" />
+            }
+            else
+            {
+                <span @key="@($"seg-{idx}-{token.StartIndex}")"
+                      id="@($"{_composerId}-seg-{idx}")"
+                      contenteditable="plaintext-only"
+                      style="outline:none;min-width:4px;display:inline-block;">@token.Text</span>
+            }
+            _renderTokens.Add((token.StartIndex, token.Length, token.IsChip));
+            idx++;
+        }
+        <button type="button"
+                class="cb-btn ghost"
+                style="padding:2px 8px;font-size:12.5px;height:24px;border-radius:999px;margin-left:6px;"
+                aria-label="Insert ingredient"
+                @onclick="OpenInsertPicker">
+            <Icon Name="@Icon.Names.Plus" Size="12" /> ingredient
+        </button>
+    </div>
+
+    @if (_pickerVisible)
+    {
+        <div role="dialog"
+             aria-label="Pick ingredient"
+             class="cb-card"
+             style="position:absolute;left:@($"{_pickerX}px");top:@($"{_pickerY + 12}px");z-index:1300;min-width:260px;padding:10px;box-shadow:0 8px 24px rgba(60,42,18,0.18);">
+            <input type="text"
+                   class="cb-input"
+                   placeholder="Search ingredients..."
+                   value="@_pickerSearch"
+                   style="font-size:13px;padding:6px 10px;margin-bottom:6px;width:100%;"
+                   @oninput="OnPickerSearchInput"
+                   @onkeydown="OnPickerKeyDown"
+                   @onkeydown:stopPropagation="true" />
+            <div role="listbox" style="max-height:240px;overflow-y:auto;">
+                @{
+                    var matches = FilterMatches(_pickerSearch);
+                }
+                @if (matches.Count == 0)
+                {
+                    <div style="padding:8px 10px;color:var(--ink-3);font-size:13px;">No ingredients match.</div>
+                }
+                else
+                {
+                    @for (var i = 0; i < matches.Count; i++)
+                    {
+                        var ing = matches[i];
+                        var localIndex = i;
+                        var selected = localIndex == _pickerHighlight;
+                        <button type="button"
+                                role="option"
+                                aria-selected="@selected"
+                                class="cb-row @(selected ? "active" : string.Empty)"
+                                style="width:100%;text-align:left;border:0;background:@(selected ? "var(--accent-soft)" : "transparent");color:@(selected ? "var(--accent-ink)" : "var(--ink-2)");padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;"
+                                @onclick="@(() => OnIngredientSelected(ing))">
+                            @ing.Name
+                            <span style="color:var(--ink-4);font-size:12px;margin-left:6px;">#@ing.LocalId</span>
+                        </button>
+                    }
+                }
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                <button type="button"
+                        class="cb-btn ghost"
+                        style="font-size:12px;padding:4px 8px;"
+                        @onclick="ClosePicker">Cancel</button>
+            </div>
+        </div>
+    }
+}
+else if (_jsInteropAvailable && !Interactive)
+{
+    @* Cooking-mode read-only render: chips visual-only; click fires OnIngredientChipClick. *@
+    <div class="chip-flow" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:2px;line-height:1.6;font-size:15px;color:var(--ink-2);">
+        @{ var idx2 = 0; }
+        @foreach (var token in TokenizeText(Text))
+        {
+            if (token.IsChip)
+            {
+                <IngredientChip @key="@($"rochip-{idx2}-{token.StartIndex}")"
+                                DisplayName="@token.DisplayName"
+                                IngredientId="@token.IngredientId"
+                                IsResolved="@LookupResolved(token.IngredientId)"
+                                Interactive="false"
+                                OnRemove="EventCallback.Empty"
+                                OnRequestReplace="@(EventCallback.Factory.Create<int>(this, id => InvokeIngredientChipClick(id)))" />
+            }
+            else
+            {
+                <span @key="@($"roseg-{idx2}-{token.StartIndex}")">@token.Text</span>
+            }
+            idx2++;
+        }
+    </div>
+}
+else
+{
+    @* JS-interop fallback (D-D4): plain textarea editing the [name](#id) markdown directly.
+       Recipe still saves correctly; chips just render as visible link text. *@
+    <CbTextarea Value="@Text"
+                ValueChanged="OnTextChanged"
+                Rows="3"
+                Placeholder="Step instructions" />
+}
+
+@code {
+    [Parameter] public bool Interactive { get; set; } = true;
+    [Parameter] public string Text { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> TextChanged { get; set; }
+    [Parameter] public IReadOnlyList<ParsedIngredient> Ingredients { get; set; } = Array.Empty<ParsedIngredient>();
+    [Parameter] public EventCallback<int> OnIngredientChipClick { get; set; }
+
+    private bool _jsInteropAvailable;
+    private bool _pickerVisible;
+    private string _pickerSearch = string.Empty;
+    private int _pickerHighlight;
+    private double _pickerX;
+    private double _pickerY;
+    private readonly string _composerId = $"composer-{Guid.NewGuid():N}";
+    private (int Start, int Length)? _pendingReplace;
+    private DotNetObjectReference<RecipeChipComposer>? _dotNetRef;
+    private readonly List<int> _boundSegmentElementIndexes = new();
+    // Per-render snapshot indexed by segmentIndex (0-based, in render order — chips + segments).
+    private readonly List<(int Start, int Length, bool IsChip)> _renderTokens = new();
+
+    public sealed record StepToken(int StartIndex, int Length, bool IsChip, string Text, string DisplayName = "", int IngredientId = 0);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var pong = await JS.InvokeAsync<string>("RecipeChipComposer.ping");
+                _jsInteropAvailable = pong == "ok";
+            }
+            catch (JSException) { _jsInteropAvailable = false; }
+            catch (JSDisconnectedException) { _jsInteropAvailable = false; }
+            catch (TaskCanceledException) { _jsInteropAvailable = false; }
+            StateHasChanged();
+            return; // first render rebinds happen on the next render after StateHasChanged
+        }
+
+        if (!_jsInteropAvailable || !Interactive) return;
+
+        // Rebind: detach prior, attach to current segment elements.
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        try
+        {
+            // Unbind any prior segment elements (idempotent).
+            foreach (var prior in _boundSegmentElementIndexes.ToList())
+            {
+                try { await JS.InvokeVoidAsync("RecipeChipComposer.unbindSegmentEvents", $"{_composerId}-seg-{prior}"); }
+                catch (JSDisconnectedException) { return; }
+                catch (JSException) { /* element gone — fine */ }
+            }
+            _boundSegmentElementIndexes.Clear();
+
+            for (int i = 0; i < _renderTokens.Count; i++)
+            {
+                if (_renderTokens[i].IsChip) continue;
+                try
+                {
+                    await JS.InvokeVoidAsync("RecipeChipComposer.bindSegmentEvents", $"{_composerId}-seg-{i}", _dotNetRef, i);
+                    _boundSegmentElementIndexes.Add(i);
+                }
+                catch (JSException) { /* ignore — segment may not exist this render */ }
+            }
+        }
+        catch (JSDisconnectedException) { /* circuit lost — fail-soft */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_dotNetRef != null)
+        {
+            try
+            {
+                foreach (var i in _boundSegmentElementIndexes)
+                    await JS.InvokeVoidAsync("RecipeChipComposer.unbindSegmentEvents", $"{_composerId}-seg-{i}");
+            }
+            catch (JSDisconnectedException) { /* circuit gone */ }
+            catch (JSException) { /* fine */ }
+            _dotNetRef.Dispose();
+            _dotNetRef = null;
+        }
+    }
+
+    // Internal helpers used by bUnit-style scaffolding (preserved from v1.1 D-A1 invariant tests).
+    internal string SimulateInsertChip(ParsedIngredient ing, int caretIndex, int partialAtTokenLength)
+    {
+        var chipMarkdown = $"[{ing.Name}](#{ing.LocalId})";
+        var startReplace = Math.Max(0, caretIndex - partialAtTokenLength);
+        Text = Text.Substring(0, startReplace) + chipMarkdown + Text.Substring(caretIndex);
+        return Text;
+    }
+
+    internal Task SimulateAtTriggerSelectionAsync(ParsedIngredient ing, int caretIndex, int partialAtTokenLength)
+    {
+        var newText = SimulateInsertChip(ing, caretIndex, partialAtTokenLength);
+        return OnTextChanged(newText);
+    }
+
+    internal Task SimulateButtonInsertionAsync(ParsedIngredient ing, int caretIndex)
+        => SimulateAtTriggerSelectionAsync(ing, caretIndex, partialAtTokenLength: 0);
+
+    private IEnumerable<StepToken> TokenizeText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            yield return new StepToken(0, 0, IsChip: false, Text: "");
+            yield break;
+        }
+        var last = 0;
+        foreach (Match m in IngredientLinkPatterns.Pattern.Matches(text))
+        {
+            if (m.Index > last)
+                yield return new StepToken(last, m.Index - last, IsChip: false, Text: text.Substring(last, m.Index - last));
+            var id = int.Parse(m.Groups[2].Value);
+            yield return new StepToken(m.Index, m.Length, IsChip: true,
+                Text: m.Value, DisplayName: m.Groups[1].Value, IngredientId: id);
+            last = m.Index + m.Length;
+        }
+        if (last < text.Length)
+            yield return new StepToken(last, text.Length - last, IsChip: false, Text: text.Substring(last));
+    }
+
+    private bool LookupResolved(int id) => Ingredients.Any(i => i.LocalId == id);
+
+    private async Task OnTextChanged(string? newText)
+    {
+        Text = newText ?? string.Empty;
+        if (TextChanged.HasDelegate) await TextChanged.InvokeAsync(Text);
+    }
+
+    private async Task RemoveChip(int start, int length)
+    {
+        await OnTextChanged(Text.Substring(0, start) + Text.Substring(start + length));
+    }
+
+    private Task RequestReplace(int start, int length)
+    {
+        _pickerVisible = true;
+        _pendingReplace = (start, length);
+        _pickerSearch = string.Empty;
+        _pickerHighlight = 0;
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenInsertPicker()
+    {
+        _pendingReplace = null;
+        _pickerSearch = string.Empty;
+        _pickerHighlight = 0;
+        try
+        {
+            var coords = await JS.InvokeAsync<Dictionary<string, double>?>("RecipeChipComposer.getCaretCoords", _composerId);
+            if (coords != null)
+            {
+                _pickerX = coords.GetValueOrDefault("x");
+                _pickerY = coords.GetValueOrDefault("y");
+            }
+        }
+        catch (JSDisconnectedException) { /* graceful */ }
+        catch (JSException) { /* graceful */ }
+        _pickerVisible = true;
+    }
+
+    private void ClosePicker()
+    {
+        _pickerVisible = false;
+        _pendingReplace = null;
+        _pickerSearch = string.Empty;
+        _pickerHighlight = 0;
+    }
+
+    private void OnPickerSearchInput(ChangeEventArgs e)
+    {
+        _pickerSearch = e.Value as string ?? string.Empty;
+        _pickerHighlight = 0;
+    }
+
+    private async Task OnPickerKeyDown(KeyboardEventArgs e)
+    {
+        var matches = FilterMatches(_pickerSearch);
+        if (e.Key == "ArrowDown")
+        {
+            _pickerHighlight = Math.Min(_pickerHighlight + 1, Math.Max(0, matches.Count - 1));
+        }
+        else if (e.Key == "ArrowUp")
+        {
+            _pickerHighlight = Math.Max(_pickerHighlight - 1, 0);
+        }
+        else if (e.Key == "Enter")
+        {
+            if (matches.Count > 0 && _pickerHighlight < matches.Count)
+                await OnIngredientSelected(matches[_pickerHighlight]);
+        }
+        else if (e.Key == "Escape")
+        {
+            ClosePicker();
+        }
+    }
+
+    private List<ParsedIngredient> FilterMatches(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Ingredients.Take(10).ToList();
+        var v = value.ToLowerInvariant();
+        return Ingredients
+            .Where(i => i.Name.ToLowerInvariant().Contains(v))
+            .Take(10)
+            .ToList();
+    }
+
+    private async Task OnIngredientSelected(ParsedIngredient? ing)
+    {
+        if (ing == null)
+        {
+            ClosePicker();
+            return;
+        }
+        if (_pendingReplace is { } range)
+        {
+            var newText = Text.Substring(0, range.Start)
+                          + $"[{ing.Name}](#{ing.LocalId})"
+                          + Text.Substring(range.Start + range.Length);
+            await OnTextChanged(newText);
+        }
+        else
+        {
+            // Insert-button path: append at end with leading space if needed.
+            var newText = (Text.Length > 0 && !Text.EndsWith(' ') ? Text + " " : Text) + $"[{ing.Name}](#{ing.LocalId})";
+            await OnTextChanged(newText);
+        }
+        ClosePicker();
+    }
+
+    [JSInvokable]
+    public async Task OnSegmentInputFromJs(int segmentIndex, string newSegmentText)
+    {
+        if (segmentIndex < 0 || segmentIndex >= _renderTokens.Count) return;
+        var token = _renderTokens[segmentIndex];
+        if (token.IsChip) return; // defensive — segment events only fire on segment spans
+        var safe = newSegmentText ?? string.Empty;
+        var newText = Text.Substring(0, token.Start) + safe + Text.Substring(token.Start + token.Length);
+        await OnTextChanged(newText);
+    }
+
+    // ED-09 keyboard a11y: Backspace at offset 0 of a text segment immediately after a chip
+    // removes the chip. Returns true so JS calls preventDefault.
+    [JSInvokable]
+    public async Task<bool> OnSegmentKeyDownFromJs(int segmentIndex, string key, int caretOffset)
+    {
+        if (segmentIndex < 0 || segmentIndex >= _renderTokens.Count) return false;
+
+        if (key == "Backspace" && caretOffset == 0 && segmentIndex > 0)
+        {
+            var prior = _renderTokens[segmentIndex - 1];
+            if (prior.IsChip)
+            {
+                await RemoveChip(prior.Start, prior.Length);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task InvokeIngredientChipClick(int ingredientId)
+    {
+        try
+        {
+            await JS.InvokeAsync<bool>("RecipeChipComposer.scrollIntoViewWithHighlight", $"ingredient-{ingredientId}");
+        }
+        catch (JSDisconnectedException) { /* graceful */ }
+        catch (JSException) { /* graceful */ }
+        if (OnIngredientChipClick.HasDelegate)
+            await OnIngredientChipClick.InvokeAsync(ingredientId);
+    }
+}

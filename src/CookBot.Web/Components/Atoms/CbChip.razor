@@ -1,0 +1,38 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* CbChip — Phase 5 / ATOM-02 / D-11.
+   Renders <span class="cb-chip {variant}"> with optional Icon and Label/ChildContent.
+   Variants: Default (cocoa-soft), Timer (accent-soft), Ing (cream-2), Tag (transparent + border). *@
+
+<span class="@ClassAttr">
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <Icon Name="@Icon" Size="12" />
+    }
+    @if (ChildContent != null)
+    {
+        @ChildContent
+    }
+    else
+    {
+        @Label
+    }
+</span>
+
+@code {
+    public enum CbChipVariant { Default, Timer, Ing, Tag }
+
+    [Parameter] public CbChipVariant Variant { get; set; } = CbChipVariant.Default;
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string ClassAttr => Variant switch
+    {
+        CbChipVariant.Default => "cb-chip",
+        CbChipVariant.Timer   => "cb-chip timer",
+        CbChipVariant.Ing     => "cb-chip ing",
+        CbChipVariant.Tag     => "cb-chip tag",
+        _                      => "cb-chip"
+    };
+}

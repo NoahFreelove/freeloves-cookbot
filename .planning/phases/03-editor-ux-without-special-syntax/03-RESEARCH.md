@@ -1072,24 +1072,28 @@ CONTEXT.md confirms `nyquist_validation: false` in `.planning/config.json`. [VER
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Range-timer persistence (lowest, midpoint, or upper)?**
+   - **RESOLVED:** Lowest-bound persistence locked. Implemented in Plan 03 Task 1 (`TimerDetectionService.ParseRangeToSeconds`), tested in `TimerDetectionServiceRegexTests.Range_PersistsLowestBound`.
    - What we know: CONTEXT.md says broaden the regex but doesn't decide which value persists.
    - What's unclear: Cooking convention. Lowest = check at first-doneness; upper = total time budget.
    - Recommendation: Lowest (early "check it" is more useful than late "remove now"). Plan-phase locks this.
 
 2. **Drag handles on ingredient reorder (in addition to existing arrow buttons)?**
+   - **RESOLVED:** Deferred to Phase 4 polish / backlog. Phase 3 keeps the existing arrow-button reorder UX in `RecipeStepEditor.razor`; no DnD added. EDITOR-04 is satisfied by `id`-based chip rendering (Phase 1 D-06 immutable id flowing through Wave 1 chip composer), independent of reorder mechanism.
    - What we know: CONTEXT.md Claude's Discretion; Phase 1 D-06 locks `id` immutability.
    - What's unclear: Whether the planner adds DnD or defers.
    - Recommendation: Defer DnD to Phase 4 polish or backlog; arrow buttons are sufficient for EDITOR-04.
 
 3. **Should `RecipeStepTextFormatter.IngredientLinkPattern` be lifted to a shared `internal` location?**
+   - **RESOLVED:** Lifted to `CookBot.Application.Recipes.IngredientLinkPatterns` in Plan 01 Task 1; consumed by `RecipeStepTextFormatter`, `RecipeValidator`, `RecipeChipComposer`, and `RecipeStepEditor` (D-A4 / D-B2 reference-strip path). Marked `internal` with `[InternalsVisibleTo("CookBot.Web")]`.
    - What we know: It's `private static readonly` today; reused by `RecipeValidator.cs:15-17` (separately defined identical regex).
    - What's unclear: Whether pulling into a shared `IngredientLinkPatterns` static class is in-scope for Phase 3 or out-of-scope refactor.
    - Recommendation: In-scope for Phase 3 — small refactor, deduplicates the regex, makes the chip composer's tokenizer use the canonical pattern. ~20 LOC change in 2 files.
 
 4. **Where do new CSS rules live — `app.css` or scoped CSS files (`.razor.css`)?**
+   - **RESOLVED:** Stays in `wwwroot/app.css` per CONVENTIONS.md. Plan 01 Task 2 appends a `/* === Recipe Chip Composer === */` banner section with the chip / chip-suggestion / chip-highlight-pulse rules. No `.razor.css` files introduced.
    - What we know: CONVENTIONS.md says `app.css` is the only stylesheet; `.razor.css` is not used today.
    - What's unclear: Whether Phase 3 introduces scoped CSS (10+ rules across new components).
    - Recommendation: Stay with `app.css` to honor existing convention. Group Phase 3 rules under a `/* === Recipe Chip Composer === */` banner.

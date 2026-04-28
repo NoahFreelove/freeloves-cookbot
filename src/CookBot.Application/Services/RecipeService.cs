@@ -69,10 +69,15 @@ public class RecipeService
                 Order = order++,
                 Text = ps.Text,
                 IsSection = ps.IsSection,
-                Timers = ps.IsSection ? new() :
-                    (ps.Timers?.Any() == true
-                        ? ps.Timers.Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList()
-                        : TimerDetectionService.DetectTimers(ps.Text)),
+                Timers = ps.IsSection
+                    ? new()
+                    : (ps.Timers ?? new()).Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList(),
+                // Plan 03-04 / EDITOR-03 final clause: explicit timer chips are the only
+                // persisted source. The previous regex-based auto-write fallback (which
+                // silently produced timer entries from step text like "Cook 25 minutes")
+                // is removed — surfacing detections is now the inline-suggestion popover's
+                // job; persistence requires the user to accept a chip.
+                //
                 // Plan 01-02 / D-13: writes to RecipeStep.IngredientRefs are retired this
                 // milestone. The column persists for safe rollback; Phase 4 drops it.
                 // Cooking-mode highlighting now resolves [name](#id) links at render time.
@@ -136,10 +141,12 @@ public class RecipeService
                 Order = order++,
                 Text = ps.Text,
                 IsSection = ps.IsSection,
-                Timers = ps.IsSection ? new() :
-                    (ps.Timers?.Any() == true
-                        ? ps.Timers.Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList()
-                        : TimerDetectionService.DetectTimers(ps.Text)),
+                Timers = ps.IsSection
+                    ? new()
+                    : (ps.Timers ?? new()).Select(t => new StepTimer { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList(),
+                // Plan 03-04 / EDITOR-03 final clause: explicit timer chips only. See
+                // CreateAsync above for the full rationale.
+                //
                 // Plan 01-02 / D-13: writes to RecipeStep.IngredientRefs are retired this
                 // milestone. See comment in CreateAsync above.
             };

@@ -8,6 +8,19 @@ Self-hosted Blazor Server cooking and baking tracker that lets a small group of 
 
 A durable home for the recipes the user actually cooks, captured in **one standardized format** that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
+## Current Milestone: v1.2 UI Redesign
+
+**Goal:** Replace MudBlazor entirely with custom Razor components matching the Claude Design handoff bundle (`.planning/design-handoff/`) — warm cream / cocoa ink / dialed-back orange accent, Inter only, custom outline icons, striped photo placeholders, tabular numerals — across all 9 surfaces.
+
+**Status of v1.1 (Canonical Format & AI Conformance):** **Paused.** Phases 1 and 2 shipped. Phase 3 (Editor UX chip composer) and Phase 4 (per-step temperature + cleanup) are paused; the editor work is **absorbed** into v1.2's `RECIPE-EDITOR` requirements (we'll author the chip composer correctly in the new component system rather than build it twice in MudBlazor and then rewrite). FEATURE-V2-* and POLISH-03/04/05/07 carry forward to a future milestone (likely v1.3).
+
+**Target features:**
+- Foundation — strip MudBlazor; CSS design tokens; custom shell (`MainLayout` + `Sidebar` + `TopBar`); shared atoms (`CbButton`, `CbChip`, `CbCard`, `CbStat`, `CbEyebrow`, `StripedPlaceholder`, custom outline `Icons`); dialog/select/snackbar primitives
+- Marquee surfaces — Home dashboard (pantry-aware hero), Cooking Mode (tablet, adaptive timer/step hero, always-on ingredient rail), Recipe View (editorial), Recipe Editor (absorbs v1.1 Phase 3 chip composer)
+- Remaining surfaces — Cookbook list/detail, Pantry, Grocery list (mobile-first), AI Chat (streaming canvas), Prompt Builder, Profile + ~14 dialogs
+
+**Carry-forward constraints from v1.1:** AI-off toggle hides all AI surfaces (existing per-user `UserProfile.AiEnabled`); recipe-related screens round-trip the canonical `RecipeDocument` from v1.1 Phases 1/2; no new top-level deps beyond what's needed (no React, no Tailwind — pure Razor + CSS).
+
 ## Requirements
 
 ### Validated
@@ -42,8 +55,14 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 - [ ] **Recipe-mode UX without special syntax** — users author and edit recipes (including ingredient references and timers) without ever typing `[name](#id)`, picking between `text:` vs `section:`, or formatting YAML by hand
 - [ ] **Single canonical, versioned recipe format** — one schema is the source of truth across the AI prompt, the YAML wire format, the JSON export, and the DB representation; the format carries an explicit `version` and supports forward-compatible evolution
 - [x] **AI chat reliably emits the canonical format** — Validated in Phase 2: AI Structured Output & Conformance. Anthropic's structured-output transport (`SendStructuredAsync<T>`) emits canonical recipes via `output_config.format`; a 2-retry repair loop bounds validation failures; SecretRedactor strips API keys from error surfaces; PromptInjectionGuard wraps recipe content in `<recipe>` tags. AI-09 (consent banner) deferred to FUTURE-12; AI-08-AUDIT (Markdig DisableHtml lockdown) shipped as the technical replacement.
-- [ ] **Format-driven new features** — once the format is canonical, add at least one new field/capability that exercises versioning (candidates: per-step temperature, ingredient substitutions, expiration dates, nutrition, equipment requirements) — exact list locked during requirements step
-- [ ] **General usability improvements** — friction items surfaced in the codebase concerns audit and from the user's own use, scoped during requirements step (candidates: better paste-raw-text affordances, smarter timer detection, scaling-aware timing notes, recipe-from-AI save flow polish)
+- [→] **Format-driven new features** — paused with v1.1; per-step temperature (FEATURE-V2-*) deferred to v1.3+ — see "Future Requirements" in REQUIREMENTS.md
+- [→] **General usability improvements** — paused with v1.1
+- [ ] **UI redesign — replace MudBlazor wholesale** (v1.2) — strip MudBlazor, build custom Razor components against the design handoff at `.planning/design-handoff/`; warm-cream identity tightened with Inter typography, custom outline icons, striped photo placeholders, tabular numerals
+- [ ] **Adaptive Cooking Mode** (v1.2) — tablet-optimized; timer-as-hero when running, step-as-hero when idle; always-on right rail with this-step ingredient highlighting
+- [ ] **Editorial Recipe View** (v1.2) — display-weight title, hanging accent numerals on steps, sticky scaled-ingredient sidebar, "Notes from your last cook" callout
+- [ ] **AI Chat as live recipe canvas** (v1.2) — left-rail conversation + right canvas where streaming text builds a recipe card live; "save to cookbook" affordance is the canvas itself, not a button buried in chat
+- [ ] **Pantry-aware Home dashboard** (v1.2) — leads with "Tonight from your pantry" matching surface; counters demoted to a glance strip with delta sub-text; "Recently cooked" + "Up next" cards
+- [ ] **Editor chip composer in new component system** (v1.2; absorbs v1.1 EDITOR-01..07) — author the chip composer correctly the first time in custom Razor, not in MudBlazor and then again
 
 ### Out of Scope
 
@@ -112,6 +131,9 @@ The AI is taught only the YAML form. Round-tripping export → import → AI pro
 | QuestPDF community license for cookbook PDF export | Free, GPL-compatible, server-side render | ✓ Good |
 | `CookbookTransferDocument.SchemaVersion = 1` | Acknowledged versioning need on the JSON export | ⚠️ Revisit — YAML format has no version field at all |
 | Identity middleware deferred | Designed for trusted LAN; complexity not justified yet | — Pending |
+| **v1.2: Replace MudBlazor entirely** | Visual fidelity to the design handoff requires shapes (999px pill buttons, 64px display titles, 224px tabular timer, hanging accent numerals, custom outline icons) that MudBlazor would only approximate; once you skin enough of MudBlazor you've fought it more than you've used it. Pure Razor + CSS is simpler than CSS overrides on every Mud component. | — Pending (v1.2) |
+| **v1.2: Pause v1.1 mid-flight; absorb Phase 3 into v1.2** | The chip composer (v1.1 Phase 3) is being built in MudBlazor right now — replacing MudBlazor wholesale would require rewriting it. Cheaper to author it once in the new component system. Phase 4 (per-step temperature) is real domain work and carries forward to v1.3+. | — Pending (v1.2) |
+| **v1.2: Skip the milestone research step** | The Claude Design handoff bundle (chats + 9 fully-specified screens + design system tokens in `styles.css`) already encodes stack/features/architecture/pitfalls. Spawning 4 parallel researchers would duplicate work. | — Logged (v1.2 milestone start) |
 
 ## Evolution
 
@@ -131,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state (users, feedback, metrics)
 
 ---
-*Last updated: 2026-04-26 after Phase 2 completion (AI Structured Output & Conformance)*
+*Last updated: 2026-04-27 — v1.2 UI Redesign milestone started; v1.1 paused after Phase 2*

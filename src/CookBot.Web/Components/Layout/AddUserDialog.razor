@@ -1,22 +1,26 @@
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Add New User</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudTextField @bind-Value="_name" Label="Display Name" Variant="Variant.Outlined"
-                      Required="true" RequiredError="Name is required" Class="mt-2" />
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
-                   Disabled="@string.IsNullOrWhiteSpace(_name)">Add</MudButton>
-    </DialogActions>
-</MudDialog>
+@* Phase 7 / Plan 07-05: AddUserDialog migrated to CbDialog slots (D-27 pattern —
+   no <CbDialog> wrapper; CbDialogHost wraps the content automatically and pulls
+   the Title from the ShowAsync arg). Returns the entered display name via
+   CbDialogResult.Ok(string) on submit; Cancel() on dismiss. *@
+
+<div>
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+        <span>Display name</span>
+        <CbInput @bind-Value="_name" Placeholder="e.g. Aoife" />
+    </label>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Submit"
+                  Disabled="@string.IsNullOrWhiteSpace(_name)">Add</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
+
     private string _name = string.Empty;
 
-    private void Cancel() => MudDialog.Cancel();
-    private void Submit() => MudDialog.Close(DialogResult.Ok(_name));
+    private void Cancel() => DialogInstance?.Cancel();
+    private void Submit() => DialogInstance?.Close(CbDialogResult.Ok(_name.Trim()));
 }

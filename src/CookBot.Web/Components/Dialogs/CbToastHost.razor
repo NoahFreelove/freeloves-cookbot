@@ -1,0 +1,83 @@
+@namespace CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@inject ICbToastService ToastService
+@implements IDisposable
+
+@* CbToastHost — Phase 5 / Plan 05-04 / DIALOG-03 / D-25.
+   Subscribes to ICbToastService.OnToast; renders a bottom-right stack of up to
+   3 toasts (T-05-04-03 mitigation: hard cap prevents toast-spam OOM). Each toast
+   auto-fades after LifetimeMs (5000 ms). Singleton service event is marshaled
+   onto the renderer sync context via InvokeAsync — _toasts/_timers touched only
+   inside InvokeAsync callbacks (T-05-04-06 mitigation). *@
+
+@* A11Y-03 (Plan 07-06): role="status" + aria-live="polite" announces toast
+   messages to assistive tech without stealing focus. aria-atomic="false" lets
+   each individual toast read out independently as it joins the stack. *@
+<div class="cb-toast-host" role="status" aria-live="polite" aria-atomic="false">
+    @foreach (var t in _toasts)
+    {
+        <div @key="t.Id" class="cb-toast @SeverityClass(t.Severity)">@t.Message</div>
+    }
+</div>
+
+@code {
+    private const int MaxStacked = 3;
+    private const int LifetimeMs = 5000;
+
+    private readonly List<CbToastMessage> _toasts = new();
+    private readonly Dictionary<Guid, CancellationTokenSource> _timers = new();
+
+    protected override void OnInitialized()
+    {
+        ToastService.OnToast += HandleToast;
+    }
+
+    private void HandleToast(CbToastMessage msg)
+    {
+        // Marshal onto renderer sync context so list/dictionary mutations are serialized.
+        _ = InvokeAsync(() =>
+        {
+            _toasts.Add(msg);
+            while (_toasts.Count > MaxStacked)
+            {
+                var dropped = _toasts[0];
+                _toasts.RemoveAt(0);
+                if (_timers.TryGetValue(dropped.Id, out var droppedCts))
+                {
+                    droppedCts.Cancel();
+                    _timers.Remove(dropped.Id);
+                }
+            }
+
+            var cts = new CancellationTokenSource();
+            _timers[msg.Id] = cts;
+            _ = Task.Delay(LifetimeMs, cts.Token).ContinueWith(_ =>
+            {
+                if (cts.IsCancellationRequested) return;
+                _ = InvokeAsync(() =>
+                {
+                    _toasts.RemoveAll(x => x.Id == msg.Id);
+                    _timers.Remove(msg.Id);
+                    StateHasChanged();
+                });
+            }, TaskScheduler.Default);
+
+            StateHasChanged();
+        });
+    }
+
+    private static string SeverityClass(CbToastSeverity s) => s switch
+    {
+        CbToastSeverity.Success => "success",
+        CbToastSeverity.Error   => "error",
+        CbToastSeverity.Warning => "warning",
+        _                        => "info"
+    };
+
+    public void Dispose()
+    {
+        ToastService.OnToast -= HandleToast;
+        foreach (var cts in _timers.Values) cts.Cancel();
+        _timers.Clear();
+    }
+}

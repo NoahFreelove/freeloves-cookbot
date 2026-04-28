@@ -2,115 +2,163 @@
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inject ICbDialogService CbDialogService
+@inject ICbToastService Toast
 @inject CookbookTransferService TransferService
 @inject CookbookPdfService PdfService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
+@* Phase 7 / Plan 07-01 / CB-02.
+   Custom Razor rewrite against Phase 5 atoms. Hero with cookbook title +
+   member chips + share/PDF/export action row + (when owner) edit / delete /
+   new-recipe actions. Recipe list with thumbnail (StripedPlaceholder 80×80) +
+   name + meta. QuestPDF export through CookbookPdfService is preserved.
+   Phase 7 hard invariant: zero Mud* symbols in this file. *@
+
 <PageTitle>CookBot - @(_cookbook?.Name ?? "Cookbook")</PageTitle>
 
 <UserGuard>
-@if (_cookbook != null)
-{
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" />
-        <MudText Typo="Typo.h4" Style="font-weight: 600;">@_cookbook.Name</MudText>
-        @if (_isReadOnly)
-        {
-            <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined" Class="ml-2">
-                Read Only
-            </MudChip>
-            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="ml-2">
-                Shared by @_cookbook.User.DisplayName
-            </MudText>
-        }
-        <MudSpacer />
-        <MudMenu Icon="@Icons.Material.Filled.MoreVert" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
-                 AriaLabel="Cookbook actions">
-            <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="DownloadPdfAsync" Disabled="_exportBusy">
-                Download PDF
-            </MudMenuItem>
-            <MudMenuItem Icon="@Icons.Material.Filled.DataObject" OnClick="DownloadJsonAsync" Disabled="_exportBusy">
-                Download JSON
-            </MudMenuItem>
-        </MudMenu>
-        @if (!_isReadOnly)
-        {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="NewRecipe">
-                New Recipe
-            </MudButton>
-        }
-    </MudStack>
-
-    @if (!string.IsNullOrEmpty(_cookbook.Description))
+    @if (_cookbook != null)
     {
-        <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">@_cookbook.Description</MudText>
-    }
+        <div style="max-width:1080px;">
 
-    @if (_cookbook.Recipes.Any())
-    {
-        <MudGrid>
-            @foreach (var recipe in _cookbook.Recipes.OrderByDescending(r => r.UpdatedAt))
+            @* ── Back link ─────────────────────────────────────────────────── *@
+            <div style="margin-bottom:18px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.ArrowL" OnClick="GoBack">
+                    All cookbooks
+                </CbButton>
+            </div>
+
+            @* ── Hero ──────────────────────────────────────────────────────── *@
+            <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:280px;">
+                    <CbEyebrow>Cookbook</CbEyebrow>
+                    <h1 style="font-size:36px;letter-spacing:-0.025em;line-height:1.05;margin:6px 0 10px 0;">@_cookbook.Name</h1>
+
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        @if (_isReadOnly)
+                        {
+                            <CbChip Variant="CbChip.CbChipVariant.Tag" Label="read only" />
+                            <span style="font-size:13px;color:var(--ink-3);">Shared by @_cookbook.User.DisplayName</span>
+                        }
+                        else
+                        {
+                            @foreach (var share in _cookbook.Shares)
+                            {
+                                <CbChip Variant="CbChip.CbChipVariant.Default" Icon="@Icon.Names.User"
+                                        Label="@(share.SharedWithUser?.DisplayName ?? $"User {share.SharedWithUserId}")" />
+                            }
+                            @if (!_cookbook.Shares.Any())
+                            {
+                                <span style="font-size:13px;color:var(--ink-3);">Private</span>
+                            }
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_cookbook.Description))
+                    {
+                        <p style="color:var(--ink-3);font-size:14.5px;line-height:1.55;margin:14px 0 0 0;max-width:640px;">@_cookbook.Description</p>
+                    }
+                </div>
+
+                @* Actions *@
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    @if (!_isReadOnly)
+                    {
+                        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Share" OnClick="OpenShareDialog">
+                            Share
+                        </CbButton>
+                    }
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Download" OnClick="DownloadPdfAsync" Disabled="_exportBusy">
+                        PDF
+                    </CbButton>
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Save" OnClick="DownloadJsonAsync" Disabled="_exportBusy">
+                        JSON
+                    </CbButton>
+                    @if (!_isReadOnly)
+                    {
+                        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Pencil" OnClick="ShowEditDialog">
+                            Rename
+                        </CbButton>
+                        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Trash" OnClick="DeleteCookbook">
+                            Delete
+                        </CbButton>
+                        <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Plus" OnClick="NewRecipe">
+                            New recipe
+                        </CbButton>
+                    }
+                </div>
+            </div>
+
+            @* ── Recipe list ──────────────────────────────────────────────── *@
+            @if (_cookbook.Recipes.Any())
             {
-                var recipeId = recipe.Id;
-                <MudItem xs="12" sm="6" md="4">
-                    <MudCard Elevation="2" Style="border-radius: 12px; cursor: pointer;"
-                             @onclick="() => ViewRecipe(recipeId)">
-                        <MudCardHeader>
-                            <CardHeaderContent>
-                                <MudText Typo="Typo.h6">@recipe.Name</MudText>
-                            </CardHeaderContent>
-                            <CardHeaderActions>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                    @foreach (var recipe in _cookbook.Recipes.OrderByDescending(r => r.UpdatedAt))
+                    {
+                        var recipeId = recipe.Id;
+                        <div @key="recipeId"
+                             role="button" tabindex="0"
+                             class="cb-card"
+                             style="cursor:pointer;display:flex;align-items:center;gap:16px;padding:14px 18px;"
+                             @onclick="() => ViewRecipe(recipeId)"
+                             @onkeydown="@(e => OnRowKeyDown(e, recipeId))">
+
+                            <StripedPlaceholder Width="80" Height="80" BorderRadius="8" Label="" />
+
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:16px;font-weight:600;letter-spacing:-0.015em;margin-bottom:6px;">@recipe.Name</div>
+                                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
+                                    @if (recipe.PrepTimeMinutes.HasValue)
+                                    {
+                                        <CbChip Variant="CbChip.CbChipVariant.Default" Icon="@Icon.Names.Clock"
+                                                Label="@($"prep {recipe.PrepTimeMinutes}m")" />
+                                    }
+                                    @if (recipe.CookTimeMinutes.HasValue)
+                                    {
+                                        <CbChip Variant="CbChip.CbChipVariant.Timer" Icon="@Icon.Names.Flame"
+                                                Label="@($"cook {recipe.CookTimeMinutes}m")" />
+                                    }
+                                    <CbChip Variant="CbChip.CbChipVariant.Ing"
+                                            Label="@($"{recipe.Servings} servings")" />
+                                </div>
+                            </div>
+
+                            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
+                                <span style="font-size:12px;color:var(--ink-3);">@FormatRecipeMeta(recipe)</span>
                                 @if (!_isReadOnly)
                                 {
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
-                                                   Size="Size.Small"
-                                                   OnClick="@(() => DeleteRecipe(recipe))" />
+                                    <button type="button" class="cb-btn ghost" style="padding:4px 8px;font-size:12px;"
+                                            aria-label="@($"Delete {recipe.Name}")"
+                                            @onclick:stopPropagation="true"
+                                            @onclick="@(() => DeleteRecipe(recipe))">
+                                        <Icon Name="@Icon.Names.Trash" Size="14" />
+                                    </button>
                                 }
-                            </CardHeaderActions>
-                        </MudCardHeader>
-                        <MudCardContent>
-                            <MudStack Row="true" Spacing="2">
-                                @if (recipe.PrepTimeMinutes.HasValue)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">
-                                        Prep: @(recipe.PrepTimeMinutes)m
-                                    </MudChip>
-                                }
-                                @if (recipe.CookTimeMinutes.HasValue)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Text">
-                                        Cook: @(recipe.CookTimeMinutes)m
-                                    </MudChip>
-                                }
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
-                                    @recipe.Servings servings
-                                </MudChip>
-                            </MudStack>
-                        </MudCardContent>
-                    </MudCard>
-                </MudItem>
+                            </div>
+                        </div>
+                    }
+                </div>
             }
-        </MudGrid>
+            else
+            {
+                <CbCard Padding="48" Style="text-align:center;">
+                    <Icon Name="@Icon.Names.Book" Size="40" />
+                    <h3 style="font-size:18px;margin:14px 0 6px 0;">No recipes yet</h3>
+                    <p style="color:var(--ink-3);font-size:13.5px;margin:0;">
+                        @(_isReadOnly ? "The owner hasn't added any recipes yet." : "Add your first recipe to this cookbook.")
+                    </p>
+                </CbCard>
+            }
+        </div>
     }
-    else
+    else if (_loaded)
     {
-        <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
-            <MudIcon Icon="@Icons.Material.Filled.Restaurant" Size="Size.Large" Color="Color.Secondary" />
-            <MudText Typo="Typo.h6" Class="mt-4">No recipes yet</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                @(_isReadOnly ? "The owner hasn't added any recipes yet." : "Add your first recipe to this cookbook.")
-            </MudText>
-        </MudPaper>
+        <CbCard Padding="40" Style="text-align:center;">
+            <p style="font-size:14.5px;color:var(--ink-2);margin:0;">Cookbook not found.</p>
+        </CbCard>
     }
-}
-else if (_loaded)
-{
-    <MudText>Cookbook not found.</MudText>
-}
 </UserGuard>
 
 @code {
@@ -130,28 +178,46 @@ else if (_loaded)
         if (_loadedUserId != userId)
         {
             _loadedUserId = userId;
-            _cookbook = await DbContext.Cookbooks
-                .Include(c => c.Recipes)
-                .Include(c => c.User)
-                .Include(c => c.Shares)
-                .FirstOrDefaultAsync(c => c.Id == CookbookId);
-
-            if (_cookbook != null)
-            {
-                var isOwner = _cookbook.UserId == userId;
-                var isShared = _cookbook.Shares.Any(s => s.SharedWithUserId == userId);
-                if (!isOwner && !isShared)
-                {
-                    _cookbook = null;
-                }
-                else
-                {
-                    _isReadOnly = !isOwner;
-                }
-            }
-
-            _loaded = true;
+            await LoadCookbookAsync(userId);
             StateHasChanged();
+        }
+    }
+
+    private async Task LoadCookbookAsync(int userId)
+    {
+        _cookbook = await DbContext.Cookbooks
+            .Include(c => c.Recipes)
+            .Include(c => c.User)
+            .Include(c => c.Shares).ThenInclude(s => s.SharedWithUser)
+            .FirstOrDefaultAsync(c => c.Id == CookbookId);
+
+        if (_cookbook != null)
+        {
+            var isOwner = _cookbook.UserId == userId;
+            var isShared = _cookbook.Shares.Any(s => s.SharedWithUserId == userId);
+            if (!isOwner && !isShared)
+            {
+                _cookbook = null;
+            }
+            else
+            {
+                _isReadOnly = !isOwner;
+            }
+        }
+
+        _loaded = true;
+    }
+
+    private static string FormatRecipeMeta(Recipe recipe) =>
+        recipe.UpdatedAt == default
+            ? ""
+            : $"updated {recipe.UpdatedAt.ToLocalTime():MMM d, yyyy}";
+
+    private void OnRowKeyDown(KeyboardEventArgs e, int recipeId)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            ViewRecipe(recipeId);
         }
     }
 
@@ -166,7 +232,7 @@ else if (_loaded)
         try
         {
             await CookbookDownloadHelper.TryDownloadPdfAsync(
-                TransferService, PdfService, JS, CookbookId, UserService.CurrentUserId.Value, Snackbar);
+                TransferService, PdfService, JS, CookbookId, UserService.CurrentUserId.Value, Toast);
         }
         finally
         {
@@ -181,7 +247,7 @@ else if (_loaded)
         try
         {
             await CookbookDownloadHelper.TryDownloadJsonAsync(
-                TransferService, JS, CookbookId, UserService.CurrentUserId.Value, Snackbar);
+                TransferService, JS, CookbookId, UserService.CurrentUserId.Value, Toast);
         }
         finally
         {
@@ -189,19 +255,85 @@ else if (_loaded)
         }
     }
 
+    private async Task OpenShareDialog()
+    {
+        if (_cookbook == null) return;
+        var parameters = new CbDialogParameters
+        {
+            ["CookbookId"] = _cookbook.Id,
+            ["CookbookName"] = _cookbook.Name,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        await CbDialogService.ShowAsync<ShareCookbookDialog>("Share & export — \"" + _cookbook.Name + "\"", parameters, options);
+        // Re-load so newly added/removed shares reflect in the hero member chips.
+        if (UserService.CurrentUserId.HasValue)
+        {
+            await LoadCookbookAsync(UserService.CurrentUserId.Value);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ShowEditDialog()
+    {
+        if (_cookbook == null || _isReadOnly) return;
+        var parameters = new CbDialogParameters
+        {
+            ["Name"] = _cookbook.Name,
+            ["Description"] = _cookbook.Description ?? "",
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<CookbookFormDialog>("Edit Cookbook", parameters, options);
+        if (result != null && !result.Canceled && result.Data is CookbookFormDialog.CookbookFormResult data)
+        {
+            _cookbook.Name = data.Name;
+            _cookbook.Description = data.Description;
+            _cookbook.UpdatedAt = DateTime.UtcNow;
+            await DbContext.SaveChangesAsync();
+            Toast.Show("Cookbook updated!", CbToastSeverity.Success);
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteCookbook()
+    {
+        if (_cookbook == null || _isReadOnly) return;
+        var parameters = new CbDialogParameters
+        {
+            ["Title"] = "Delete cookbook",
+            ["Message"] = $"Delete \"{_cookbook.Name}\" and all its recipes? This cannot be undone.",
+            ["ConfirmLabel"] = "Delete",
+            ["Destructive"] = true,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.ExtraSmall, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<ConfirmDialog>("Delete cookbook", parameters, options);
+        if (result != null && !result.Canceled && result.Data is true)
+        {
+            DbContext.Cookbooks.Remove(_cookbook);
+            await DbContext.SaveChangesAsync();
+            Toast.Show("Cookbook deleted.", CbToastSeverity.Info);
+            Navigation.NavigateTo("/cookbooks");
+        }
+    }
+
     private async Task DeleteRecipe(Recipe recipe)
     {
         if (_isReadOnly) return;
-        bool? confirm = await DialogService.ShowMessageBox(
-            "Delete Recipe",
-            $"Delete \"{recipe.Name}\"? This cannot be undone.",
-            yesText: "Delete", cancelText: "Cancel");
-        if (confirm == true)
+        var parameters = new CbDialogParameters
+        {
+            ["Title"] = "Delete recipe",
+            ["Message"] = $"Delete \"{recipe.Name}\"? This cannot be undone.",
+            ["ConfirmLabel"] = "Delete",
+            ["Destructive"] = true,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.ExtraSmall, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<ConfirmDialog>("Delete recipe", parameters, options);
+        if (result != null && !result.Canceled && result.Data is true)
         {
             DbContext.Recipes.Remove(recipe);
             await DbContext.SaveChangesAsync();
             _cookbook!.Recipes.Remove(recipe);
-            Snackbar.Add("Recipe deleted.", Severity.Info);
+            Toast.Show("Recipe deleted.", CbToastSeverity.Info);
+            StateHasChanged();
         }
     }
 }

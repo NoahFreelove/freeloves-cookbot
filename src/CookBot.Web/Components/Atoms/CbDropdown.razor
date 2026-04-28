@@ -1,0 +1,104 @@
+@namespace CookBot.Web.Components.Atoms
+@using Microsoft.AspNetCore.Components.Web
+@inject IJSRuntime JS
+@implements IDisposable
+@typeparam TValue
+
+@* CbDropdown — Phase 5 / Plan 05-04 / DIALOG-04 / D-26.
+   Standalone select-style menu with keyboard nav. NOT the same as CbSelect (form
+   input). Children are <CbDropdownItem TValue="…" Value="@x">label</CbDropdownItem>
+   — they receive the parent CbDropdown via [CascadingParameter] and call
+   parent.SelectAsync(value) on click. Outside-click + ESC close the menu. *@
+
+<div id="@_id" class="cb-dropdown" @onkeydown="HandleKey">
+    <button type="button" class="cb-btn ghost cb-dropdown-trigger"
+            @onclick="Toggle"
+            disabled="@Disabled"
+            aria-haspopup="menu"
+            aria-expanded="@(IsOpen ? "true" : "false")">
+        @if (!string.IsNullOrEmpty(StartIcon))
+        {
+            <Icon Name="@StartIcon" Size="14" />
+        }
+        <span>@Label</span>
+        <Icon Name="@Icon.Names.ChevD" Size="12" />
+    </button>
+    @if (IsOpen)
+    {
+        <div class="cb-dropdown-menu" role="menu">
+            <CascadingValue Value="@(this)" IsFixed="true">
+                @ChildContent
+            </CascadingValue>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? StartIcon { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private readonly string _id = $"cb-dd-{Guid.NewGuid():N}";
+    private DotNetObjectReference<CbDropdown<TValue>>? _ref;
+    public bool IsOpen { get; private set; }
+
+    private async Task Toggle()
+    {
+        if (Disabled) return;
+        IsOpen = !IsOpen;
+        if (IsOpen)
+        {
+            _ref ??= DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("cookbotDialog.bindOutsideClick", _id, _ref); }
+            catch { /* prerender — ignore */ }
+        }
+        else
+        {
+            try { await JS.InvokeVoidAsync("cookbotDialog.unbindOutsideClick", _id); }
+            catch { /* ignore */ }
+        }
+    }
+
+    [JSInvokable]
+    public Task OnOutsideClick()
+    {
+        if (IsOpen)
+        {
+            IsOpen = false;
+            StateHasChanged();
+        }
+        try { return JS.InvokeVoidAsync("cookbotDialog.unbindOutsideClick", _id).AsTask(); }
+        catch { return Task.CompletedTask; }
+    }
+
+    private async Task HandleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && IsOpen)
+        {
+            IsOpen = false;
+            try { await JS.InvokeVoidAsync("cookbotDialog.unbindOutsideClick", _id); }
+            catch { /* ignore */ }
+            StateHasChanged();
+        }
+        // Native Tab order between <button class="cb-dropdown-item"> elements covers
+        // keyboard nav; full roving-tabindex with arrow keys is out of scope for Phase 5.
+    }
+
+    internal async Task SelectAsync(TValue value)
+    {
+        Value = value;
+        IsOpen = false;
+        await ValueChanged.InvokeAsync(value);
+        try { await JS.InvokeVoidAsync("cookbotDialog.unbindOutsideClick", _id); }
+        catch { /* ignore */ }
+        StateHasChanged();
+    }
+
+    internal bool IsSelected(TValue candidate) =>
+        Value is not null && EqualityComparer<TValue>.Default.Equals(Value, candidate);
+
+    public void Dispose() { _ref?.Dispose(); }
+}

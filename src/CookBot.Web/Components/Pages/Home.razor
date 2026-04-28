@@ -1,110 +1,263 @@
 @page "/"
-@inject CurrentUserService UserService
-@inject NavigationManager Navigation
-@inject Microsoft.Extensions.Options.IOptions<CookBot.Application.DTOs.CookBotSettings> CookBotSettingsOptions
 @rendermode InteractiveServer
+
+@* Phase 6 / Plan 06-01 / HOME-01..04 — Home dashboard.
+   Markup is the design-handoff intent (.planning/design-handoff/project/screens/home.jsx)
+   ported to the Phase 5 atom system. Logic lives in Home.razor.cs.
+   MainLayout supplies the cb-shell + Sidebar + TopBar; this page only renders the main column. *@
 
 <PageTitle>CookBot - Home</PageTitle>
 
 @if (_user != null)
 {
-    <MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">
-        Welcome back, @_user.DisplayName!
-    </MudText>
+    <div style="max-width:1180px;">
 
-    <MudGrid>
-        <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
-                <MudIcon Icon="@Icons.Material.Filled.MenuBook" Color="Color.Primary" Size="Size.Large" />
-                <MudText Typo="Typo.h4" Class="mt-2">@_cookbookCount</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Cookbooks</MudText>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
-                <MudIcon Icon="@Icons.Material.Filled.Restaurant" Color="Color.Primary" Size="Size.Large" />
-                <MudText Typo="Typo.h4" Class="mt-2">@_recipeCount</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Recipes</MudText>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
-                <MudIcon Icon="@Icons.Material.Filled.Kitchen" Color="Color.Primary" Size="Size.Large" />
-                <MudText Typo="Typo.h4" Class="mt-2">@_pantryCount</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Pantry Items</MudText>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="2" Style="border-radius: 12px;">
-                <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" Color="Color.Primary" Size="Size.Large" />
-                <MudText Typo="Typo.h4" Class="mt-2">@_groceryListCount</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Grocery Lists</MudText>
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
-
-    <MudText Typo="Typo.h5" Class="mt-8 mb-4" Style="font-weight: 600;">Quick Actions</MudText>
-    <MudGrid>
-        <MudItem xs="12" sm="6" md="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
-                       StartIcon="@Icons.Material.Filled.Add" Href="/cookbooks"
-                       Style="height: 60px; border-radius: 12px;">
-                New Recipe
-            </MudButton>
-        </MudItem>
-        @if (_aiQuickActionVisible)
+        @* ── Active band: Resume cooking + Active timer (Plan 07-09) ─────────── *@
+        @if (_inProgress != null || _activeTimer != null)
         {
-            <MudItem xs="12" sm="6" md="4">
-                <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true"
-                           StartIcon="@Icons.Material.Filled.AutoAwesome" Href="/ai"
-                           Style="height: 60px; border-radius: 12px;">
-                    Ask AI Chef
-                </MudButton>
-            </MudItem>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px;">
+                @if (_activeTimer != null)
+                {
+                    var t = _activeTimer;
+                    var name = ResumeCookingLabel(t.RecipeId);
+                    <CbCard Padding="18" Style="background:#1A1410;color:#FBF6E7;border-color:transparent;">
+                        <div style="display:flex;align-items:center;gap:16px;">
+                            <div style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,0.08);display:grid;place-items:center;color:var(--accent);">
+                                <Icon Name="@Icon.Names.Clock" Size="18" />
+                            </div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);">Active timer</div>
+                                <div style="font-size:15px;font-weight:500;margin-top:3px;color:#FBF6E7;">
+                                    @name<span style="opacity:0.65;font-weight:400;"> · @t.StepLabel</span>
+                                </div>
+                            </div>
+                            <div class="num"
+                                 id="@_activeTimerCountdownId"
+                                 data-started-at="@t.StartedAtIso"
+                                 data-duration="@t.DurationSeconds"
+                                 style="font-size:32px;font-weight:600;letter-spacing:-0.03em;font-feature-settings:'tnum';color:#FBF6E7;min-width:88px;text-align:right;">
+                                @FormatTimerRemaining(t.RemainingSeconds)
+                            </div>
+                            <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                                      StartIcon="@Icon.Names.Flame"
+                                      OnClick="@(() => GoToCook(t.RecipeId))">
+                                Resume cooking
+                            </CbButton>
+                        </div>
+                    </CbCard>
+                }
+                @if (_inProgress != null && (_activeTimer == null || _inProgress.RecipeId != _activeTimer.RecipeId))
+                {
+                    var p = _inProgress;
+                    var name = ResumeCookingLabel(p.RecipeId);
+                    <CbCard Padding="18" Style="border-color:var(--accent);">
+                        <div style="display:flex;align-items:center;gap:16px;">
+                            <div style="width:40px;height:40px;border-radius:20px;background:var(--cream-2);display:grid;place-items:center;color:var(--accent);">
+                                <Icon Name="@Icon.Names.Flame" Size="18" />
+                            </div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-3);">In progress</div>
+                                <div style="font-size:15px;font-weight:500;margin-top:3px;">
+                                    Cooking: @name<span style="color:var(--ink-3);font-weight:400;">
+                                        — Step @(p.CurrentStepIndex + 1) · started @FormatStartedAgo(p.StartedAtIso)
+                                    </span>
+                                </div>
+                            </div>
+                            <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                                      StartIcon="@Icon.Names.Flame"
+                                      OnClick="@(() => GoToCook(p.RecipeId))">
+                                Resume
+                            </CbButton>
+                        </div>
+                    </CbCard>
+                }
+            </div>
         }
-        <MudItem xs="12" sm="6" md="4">
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
-                       StartIcon="@Icons.Material.Filled.Kitchen" Href="/pantry"
-                       Style="height: 60px; border-radius: 12px;">
-                Manage Pantry
-            </MudButton>
-        </MudItem>
-    </MudGrid>
+
+        @* ── Greeting + quick actions (HOME-01) ──────────────────────────────── *@
+        <div style="display:flex;align-items:flex-end;gap:24px;margin-bottom:28px;">
+            <div style="flex:1;">
+                <CbEyebrow><span style="margin-bottom:10px;">Welcome back, @_user.DisplayName</span></CbEyebrow>
+                <h1 style="font-size:40px;line-height:1.05;letter-spacing:-0.03em;text-wrap:balance;margin:0;">
+                    What's the kitchen<br />up to tonight?
+                </h1>
+            </div>
+            <div style="display:flex;gap:8px;">
+                @if (!_aiOff)
+                {
+                    <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="spark" OnClick="GoToAi">
+                        Generate a recipe
+                    </CbButton>
+                }
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="plus" OnClick="GoToCookbooks">
+                    New recipe
+                </CbButton>
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="cart" OnClick="GoToGrocery">
+                    New list
+                </CbButton>
+            </div>
+        </div>
+
+        @* ── Hero: Tonight from your pantry (HOME-02) ────────────────────────── *@
+        <CbCard Padding="28" Style="margin-bottom:24px;position:relative;overflow:hidden;">
+            <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:32px;">
+                <div>
+                    <div class="eyebrow" style="margin-bottom:8px;color:var(--accent);">Tonight from your pantry</div>
+                    <h2 style="font-size:30px;letter-spacing:-0.025em;margin:0 0 8px 0;line-height:1.1;">
+                        @HeroHeadline()
+                    </h2>
+                    <p style="color:var(--ink-3);font-size:14.5px;line-height:1.55;margin:0 0 18px 0;max-width:420px;">
+                        @HeroBody()
+                    </p>
+
+                    @if (_pantryMatches.Count > 0)
+                    {
+                        <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--line);">
+                            @for (var i = 0; i < _pantryMatches.Count; i++)
+                            {
+                                var m = _pantryMatches[i];
+                                <div style="display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer;"
+                                     @onclick="() => GoToRecipe(m.RecipeId)">
+                                    <span class="num" style="width:24px;color:var(--ink-4);font-size:13px;font-weight:500;">
+                                        0@(i + 1)
+                                    </span>
+                                    <div style="flex:1;min-width:0;">
+                                        <div style="font-weight:500;font-size:15px;">@m.RecipeName</div>
+                                        <div style="font-size:12.5px;color:var(--ink-3);margin-top:2px;">@m.MetaLine</div>
+                                    </div>
+                                    <CbBadge Status="BadgeStatusFor(m)" Label="@BadgeLabelFor(m)" />
+                                    <Icon Name="arrowR" Size="16" />
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="display:flex;align-items:center;gap:12px;padding:16px 0;border-top:1px solid var(--line);">
+                            <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="pantry" OnClick="GoToPantry">
+                                Manage Pantry
+                            </CbButton>
+                        </div>
+                    }
+                </div>
+
+                <div style="position:relative;">
+                    <StripedPlaceholder Width="100%" Height="300" Label="dish photo · primary" />
+                    @if (_pantryMatches.Count > 0)
+                    {
+                        var top = _pantryMatches[0];
+                        var topMinutes = top.MetaLine; // includes "X min · uses ..." when known
+                        <div style="position:absolute;left:16px;bottom:16px;background:rgba(35,26,14,0.92);color:var(--cream);padding:10px 14px;border-radius:10px;font-size:12.5px;display:flex;align-items:center;gap:8px;">
+                            <Icon Name="flame" Size="14" />
+                            <span style="font-weight:500;">@top.RecipeName</span>
+                            <span style="opacity:0.6;">· @topMinutes</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </CbCard>
+
+        @* ── Glance strip (HOME-03) ──────────────────────────────────────────── *@
+        <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:16px;margin-bottom:32px;">
+            <CbStat Value="@_recipeCount.ToString()"  Label="Recipes"      Sub="in your collection" />
+            <CbStat Value="@_cookbookCount.ToString()" Label="Cookbooks"    Sub="@CookbookSubLine()" />
+            <CbStat Value="@_pantryCount.ToString()"   Label="Pantry items" Sub="@PantryStatusLine()" />
+            <CbStat Value="@_groceryCount.ToString()"  Label="Grocery"      Sub="@GroceryAgoLine()" />
+        </div>
+
+        @* ── Two-up: Recently cooked + Up next (HOME-04) ─────────────────────── *@
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;">
+            <CbCard Padding="22">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;">
+                    <h3 style="font-size:16px;margin:0;">Recently cooked</h3>
+                    <span style="font-size:12.5px;color:var(--ink-3);">last 14 days</span>
+                </div>
+                @if (_recentlyCooked.Count > 0)
+                {
+                    <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;">
+                        @foreach (var r in _recentlyCooked)
+                        {
+                            <div style="cursor:pointer;" @onclick="() => GoToRecipe(r.RecipeId)">
+                                <StripedPlaceholder Width="100%" Height="92" Label="cooked" />
+                                <div style="font-size:13px;font-weight:500;margin-top:8px;">@r.Name</div>
+                                <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px;">@r.SubLine</div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div style="font-size:13px;color:var(--ink-3);padding:12px 0;">
+                        Nothing cooked yet — open a recipe and tap "I made this" to start tracking.
+                    </div>
+                }
+            </CbCard>
+
+            <CbCard Padding="22">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;">
+                    <h3 style="font-size:16px;margin:0;">Up next</h3>
+                    <span style="font-size:12.5px;color:var(--ink-3);">@(_upNext.Count > 0 ? "scheduled" : "queued")</span>
+                </div>
+                @* Plan 07-09 Feature 1 — real scheduled recipes via IScheduledRecipeService.
+                   Empty list falls back to placeholder rows so the card shape is preserved. *@
+                @if (_upNext.Count > 0)
+                {
+                    @for (var i = 0; i < _upNext.Count; i++)
+                    {
+                        var q = _upNext[i];
+                        var isLast = i == _upNext.Count - 1;
+                        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:@(isLast ? "none" : "1px solid var(--line)");cursor:pointer;"
+                             @onclick="() => GoToRecipe(q.RecipeId)"
+                             role="button"
+                             tabindex="0"
+                             aria-label="@($"Open {q.RecipeName}, scheduled {q.WhenLine}")">
+                            <div style="width:32px;height:32px;border-radius:8px;background:var(--cream-2);display:grid;place-items:center;">
+                                <Icon Name="clock" Size="15" />
+                            </div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:13.5px;font-weight:500;">@q.RecipeName</div>
+                                <div style="font-size:11.5px;color:var(--ink-3);margin-top:1px;">
+                                    @q.WhenLine@(string.IsNullOrWhiteSpace(q.Notes) ? "" : $" · {q.Notes}")
+                                </div>
+                            </div>
+                            <Icon Name="arrowR" Size="15" />
+                        </div>
+                    }
+                }
+                else
+                {
+                    @for (var i = 0; i < _upNextPlaceholders.Length; i++)
+                    {
+                        var q = _upNextPlaceholders[i];
+                        var isLast = i == _upNextPlaceholders.Length - 1;
+                        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:@(isLast ? "none" : "1px solid var(--line)");opacity:0.55;">
+                            <div style="width:32px;height:32px;border-radius:8px;background:var(--cream-2);display:grid;place-items:center;">
+                                <Icon Name="clock" Size="15" />
+                            </div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:13.5px;font-weight:500;">@q.Name</div>
+                                <div style="font-size:11.5px;color:var(--ink-3);margin-top:1px;">@q.When</div>
+                            </div>
+                            <Icon Name="more" Size="15" />
+                        </div>
+                    }
+                    <div style="font-size:11.5px;color:var(--ink-3);margin-top:10px;text-align:center;">
+                        Schedule a recipe from its detail page to see it here.
+                    </div>
+                }
+            </CbCard>
+        </div>
+    </div>
 }
 else
 {
-    <MudText Typo="Typo.h4" Class="mb-4">Welcome to CookBot!</MudText>
-    <MudText Typo="Typo.body1">Select a user from the top bar or create a new one to get started.</MudText>
-}
-
-@code {
-    private User? _user;
-    private int _cookbookCount;
-    private int _recipeCount;
-    private int _pantryCount;
-    private int _groceryListCount;
-    private bool _aiQuickActionVisible;
-
-    [Inject] private CookBot.Infrastructure.Data.CookBotDbContext DbContext { get; set; } = null!;
-
-    private int? _loadedUserId;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
-        {
-            _loadedUserId = UserService.CurrentUserId.Value;
-            _user = await UserService.GetCurrentUserAsync();
-            if (_user != null)
-            {
-                _cookbookCount = await DbContext.Cookbooks.CountAsync(c => c.UserId == _user.Id);
-                _recipeCount = await DbContext.Recipes.CountAsync(r => r.Cookbook.UserId == _user.Id);
-                _pantryCount = await DbContext.PantryItems.CountAsync(p => p.Pantry.OwnerId == _user.Id ||
-                    DbContext.PantryMembers.Any(pm => pm.PantryId == p.PantryId && pm.UserId == _user.Id));
-                _groceryListCount = await DbContext.GroceryLists.CountAsync(g => g.UserId == _user.Id);
-                _aiQuickActionVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled && (_user.Profile?.AiEnabled ?? false);
-            }
-            StateHasChanged();
-        }
-    }
+    <div style="max-width:640px;">
+        <CbEyebrow>Welcome</CbEyebrow>
+        <h1 style="font-size:40px;line-height:1.05;letter-spacing:-0.03em;margin:6px 0 12px 0;">
+            Welcome to CookBot
+        </h1>
+        <p style="font-size:15px;color:var(--ink-3);line-height:1.55;margin:0;">
+            Select a user from the top bar or create one to get started.
+        </p>
+    </div>
 }

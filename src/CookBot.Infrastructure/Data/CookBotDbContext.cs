@@ -21,6 +21,8 @@ public class CookBotDbContext : DbContext
     public DbSet<AiConversation> AiConversations => Set<AiConversation>();
     public DbSet<CookbookShare> CookbookShares => Set<CookbookShare>();
     public DbSet<AiApiKeyShare> AiApiKeyShares => Set<AiApiKeyShare>();
+    public DbSet<ScheduledRecipe> ScheduledRecipes => Set<ScheduledRecipe>();
+    public DbSet<RecipeMade> RecipeMades => Set<RecipeMade>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

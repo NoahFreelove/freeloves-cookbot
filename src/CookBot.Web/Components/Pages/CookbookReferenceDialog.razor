@@ -1,37 +1,39 @@
+@* Phase 7 / Plan 07-01: cookbook-reference-token picker for the prompt builder.
+   Renders inside CbDialogHost; supplies Body + Footer markup only. *@
 @using CookBot.Domain.Entities
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @rendermode InteractiveServer
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Reference a cookbook</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-            Inserts a token into your system prompt. When you chat, it is replaced by the recipe titles in that cookbook so the assistant knows what you have already saved.
-        </MudText>
-        @if (!_cookbooks.Any())
-        {
-            <MudText Typo="Typo.body2">No cookbooks available.</MudText>
-        }
-        else
-        {
-            <MudSelect T="int" @bind-Value="_selectedId" Label="Cookbook" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
+<div>
+    <p style="font-size:13.5px;color:var(--ink-2);line-height:1.5;margin:0 0 14px 0;">
+        Inserts a token into your system prompt. When you chat, it is replaced by the recipe titles in that cookbook so the assistant knows what you have already saved.
+    </p>
+
+    @if (!_cookbooks.Any())
+    {
+        <p style="font-size:13.5px;color:var(--ink-3);">No cookbooks available.</p>
+    }
+    else
+    {
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+            <span>Cookbook</span>
+            <CbSelect TValue="int" Value="_selectedId" ValueChanged="@((int v) => _selectedId = v)">
                 @foreach (var c in _cookbooks)
                 {
-                    <MudSelectItem Value="@c.Id">@c.Name (ID @c.Id)</MudSelectItem>
+                    <CbOption TValue="int" Value="@c.Id" Label="@($"{c.Name} (ID {c.Id})")" />
                 }
-            </MudSelect>
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Ok" Disabled="!_cookbooks.Any()">Insert token</MudButton>
-    </DialogActions>
-</MudDialog>
+            </CbSelect>
+        </label>
+    }
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Ok" Disabled="!_cookbooks.Any()">Insert token</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     [Parameter] public int UserId { get; set; }
 
@@ -48,7 +50,7 @@
         _selectedId = _cookbooks.FirstOrDefault()?.Id ?? 0;
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 
-    private void Ok() => MudDialog.Close(DialogResult.Ok(_selectedId));
+    private void Ok() => DialogInstance?.Close(CbDialogResult.Ok(_selectedId));
 }

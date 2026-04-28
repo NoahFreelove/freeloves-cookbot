@@ -1,0 +1,21 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* CbStat — Phase 5 / ATOM-04 / D-13.
+   Renders the .cb-stat tile (Home dashboard tile). Value carries .num for tabular numerals (DS-04). *@
+
+<div class="cb-stat">
+    <div class="v num">@Value</div>
+    <div>
+        <div class="l">@Label</div>
+        @if (!string.IsNullOrEmpty(Sub))
+        {
+            <div class="l" style="margin-top:4px;color:var(--ink-3);">@Sub</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Sub { get; set; }
+}

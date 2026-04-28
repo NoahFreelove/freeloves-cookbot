@@ -1,0 +1,44 @@
+@*  InlineTimerSuggestion — Phase 6 / Plan 06-04 / ED-05 (absorbs v1.1 EDITOR-03 D-C1/D-C2).
+    Custom Razor rewrite as a non-modal banner above the step body.
+
+    Surfaces ONE detected timer substring at a time with a Yes/No prompt.
+    "Yes" emits OnConvert(durationSeconds) — the parent inserts a TimerChip on the step.
+    "No" emits OnDismiss — the parent records this duration as "dismissed for this session"
+    so the same suggestion does not re-appear on every render.
+
+    Phase 6 hard invariant: saving never auto-rewrites step text. The user must accept
+    the chip explicitly. Phase 6 hard invariant: zero Mud* components. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Web.Components.Atoms
+
+@if (Open)
+{
+    <div role="status"
+         aria-live="polite"
+         style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;font-size:13.5px;">
+        <Icon Name="@Icon.Names.Clock" Size="14" />
+        <span style="flex:1;">
+            Detected <strong>@SubstringText</strong> — convert to a timer?
+        </span>
+        <CbButton Variant="CbButton.CbButtonVariant.Accent" OnClick="ConvertClick">Yes</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="DismissClick">No</CbButton>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public string SubstringText { get; set; } = string.Empty;
+    [Parameter] public int DurationSeconds { get; set; }
+    [Parameter] public EventCallback<int> OnConvert { get; set; }
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    private async Task ConvertClick()
+    {
+        if (OnConvert.HasDelegate) await OnConvert.InvokeAsync(DurationSeconds);
+    }
+
+    private async Task DismissClick()
+    {
+        if (OnDismiss.HasDelegate) await OnDismiss.InvokeAsync();
+    }
+}

@@ -1,0 +1,123 @@
+@namespace CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* CbDialog — Phase 5 / Plan 05-04 / DIALOG-01 / D-23.
+   Presentational primitive: scrim + centered card with Header/Body/Footer slots.
+   IsOpen is two-way bound (@bind-IsOpen) for inline use; CbDialogHost uses it via
+   parameter assignment for service-driven dialogs. JS interop via cookbotDialog.* . *@
+
+@if (IsOpen)
+{
+    <div class="cb-scrim" @onclick="HandleScrimClick">
+        <div id="@_dialogId"
+             class="cb-dialog @SizeClass"
+             tabindex="-1"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="@(Header != null ? _headerId : null)"
+             @onclick:stopPropagation="true">
+            @if (Header != null)
+            {
+                @* A11Y-03 (Plan 07-06): aria-labelledby on the dialog points at
+                   this header id so AT announce the dialog with the header text
+                   as the accessible name. *@
+                <div id="@_headerId" class="cb-dialog-header">@Header</div>
+            }
+            @if (Body != null)
+            {
+                <div class="cb-dialog-body">@Body</div>
+            }
+            @if (Footer != null)
+            {
+                <div class="cb-dialog-footer">@Footer</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public CbDialogMaxWidth MaxWidth { get; set; } = CbDialogMaxWidth.Sm;
+    [Parameter] public bool FullWidth { get; set; } = true;
+    [Parameter] public bool CloseOnEscape { get; set; } = true;
+    [Parameter] public bool CloseOnScrim { get; set; } = true;
+    [Parameter] public RenderFragment? Header { get; set; }
+    [Parameter] public RenderFragment? Body { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private readonly string _dialogId = $"cb-dialog-{Guid.NewGuid():N}";
+    private readonly string _headerId = $"cb-dialog-h-{Guid.NewGuid():N}";
+    private DotNetObjectReference<CbDialog>? _dotnetRef;
+    private bool _wasOpen;
+
+    private string SizeClass => MaxWidth switch
+    {
+        CbDialogMaxWidth.ExtraSmall => "size-xs",
+        CbDialogMaxWidth.Sm         => "size-sm",
+        CbDialogMaxWidth.Md         => "size-md",
+        CbDialogMaxWidth.Lg         => "size-lg",
+        CbDialogMaxWidth.Xl         => "size-xl",
+        _                           => "size-sm"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            _dotnetRef ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("cookbotDialog.trapFocus", _dialogId, _dotnetRef);
+            }
+            catch (Exception)
+            {
+                // Prerender or JS unavailable — silently degrade. ESC/click-out still work via Razor handlers.
+            }
+        }
+        else if (!IsOpen && _wasOpen)
+        {
+            _wasOpen = false;
+            try
+            {
+                await JS.InvokeVoidAsync("cookbotDialog.releaseFocus", _dialogId);
+            }
+            catch (Exception) { /* ignore */ }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnEscape()
+    {
+        if (CloseOnEscape) await CloseInternal();
+    }
+
+    private async Task HandleScrimClick()
+    {
+        if (CloseOnScrim) await CloseInternal();
+    }
+
+    private async Task CloseInternal()
+    {
+        if (IsOpen)
+        {
+            IsOpen = false;
+            await IsOpenChanged.InvokeAsync(false);
+            await OnClose.InvokeAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_wasOpen)
+        {
+            try { await JS.InvokeVoidAsync("cookbotDialog.releaseFocus", _dialogId); }
+            catch { /* ignore */ }
+        }
+        _dotnetRef?.Dispose();
+    }
+}

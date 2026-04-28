@@ -1,36 +1,43 @@
 @using CookBot.Application.Services
 @using CookBot.Domain.Entities
 @inject PantryAiPopulationService PantryAi
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 @rendermode InteractiveServer
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Standardize pantry (AI)</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-            All <strong>@ItemCount</strong> item(s) in this pantry are sent to the assistant. It returns a single clean list: one row per ingredient, normalized spelling, merged duplicates, and sensible units. <strong>Current rows are replaced</strong> with the result (this cannot be undone automatically).
-        </MudText>
-        @if (_busy && !string.IsNullOrEmpty(_status))
-        {
-            <MudText Typo="Typo.caption" Color="Color.Primary">@_status</MudText>
-        }
-        @if (!string.IsNullOrEmpty(_error))
-        {
-            <MudAlert Severity="Severity.Error" Class="mt-2" Style="white-space:pre-wrap;word-break:break-all;">@_error</MudAlert>
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_busy">
+@* Phase 7 / Plan 07-02: "Standardize pantry (AI)" dialog migrated to CbDialog
+   slots. AI integration logic (PantryAiPopulationService.StandardizePantryAsync)
+   preserved verbatim — only markup changes. *@
+
+<div>
+    <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55;margin:0 0 14px 0;">
+        All <strong>@ItemCount</strong> item(s) in this pantry are sent to the assistant. It returns a single
+        clean list: one row per ingredient, normalized spelling, merged duplicates, and sensible units.
+        <strong>Current rows are replaced</strong> with the result (this cannot be undone automatically).
+    </p>
+
+    @if (_busy && !string.IsNullOrEmpty(_status))
+    {
+        <p style="font-size:12px;color:var(--accent-ink);margin:0 0 10px 0;">@_status</p>
+    }
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div role="alert"
+             style="margin-top:10px;padding:10px 12px;background:rgba(180,83,9,0.08);border:1px solid rgba(180,83,9,0.25);border-radius:8px;font-size:12.5px;color:var(--warn);white-space:pre-wrap;word-break:break-word;">
+            @_error
+        </div>
+    }
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel" Disabled="_busy">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Submit" Disabled="_busy">
             @(_busy ? "Working..." : "Standardize")
-        </MudButton>
-    </DialogActions>
-</MudDialog>
+        </CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     [Parameter] public int PantryId { get; set; }
     [Parameter] public IReadOnlyList<PantryItem> CurrentItems { get; set; } = Array.Empty<PantryItem>();
@@ -44,13 +51,13 @@
     private string _status = "";
     private string _error = "";
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 
     private async Task Submit()
     {
         if (string.IsNullOrWhiteSpace(ApiKey))
         {
-            Snackbar.Add("Configure API access in Profile (your own key or a shared key) first.", Severity.Warning);
+            Toast.Show("Configure API access in Profile (your own key or a shared key) first.", CbToastSeverity.Warning);
             return;
         }
 
@@ -76,12 +83,12 @@
             }
 
             foreach (var line in result.Messages)
-                Snackbar.Add(line, Severity.Success);
-            MudDialog.Close(DialogResult.Ok(true));
+                Toast.Show(line, CbToastSeverity.Success);
+            DialogInstance?.Close(CbDialogResult.Ok(true));
         }
         catch (Exception ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Toast.Show(ex.Message, CbToastSeverity.Error);
         }
         finally
         {

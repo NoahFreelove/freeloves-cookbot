@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="css/cookbot-design.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["CookBot.Web.styles.css"]" />
     <ImportMap />
@@ -16,10 +16,13 @@
 
 <body>
     <Routes @rendermode="InteractiveServer" />
-    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="_framework/blazor.web.js"></script>
     <script src="js/cooking-timers.js"></script>
+    <script src="js/cooking-session-state.js"></script>
     <script src="js/download.js"></script>
+    <script src="js/recipe-chip-composer.js"></script>
+    <script src="js/cookbot-shell.js"></script>
+    <script src="js/cb-dialog.js"></script>
 </body>
 
 </html>

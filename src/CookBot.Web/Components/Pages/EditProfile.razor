@@ -6,232 +6,338 @@
 @implements IDisposable
 @inject CurrentUserService UserService
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
-@inject ISnackbar Snackbar
+@inject ICbToastService Toast
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IAiService AiService
 @inject AiApiKeyResolutionService AiKeyResolver
 @inject AiApiKeyShareService AiKeyShareService
-@inject IDialogService DialogService
+@inject ICbDialogService CbDialogService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @rendermode InteractiveServer
+
+@* EditProfile — Phase 7 / Plan 07-05 / PROF-01 + PROF-02.
+   Full rewrite against Phase 5 atoms. Settings grouped into <CbCard> cards:
+     1. Display name — CbInput + Save
+     2. Account password — CbInput type=password + Set/Change/Remove
+     3. AI features — CbToggle bound to UserProfile.AiEnabled (sidebar AI rows
+        re-check via Sidebar.OnAfterRenderAsync; toggling triggers a forceLoad
+        navigation so the whole shell re-evaluates the AI-off contract)
+     4. API key + Model + Shared keys (visible when AI enabled)
+     5. Cooking preferences — Experience level, Unit system, Custom unit notes
+     6. Theme & density — CbToggle bound to localStorage + cookbot.setDensity JS interop
+     7. Kitchen tools — chip multi-select
+     8. Dietary preferences — chip multi-select
+   ZERO Mud* components. SharedKeysDialog is launched via CbDialogService. *@
 
 <PageTitle>CookBot - Profile</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">My Profile</MudText>
+<div style="max-width:880px;display:flex;flex-direction:column;gap:18px;">
+    <h1 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.01em;color:var(--ink);">My Profile</h1>
 
-@if (_user != null && _profile != null)
-{
-    <MudGrid>
-        <MudItem xs="12" md="6">
-            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-                <MudText Typo="Typo.h6" Class="mb-4">Account</MudText>
+    @if (_user != null && _profile != null)
+    {
+        <!-- Display name -->
+        <CbCard>
+            <CbEyebrow>Display name</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                Shown in the user switcher and on shared cookbooks.
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <div style="flex:1;">
+                    <CbInput Value="@_displayNameEdit" ValueChanged="@((string? v) => _displayNameEdit = v ?? "")"
+                             Placeholder="Display name" />
+                </div>
+                <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="@Icon.Names.Save"
+                          OnClick="SaveDisplayName"
+                          Disabled="@(string.IsNullOrWhiteSpace(_displayNameEdit) || _displayNameEdit == _user.DisplayName)">
+                    Save
+                </CbButton>
+            </div>
+        </CbCard>
 
-                <MudTextField Value="@_user.DisplayName"
-                              ValueChanged="@((string v) => OnDisplayNameChanged(v))"
-                              Immediate="true" DebounceInterval="500"
-                              Label="Display Name"
-                              Variant="Variant.Outlined" Class="mb-4" />
-
-                <MudText Typo="Typo.subtitle1" Class="mb-2">Account Password</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
-                    @if (_hasPassword)
-                    {
-                        @:This account is password-protected.
-                    }
-                    else
-                    {
-                        @:No password set. Anyone can switch to this account.
-                    }
-                </MudText>
-                <MudTextField @bind-Value="_newPassword" Label="@(_hasPassword ? "New Password" : "Set Password")"
-                              Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-2" />
-                <MudStack Row="true" Spacing="2" Class="mb-4">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                               OnClick="SetPassword"
-                               Disabled="@string.IsNullOrWhiteSpace(_newPassword)">
-                        @(_hasPassword ? "Change Password" : "Set Password")
-                    </MudButton>
-                    @if (_hasPassword)
-                    {
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                   OnClick="RemovePassword">Remove Password</MudButton>
-                    }
-                </MudStack>
-
-                @if (ShowCookingPreferences)
+        <!-- Account password -->
+        <CbCard>
+            <CbEyebrow>Account password</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                @if (_hasPassword)
                 {
-                    <MudDivider Class="mb-4" />
-                    <MudText Typo="Typo.h6" Class="mb-2">Cooking preferences (AI)</MudText>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
-                        Used for the assistant, prompt builder, and AI pantry tools. Saved automatically when you change something.
-                    </MudText>
-
-                    <MudSelect T="ExperienceLevel" Value="_profile.ExperienceLevel" ValueChanged="OnExperienceLevelChanged"
-                               Label="Experience Level" Variant="Variant.Outlined" Class="mb-4">
-                        @foreach (ExperienceLevel level in Enum.GetValues<ExperienceLevel>())
-                        {
-                            <MudSelectItem Value="@level">@level</MudSelectItem>
-                        }
-                    </MudSelect>
-
-                    <MudRadioGroup T="UnitSystem" Value="_profile.UnitSystem" ValueChanged="OnUnitSystemChanged" Class="mb-4">
-                        <MudText Typo="Typo.subtitle1" Class="mb-2">Unit system preset</MudText>
-                        <MudRadio Value="UnitSystem.Canadian" Color="Color.Primary">Canadian (cups, tbsp, grams, kg, Fahrenheit)</MudRadio>
-                        <MudRadio Value="UnitSystem.Imperial" Color="Color.Primary">Imperial (cups, oz, lbs, Fahrenheit)</MudRadio>
-                        <MudRadio Value="UnitSystem.Metric" Color="Color.Primary">Metric (mL, g, kg, Celsius)</MudRadio>
-                    </MudRadioGroup>
-
-                    <MudTextField Value="@(_profile.AiUnitExceptions ?? "")"
-                                  ValueChanged="@((string v) => OnAiUnitExceptionsChanged(v))"
-                                  Label="Custom unit notes for AI"
-                                  HelperText="Optional. Add exceptions to the preset (e.g. always use sticks of butter, weigh salt in grams, oven in °F only)."
-                                  Variant="Variant.Outlined" Lines="4" Class="mb-4"
-                                  Immediate="true" DebounceInterval="500" />
-
-                    <MudText Typo="Typo.subtitle1" Class="mb-2">Kitchen Tools</MudText>
-                    <MudChipSet T="string" SelectionMode="SelectionMode.MultiSelection"
-                                SelectedValues="_selectedTools"
-                                SelectedValuesChanged="OnToolsSelectionChanged"
-                                Color="Color.Primary" Variant="Variant.Text" Class="mb-4">
-                        @foreach (var tool in _availableTools)
-                        {
-                            <MudChip Value="@tool" Text="@tool" Default="@_kitchenTools.Contains(tool)" />
-                        }
-                    </MudChipSet>
-
-                    <MudText Typo="Typo.subtitle1" Class="mb-2 mt-4">Dietary Preferences</MudText>
-                    <MudChipSet T="string" SelectionMode="SelectionMode.MultiSelection"
-                                SelectedValues="_selectedDiets"
-                                SelectedValuesChanged="OnDietsSelectionChanged"
-                                Color="Color.Secondary" Variant="Variant.Text" Class="mb-4">
-                        @foreach (var diet in _availableDiets)
-                        {
-                            <MudChip Value="@diet" Text="@diet" Default="@_dietaryPrefs.Contains(diet)" />
-                        }
-                    </MudChipSet>
-                }
-            </MudPaper>
-        </MudItem>
-
-        <MudItem xs="12" md="6">
-            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-                @if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
-                {
-                    <MudText Typo="Typo.h6" Class="mb-4">Optional AI integration</MudText>
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        The server has turned off optional AI features. Assistant, prompt builder, and related controls are hidden. No recipe or pantry data is sent to external services from this app unless you use other tools yourself.
-                    </MudAlert>
+                    <text>This account is password-protected.</text>
                 }
                 else
                 {
-                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
-                        <MudText Typo="Typo.h6">AI Assistant</MudText>
-                        <MudSwitch T="bool" Value="_profile.AiEnabled" ValueChanged="OnAiEnabledChanged"
-                                   Color="Color.Primary" Label="@(_profile.AiEnabled ? "On" : "Off")" />
-                    </MudStack>
+                    <text>No password set. Anyone can switch to this account.</text>
+                }
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <div style="flex:1;min-width:220px;">
+                    <CbInput Type="password" Value="@_newPassword"
+                             ValueChanged="@((string? v) => _newPassword = v ?? "")"
+                             Placeholder="@(_hasPassword ? "New password" : "Set password")" />
+                </div>
+                <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="SetPassword"
+                          Disabled="@string.IsNullOrWhiteSpace(_newPassword)">
+                    @(_hasPassword ? "Change password" : "Set password")
+                </CbButton>
+                @if (_hasPassword)
+                {
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="RemovePassword">
+                        Remove password
+                    </CbButton>
+                }
+            </div>
+        </CbCard>
 
-                    @if (!_profile.AiEnabled)
+        <!-- AI features toggle -->
+        <CbCard>
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+                <div style="flex:1;">
+                    <CbEyebrow>AI features</CbEyebrow>
+                    @if (!CookBotSettingsOptions.Value.AiFeaturesEnabled)
                     {
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            Enable to access the in-app assistant, prompt builder, and direct Anthropic API calls. Your API key is stored in the local database only (not encrypted unless you encrypt the database file at the host level).
-                        </MudText>
+                        <p style="margin:6px 0 0 0;font-size:13px;color:var(--ink-3);">
+                            The server has turned off optional AI features. Assistant, prompt builder,
+                            and related controls are hidden. No recipe or pantry data is sent to external
+                            services from this app unless you use other tools yourself.
+                        </p>
                     }
                     else
                     {
-                        <MudStack Row="true" Spacing="2" Class="mb-3">
-                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.Share" OnClick="OpenSharedKeysDialog">
-                                Shared keys
-                            </MudButton>
-                        </MudStack>
+                        <p style="margin:6px 0 0 0;font-size:13px;color:var(--ink-3);">
+                            When off, all AI surfaces are hidden across the app — sidebar Assistant + Prompt
+                            Builder rows, AI buttons in Pantry, AI suggestion cards on Home. Your API key
+                            and model selection stay saved.
+                        </p>
+                    }
+                </div>
+                @if (CookBotSettingsOptions.Value.AiFeaturesEnabled)
+                {
+                    <CbToggle Value="_profile.AiEnabled" ValueChanged="OnAiEnabledChanged"
+                              Label="@(_profile.AiEnabled ? "On" : "Off")" />
+                }
+            </div>
+        </CbCard>
 
-                        @if (_usingSharedKeyOnly && !_forceShowOwnKeyFields)
+        @if (CookBotSettingsOptions.Value.AiFeaturesEnabled && _profile.AiEnabled)
+        {
+            <!-- API key + Model + Shared keys -->
+            <CbCard>
+                <CbEyebrow>API key &amp; model</CbEyebrow>
+                <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                    Stored in your local database (not encrypted unless you encrypt the database file at
+                    the host level). Shared keys let other users on this server use your key without ever
+                    seeing it.
+                </p>
+
+                @if (_usingSharedKeyOnly && !_forceShowOwnKeyFields)
+                {
+                    <div class="cb-card" style="background:var(--accent-soft);color:var(--accent-ink);padding:12px;margin-bottom:14px;border:none;">
+                        Using API access shared by <strong>@(_effectiveAi?.SharedFromDisplayName ?? "another user")</strong>.
+                        The key is never shown to you. Model and billing follow their Profile settings.
+                        @if (_incomingShareCount > 1)
                         {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-4">
-                                You are using API access shared by <strong>@(_effectiveAi?.SharedFromDisplayName ?? "another user")</strong>.
-                                The key is never shown to you. Model and billing follow their Profile settings.
-                            </MudAlert>
-                            @if (_incomingShareCount > 1)
-                            {
-                                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-                                    Several people share with you. Open Shared keys to choose whose key to use.
-                                </MudText>
-                            }
-                            <MudButton Variant="Variant.Text" Color="Color.Primary" Class="mb-4"
-                                       OnClick="@(() => { _forceShowOwnKeyFields = true; })">
-                                Use my own API key instead
-                            </MudButton>
+                            <div style="margin-top:6px;font-size:12.5px;">
+                                Several people share with you. Open Shared keys to choose whose key to use.
+                            </div>
                         }
-                        else
-                        {
-                            @if (_incomingSharesButNoUsableKey)
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Share"
+                                  OnClick="OpenSharedKeysDialog">
+                            Manage shared keys
+                        </CbButton>
+                        <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                                  OnClick="@(() => { _forceShowOwnKeyFields = true; })">
+                            Use my own API key instead
+                        </CbButton>
+                    </div>
+                }
+                else
+                {
+                    @if (_incomingSharesButNoUsableKey)
+                    {
+                        <div class="cb-card" style="background:var(--warn-soft);color:var(--warn);padding:12px;margin-bottom:14px;border:none;">
+                            Someone shared access with you, but <strong>none of those accounts have a
+                            saved API key</strong> yet. They need to save a key, or enter your own below.
+                        </div>
+                    }
+                    else if (_pendingShareChoice)
+                    {
+                        <div class="cb-card" style="background:var(--warn-soft);color:var(--warn);padding:12px;margin-bottom:14px;border:none;">
+                            @if (_incomingUsableCount > 1)
                             {
-                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4">
-                                    Someone shared access with you, but <strong>none of those accounts have a saved API key</strong> yet. They need to save a key, or enter your own below.
-                                </MudAlert>
+                                <text>Several people can share a key with you. Open <strong>Shared keys</strong>
+                                to choose whose key to use, or enter your own below.</text>
                             }
-                            else if (_pendingShareChoice)
+                            else
                             {
-                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4">
-                                    @if (_incomingUsableCount > 1)
-                                    {
-                                        @:Several people can share a key with you. Open <strong>Shared keys</strong> to choose whose key to use, or enter your own below.
-                                    }
-                                    else
-                                    {
-                                        @:Shared access could not be activated. Open <strong>Shared keys</strong> to check the offer, or enter your own key below.
-                                    }
-                                </MudAlert>
+                                <text>Shared access could not be activated. Open <strong>Shared keys</strong>
+                                to check the offer, or enter your own key below.</text>
                             }
-                            <MudTextField @bind-Value="_aiApiKeyEdit" Label="Anthropic API Key"
-                                          Variant="Variant.Outlined" InputType="InputType.Password"
-                                          HelperText="Not auto-saved. Click Save below to store in your local database."
-                                          Class="mb-4" />
+                        </div>
+                    }
 
-                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="mb-4">
-                                <MudSelect T="string" @bind-Value="_selectedModelId" Label="Model"
-                                           Variant="Variant.Outlined" Style="flex: 1;">
+                    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);margin-bottom:14px;">
+                        <span>Anthropic API key</span>
+                        <CbInput Type="password" @bind-Value="_aiApiKeyEdit"
+                                 Placeholder="sk-ant-..." />
+                        <span style="font-size:11.5px;color:var(--ink-4);">
+                            Not auto-saved. Click Save AI settings below to store in your local database.
+                        </span>
+                    </label>
+
+                    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);margin-bottom:14px;">
+                        <span>Model</span>
+                        <div style="display:flex;gap:8px;align-items:flex-end;">
+                            <div style="flex:1;">
+                                <CbSelect TValue="string" @bind-Value="_selectedModelId">
                                     @foreach (var model in _availableModels)
                                     {
-                                        <MudSelectItem Value="@model.Id">@model.DisplayName</MudSelectItem>
+                                        <CbOption TValue="string" Value="@model.Id" Label="@model.DisplayName" />
                                     }
-                                </MudSelect>
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                           OnClick="FetchModels"
-                                           Disabled="@((string.IsNullOrWhiteSpace(_aiApiKeyEdit) && _effectiveAi == null) || _isFetchingModels)"
-                                           StartIcon="@(_isFetchingModels ? Icons.Material.Filled.HourglassEmpty : Icons.Material.Filled.Refresh)">
-                                    @(_isFetchingModels ? "Fetching..." : "Fetch Models")
-                                </MudButton>
-                            </MudStack>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
-                                Curated models match <code>AnthropicAiService</code> in the source tree. Use &quot;Fetch Models&quot; to refresh from the API.
-                            </MudText>
+                                </CbSelect>
+                            </div>
+                            <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                                      OnClick="FetchModels"
+                                      Disabled="@((string.IsNullOrWhiteSpace(_aiApiKeyEdit) && _effectiveAi == null) || _isFetchingModels)">
+                                @(_isFetchingModels ? "Fetching..." : "Fetch models")
+                            </CbButton>
+                        </div>
+                        <span style="font-size:11.5px;color:var(--ink-4);">
+                            Curated models match <code>AnthropicAiService</code> in the source tree. Use
+                            &quot;Fetch models&quot; to refresh from the API.
+                        </span>
+                    </label>
 
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAiSettings"
-                                       StartIcon="@Icons.Material.Filled.Save" Class="mt-2">
-                                Save AI settings
-                            </MudButton>
-                        }
-                    }
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="@Icon.Names.Save"
+                                  OnClick="SaveAiSettings">
+                            Save AI settings
+                        </CbButton>
+                        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Share"
+                                  OnClick="OpenSharedKeysDialog">
+                            Manage shared keys
+                        </CbButton>
+                    </div>
                 }
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
-}
-else
-{
-    <MudText>Please select a user first.</MudText>
-}
+            </CbCard>
+
+            <!-- Cooking preferences (AI) -->
+            <CbCard>
+                <CbEyebrow>Cooking preferences</CbEyebrow>
+                <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                    Used by the assistant, prompt builder, and AI pantry tools. Saved automatically when
+                    you change something.
+                </p>
+
+                <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);margin-bottom:14px;">
+                    <span>Experience level</span>
+                    <CbSelect TValue="ExperienceLevel" Value="_profile.ExperienceLevel"
+                              ValueChanged="@(async (ExperienceLevel v) => await OnExperienceLevelChanged(v))">
+                        @foreach (ExperienceLevel level in Enum.GetValues<ExperienceLevel>())
+                        {
+                            <CbOption TValue="ExperienceLevel" Value="@level" Label="@level.ToString()" />
+                        }
+                    </CbSelect>
+                </label>
+
+                <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);margin-bottom:14px;">
+                    <span>Unit system preset</span>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <CbRadio TValue="UnitSystem" GroupName="unit-system"
+                                 Value="UnitSystem.Canadian" CurrentValue="_profile.UnitSystem"
+                                 CurrentValueChanged="OnUnitSystemChanged"
+                                 Label="Canadian (cups, tbsp, grams, kg, Fahrenheit)" />
+                        <CbRadio TValue="UnitSystem" GroupName="unit-system"
+                                 Value="UnitSystem.Imperial" CurrentValue="_profile.UnitSystem"
+                                 CurrentValueChanged="OnUnitSystemChanged"
+                                 Label="Imperial (cups, oz, lbs, Fahrenheit)" />
+                        <CbRadio TValue="UnitSystem" GroupName="unit-system"
+                                 Value="UnitSystem.Metric" CurrentValue="_profile.UnitSystem"
+                                 CurrentValueChanged="OnUnitSystemChanged"
+                                 Label="Metric (mL, g, kg, Celsius)" />
+                    </div>
+                </div>
+
+                <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+                    <span>Custom unit notes for AI</span>
+                    <CbTextarea Value="@(_profile.AiUnitExceptions ?? "")"
+                                ValueChanged="@((string? v) => OnAiUnitExceptionsChanged(v ?? string.Empty))"
+                                Placeholder="Optional. Add exceptions to the preset (e.g. always use sticks of butter, weigh salt in grams, oven in °F only)."
+                                Rows="3" />
+                </label>
+            </CbCard>
+        }
+
+        <!-- Theme & density -->
+        <CbCard>
+            <CbEyebrow>Theme &amp; density</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                Compact density tightens row heights and gaps across all surfaces. Persists across sessions.
+            </p>
+            <CbToggle Value="_isCompactDensity" ValueChanged="OnDensityChanged"
+                      Label="@(_isCompactDensity ? "Compact" : "Comfy")" />
+        </CbCard>
+
+        <!-- Equipment -->
+        <CbCard>
+            <CbEyebrow>Kitchen tools</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                Tap to add or remove. Saved automatically.
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                @foreach (var tool in _availableTools)
+                {
+                    var isSelected = _kitchenTools.Contains(tool);
+                    var variant = isSelected ? CbChip.CbChipVariant.Timer : CbChip.CbChipVariant.Tag;
+                    <button type="button"
+                            class="@(isSelected ? "cb-chip timer" : "cb-chip tag")"
+                            style="cursor:pointer;border-color:var(--line);background:@(isSelected ? "var(--accent-soft)" : "transparent");color:@(isSelected ? "var(--accent-ink)" : "var(--ink-2)");"
+                            aria-pressed="@isSelected.ToString().ToLowerInvariant()"
+                            @onclick="@(() => ToggleTool(tool))">
+                        @tool
+                    </button>
+                }
+            </div>
+        </CbCard>
+
+        <!-- Dietary preferences -->
+        <CbCard>
+            <CbEyebrow>Dietary preferences</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                Tap to add or remove. Saved automatically.
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                @foreach (var diet in _availableDiets)
+                {
+                    var isSelected = _dietaryPrefs.Contains(diet);
+                    <button type="button"
+                            class="@(isSelected ? "cb-chip ing" : "cb-chip tag")"
+                            style="cursor:pointer;border-color:var(--line);"
+                            aria-pressed="@isSelected.ToString().ToLowerInvariant()"
+                            @onclick="@(() => ToggleDiet(diet))">
+                        @diet
+                    </button>
+                }
+            </div>
+        </CbCard>
+    }
+    else
+    {
+        <CbCard>
+            <p style="margin:0;color:var(--ink-3);">Please select a user first.</p>
+        </CbCard>
+    }
+</div>
 
 @code {
     private User? _user;
     private UserProfile? _profile;
     private HashSet<string> _kitchenTools = new();
     private HashSet<string> _dietaryPrefs = new();
-    private IReadOnlyCollection<string> _selectedTools = new HashSet<string>();
-    private IReadOnlyCollection<string> _selectedDiets = new HashSet<string>();
     private string _newPassword = "";
     private string _aiApiKeyEdit = "";
+    private string _displayNameEdit = "";
     private bool _hasPassword;
     private List<AiModelInfo> _availableModels = AnthropicAiService.CuratedModels;
     private bool _isFetchingModels;
@@ -240,6 +346,7 @@ else
     private int _incomingShareCount;
     private int _incomingUsableCount;
     private bool _forceShowOwnKeyFields;
+    private bool _isCompactDensity;
 
     private bool _hasOwnKey => !string.IsNullOrWhiteSpace(_profile?.AiApiKey);
     private bool _usingSharedKeyOnly => !_hasOwnKey && _effectiveAi?.SharedFromUserId != null;
@@ -271,9 +378,6 @@ else
     private bool _isLoadingProfile;
     private CancellationTokenSource? _prefsDebounceCts;
 
-    private bool ShowCookingPreferences =>
-        CookBotSettingsOptions.Value.AiFeaturesEnabled && (_profile?.AiEnabled ?? false);
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
@@ -287,10 +391,9 @@ else
                 _hasPassword = _user.PasswordHash != null;
                 _kitchenTools = JsonSerializer.Deserialize<HashSet<string>>(_profile.KitchenToolsJson) ?? new();
                 _dietaryPrefs = JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
-                _selectedTools = new HashSet<string>(_kitchenTools);
-                _selectedDiets = new HashSet<string>(_dietaryPrefs);
                 _selectedModelId = _profile.AiModel ?? AnthropicAiService.DefaultModelId;
                 _aiApiKeyEdit = _profile.AiApiKey ?? "";
+                _displayNameEdit = _user.DisplayName;
                 _forceShowOwnKeyFields = false;
                 _effectiveAi = await AiKeyResolver.ResolveAsync(_loadedUserId!.Value);
                 _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(_loadedUserId.Value)).Count;
@@ -300,14 +403,29 @@ else
             _isLoadingProfile = false;
             StateHasChanged();
         }
+
+        if (firstRender)
+        {
+            // Read persisted density preference and reflect it in the toggle state.
+            try
+            {
+                var density = await JS.InvokeAsync<string>("cookbot.getDensity");
+                var compact = density == "compact";
+                if (compact != _isCompactDensity)
+                {
+                    _isCompactDensity = compact;
+                    StateHasChanged();
+                }
+            }
+            catch (InvalidOperationException) { /* prerender — ignore */ }
+        }
     }
 
     private async Task OpenSharedKeysDialog()
     {
-        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<SharedKeysDialog>("Shared API keys", options);
-        var result = await dialog.Result;
-        if (result is { Canceled: false } && _loadedUserId is int uid)
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Md, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<SharedKeysDialog>("Shared API keys", null, options);
+        if (result != null && !result.Canceled && _loadedUserId is int uid)
         {
             _user = await UserService.GetCurrentUserAsync();
             if (_user != null)
@@ -349,53 +467,57 @@ else
     {
         if (_isLoadingProfile || _user == null || _profile == null) return;
 
-        _profile.KitchenToolsJson = JsonSerializer.Serialize(_selectedTools);
-        _profile.DietaryPreferencesJson = JsonSerializer.Serialize(_selectedDiets);
+        _profile.KitchenToolsJson = JsonSerializer.Serialize(_kitchenTools);
+        _profile.DietaryPreferencesJson = JsonSerializer.Serialize(_dietaryPrefs);
         DbContext.Users.Update(_user);
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
     }
 
-    private void OnDisplayNameChanged(string value)
+    private async Task SaveDisplayName()
     {
-        if (_user == null || _isLoadingProfile) return;
-        _user.DisplayName = value;
-        _ = DebouncedSavePreferencesAsync();
+        if (_user == null || string.IsNullOrWhiteSpace(_displayNameEdit)) return;
+        _user.DisplayName = _displayNameEdit.Trim();
+        DbContext.Users.Update(_user);
+        await DbContext.SaveChangesAsync();
+        Toast.Show("Display name saved.", CbToastSeverity.Success);
     }
 
-    private void OnExperienceLevelChanged(ExperienceLevel value)
+    private async Task OnExperienceLevelChanged(ExperienceLevel value)
     {
         if (_profile == null || _isLoadingProfile) return;
         _profile.ExperienceLevel = value;
-        _ = DebouncedSavePreferencesAsync();
+        await DebouncedSavePreferencesAsync();
     }
 
-    private void OnUnitSystemChanged(UnitSystem value)
+    private async Task OnUnitSystemChanged(UnitSystem value)
     {
         if (_profile == null || _isLoadingProfile) return;
         _profile.UnitSystem = value;
-        _ = DebouncedSavePreferencesAsync();
+        await DebouncedSavePreferencesAsync();
     }
 
-    private void OnAiUnitExceptionsChanged(string value)
+    private async Task OnAiUnitExceptionsChanged(string value)
     {
         if (_profile == null || _isLoadingProfile) return;
         _profile.AiUnitExceptions = string.IsNullOrWhiteSpace(value) ? null : value;
-        _ = DebouncedSavePreferencesAsync();
+        await DebouncedSavePreferencesAsync();
     }
 
-    private void OnToolsSelectionChanged(IReadOnlyCollection<string> values)
+    private async Task ToggleTool(string tool)
     {
         if (_isLoadingProfile) return;
-        _selectedTools = values;
-        _ = DebouncedSavePreferencesAsync();
+        if (!_kitchenTools.Add(tool))
+            _kitchenTools.Remove(tool);
+        await DebouncedSavePreferencesAsync();
     }
 
-    private void OnDietsSelectionChanged(IReadOnlyCollection<string> values)
+    private async Task ToggleDiet(string diet)
     {
         if (_isLoadingProfile) return;
-        _selectedDiets = values;
-        _ = DebouncedSavePreferencesAsync();
+        if (!_dietaryPrefs.Add(diet))
+            _dietaryPrefs.Remove(diet);
+        await DebouncedSavePreferencesAsync();
     }
 
     private async Task SetPassword()
@@ -405,7 +527,7 @@ else
         await DbContext.SaveChangesAsync();
         _hasPassword = true;
         _newPassword = "";
-        Snackbar.Add("Password set!", Severity.Success);
+        Toast.Show("Password set.", CbToastSeverity.Success);
     }
 
     private async Task RemovePassword()
@@ -414,7 +536,7 @@ else
         _user.PasswordHash = null;
         await DbContext.SaveChangesAsync();
         _hasPassword = false;
-        Snackbar.Add("Password removed.", Severity.Info);
+        Toast.Show("Password removed.", CbToastSeverity.Info);
     }
 
     private async Task FetchModels()
@@ -433,7 +555,7 @@ else
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Failed to fetch models: {ex.Message}", Severity.Error);
+            Toast.Show($"Failed to fetch models: {ex.Message}", CbToastSeverity.Error);
         }
         finally
         {
@@ -448,6 +570,8 @@ else
         _profile.AiEnabled = value;
         DbContext.UserProfiles.Update(_profile);
         await DbContext.SaveChangesAsync();
+        // Force a full reload so Sidebar / TopBar / cascading values re-evaluate the
+        // AI-off contract from a fresh circuit. Mirrors the previous Mud-based behavior.
         Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
     }
 
@@ -464,6 +588,17 @@ else
         _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(_user.Id)).Count;
         _incomingUsableCount = (await AiKeyShareService.ListIncomingWithUsableOwnerKeyAsync(_user.Id)).Count;
         _forceShowOwnKeyFields = false;
-        Snackbar.Add("AI settings saved (API key and model).", Severity.Success);
+        Toast.Show("AI settings saved (API key and model).", CbToastSeverity.Success);
+    }
+
+    private async Task OnDensityChanged(bool isCompact)
+    {
+        _isCompactDensity = isCompact;
+        var mode = isCompact ? "compact" : "comfy";
+        try
+        {
+            await JS.InvokeVoidAsync("cookbot.setDensity", mode);
+        }
+        catch (InvalidOperationException) { /* prerender — ignore */ }
     }
 }

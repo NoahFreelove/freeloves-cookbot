@@ -1,0 +1,274 @@
+/* CookBot Design System
+   ─────────────────────
+   Inter only. Warm-cream identity tightened: dial back orange to chrome accents,
+   give body text room to breathe, lean on tabular numerals for timers/quantities.
+*/
+
+@import url('https://rsms.me/inter/inter.css');
+
+:root {
+  /* Surfaces — warm cream, low chroma */
+  --cream: #FBF6E7;          /* page bg, slightly warmer than #FFF8E1 */
+  --cream-2: #F5EDD3;        /* sunken */
+  --paper: #FFFFFF;          /* card bg */
+  --paper-2: #FCFAF3;        /* card alt */
+  --line: rgba(60, 42, 18, 0.10);
+  --line-strong: rgba(60, 42, 18, 0.18);
+
+  /* Ink — cocoa, not pure black */
+  --ink: #231A0E;
+  --ink-2: #4A3C28;
+  --ink-3: #79695A;
+  --ink-4: #A89A88;
+
+  /* Accent — orange (default) — used sparingly: numerals, focus, CTAs */
+  --accent: #C2410C;         /* a touch deeper than #E65100, less candy */
+  --accent-soft: #FCE7D6;
+  --accent-ink: #6B1F00;
+
+  /* Secondary — green, used only for "in stock" / success */
+  --green: #2E7D32;
+  --green-soft: #E1ECDF;
+
+  /* Status */
+  --warn: #B45309;
+  --warn-soft: #FBEACE;
+
+  /* Type scale */
+  --f-display: 'Inter', -apple-system, system-ui, sans-serif;
+  --f-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --t-radius: 14px;
+  --t-radius-sm: 8px;
+
+  /* Density (overridable via tweak) */
+  --pad: 24px;
+  --pad-sm: 16px;
+  --gap: 16px;
+}
+
+[data-density="compact"] {
+  --pad: 18px;
+  --pad-sm: 12px;
+  --gap: 12px;
+}
+
+[data-accent="terracotta"] {
+  --accent: #A0502E;
+  --accent-soft: #F2E0D2;
+  --accent-ink: #5C2C16;
+}
+[data-accent="sage"] {
+  --accent: #4A6B3F;
+  --accent-soft: #E2EAD9;
+  --accent-ink: #243818;
+}
+
+* { box-sizing: border-box; }
+
+.cb {
+  font-family: var(--f-body);
+  color: var(--ink);
+  background: var(--cream);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.cb h1, .cb h2, .cb h3, .cb h4 { margin: 0; font-weight: 600; letter-spacing: -0.022em; color: var(--ink); }
+.cb p { margin: 0; }
+.cb button { font-family: inherit; }
+.cb .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: -0.02em; }
+.cb .mono { font-family: var(--f-mono); }
+
+/* Eyebrow / kicker */
+.cb .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* Buttons */
+.cb-btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--ink);
+  color: var(--cream);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background .15s, transform .05s;
+  white-space: nowrap;
+}
+.cb-btn:active { transform: translateY(0.5px); }
+.cb-btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.cb-btn.ghost:hover { background: rgba(60,42,18,0.04); }
+.cb-btn.accent {
+  background: var(--accent);
+  color: #fff;
+}
+.cb-btn.subtle {
+  background: rgba(60,42,18,0.06);
+  color: var(--ink);
+}
+
+/* Card */
+.cb-card {
+  background: var(--paper);
+  border-radius: var(--t-radius);
+  border: 1px solid var(--line);
+}
+
+/* Striped photo placeholder — for missing imagery */
+.cb-ph {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(60,42,18,0.06) 0 1px,
+      transparent 1px 12px
+    ),
+    var(--cream-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow: hidden;
+}
+.cb-ph::after {
+  content: "";
+  position: absolute; inset: 0;
+  border: 1px dashed rgba(60,42,18,0.12);
+  pointer-events: none;
+}
+
+/* Chip / pill */
+.cb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: rgba(60,42,18,0.05);
+  color: var(--ink-2);
+}
+.cb-chip.timer { background: var(--accent-soft); color: var(--accent-ink); }
+.cb-chip.ing   { background: var(--cream-2); color: var(--ink-2); }
+.cb-chip.tag   { border: 1px solid var(--line); background: transparent; }
+
+/* Divider line that interrupts text gracefully */
+.cb-rule {
+  height: 1px;
+  background: var(--line);
+  border: 0;
+}
+
+/* Material-icons-ish glyph fallback — flat geometric, monoline.
+   We use unicode geometric chars as placeholders. Not real material icons. */
+.icon {
+  display: inline-block;
+  width: 18px; height: 18px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Drawer/list-row hover */
+.cb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+.cb-row:hover { background: rgba(60,42,18,0.04); }
+.cb-row.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* Sidebar / app shell tokens */
+.cb-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  height: 100%;
+  background: var(--cream);
+}
+.cb-shell .side {
+  background: var(--paper-2);
+  border-right: 1px solid var(--line);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cb-shell .topbar {
+  height: 56px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 24px;
+  background: var(--cream);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+/* Stat tile — used on Home */
+.cb-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+  border-radius: var(--t-radius);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  min-height: 124px;
+}
+.cb-stat .v { font-size: 36px; font-weight: 600; letter-spacing: -0.03em; }
+.cb-stat .l { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
+
+/* Editorial recipe layout */
+.cb-recipe-cap {
+  font-family: var(--f-display);
+  font-size: 64px;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+/* A simple "kbd"-ish tag */
+.cb-kbd {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--ink-2);
+  background: var(--paper);
+}

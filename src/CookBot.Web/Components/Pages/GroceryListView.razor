@@ -1,107 +1,89 @@
 @page "/grocery-lists"
 @page "/grocery-lists/from-recipe/{RecipeId:int}"
 @using CookBot.Infrastructure.Data
+@using CookBot.Domain.Enums
 @inject CurrentUserService UserService
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Application.Services.GroceryListService GroceryListService
 @inject CookBot.Application.Services.PantryService PantryService
 @inject NavigationManager Navigation
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inject ICbDialogService CbDialogService
+@inject ICbToastService Toast
 @rendermode InteractiveServer
+
+@* Phase 7 / Plan 07-03 / GR-01..04.
+   Custom Razor rewrite against Phase 5 atoms per
+   `.planning/design-handoff/project/screens/grocery-phone.jsx`.
+   Mobile-first layout that works on desktop too — narrower main column on mobile
+   via standard CSS (max-width:560px on the .grocery-list block).
+   - Per-list header: name + sub-line "{N} items · from {M} recipes" + share / more icons.
+   - Progress card: "Progress" label + tabular-numeral counter ({checked} / {total}) + 6px-tall accent fill bar.
+   - Aisle-categorized sections (eyebrow + CbCard Padding=0): each row has a custom
+     24px circle checkbox (accent-fill + check icon when checked, 2px line border when
+     unchecked), item name (line-through when checked, opacity 0.45), quantity
+     right-aligned tabular numeral. Click anywhere on row toggles purchased state.
+   - Bottom action bar: full-width accent CbButton "Add item" (50px height, 25px radius).
+   Phase 7 hard invariant: zero Mud* symbols in this file. *@
 
 <PageTitle>CookBot - Grocery Lists</PageTitle>
 
 <UserGuard>
-<MudText Typo="Typo.h4" Class="mb-4" Style="font-weight: 600;">Grocery Lists</MudText>
+    <div style="max-width:1180px;">
 
-<MudStack Row="true" Class="mb-4" Spacing="2" AlignItems="AlignItems.Center">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Medium"
-               StartIcon="@Icons.Material.Filled.Add"
-               OnClick="ShowNewListDialog">
-        New list
-    </MudButton>
-</MudStack>
-
-@if (_generatingFromRecipe && _recipe != null)
-{
-    <MudAlert Severity="Severity.Info" Class="mb-4">
-        Generating shopping list for <b>@_recipe.Name</b>...
-    </MudAlert>
-}
-
-@if (_groceryLists.Any())
-{
-    @foreach (var list in _groceryLists)
-    {
-        <MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
-                <MudText Typo="Typo.h6">@list.Name</MudText>
-                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2">
-                    @list.CreatedAt.ToString("MMM dd, yyyy")
-                </MudText>
-                <MudSpacer />
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                           StartIcon="@Icons.Material.Filled.AddShoppingCart"
-                           OnClick="@(() => ShowAddItemDialog(list))">
-                    Add item
-                </MudButton>
-                <MudButton Variant="Variant.Filled" Color="Color.Secondary" Size="Size.Small"
-                           StartIcon="@Icons.Material.Filled.ShoppingBag"
-                           OnClick="@(() => MarkPurchased(list))">
-                    I bought these
-                </MudButton>
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
-                               OnClick="@(() => DeleteList(list))" />
-            </MudStack>
-            @if (!list.Items.Any())
-            {
-                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
-                    No items yet. Use Add item to build this list.
-                </MudText>
-            }
-            else
-            {
-                <MudList T="string" Dense="true">
-                    @foreach (var item in list.Items.OrderBy(i => i.Ingredient.Category).ThenBy(i => i.Ingredient.Name))
+        @* ── Page header ──────────────────────────────────────────────────────── *@
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:24px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:240px;">
+                <h1 style="font-size:32px;letter-spacing:-0.025em;line-height:1.05;margin:0;">Grocery Lists</h1>
+                <div style="font-size:13px;color:var(--ink-3);margin-top:6px;">
+                    @if (_groceryLists.Count == 0)
                     {
-                        <MudListItem>
-                            <MudStack Row="true" AlignItems="AlignItems.Center">
-                                <MudCheckBox T="bool" Value="@item.IsPurchased"
-                                             ValueChanged="@(v => TogglePurchased(item, v))"
-                                             Color="Color.Primary" />
-                                <MudText Style="@(item.IsPurchased ? "text-decoration: line-through; color: #999;" : "")">
-                                    <b>@item.Amount @CookBot.Application.Services.UnitParser.ToDisplayString(item.Unit)</b>
-                                    @item.Ingredient.Name
-                                </MudText>
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Info">
-                                    @item.Ingredient.Category
-                                </MudChip>
-                                <MudSpacer />
-                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Default" Size="Size.Small"
-                                               OnClick="@(() => RemoveItem(item))" />
-                            </MudStack>
-                        </MudListItem>
+                        <text>No lists yet — create one to get started.</text>
                     }
-                </MudList>
-            }
-        </MudPaper>
-    }
-}
-else
-{
-    <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
-        <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" Size="Size.Large" Color="Color.Secondary" />
-        <MudText Typo="Typo.h6" Class="mt-4">No grocery lists yet</MudText>
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4 text-center" Style="max-width: 28rem;">
-            Create a list with <b>New list</b>, or open a recipe and use &quot;What do I need?&quot; to add missing ingredients.
-        </MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                   OnClick="ShowNewListDialog">
-            Create a list
-        </MudButton>
-    </MudPaper>
-}
+                    else
+                    {
+                        <text>@_groceryLists.Count list@(_groceryLists.Count == 1 ? "" : "s")</text>
+                    }
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Plus" OnClick="ShowNewListDialog">
+                    New list
+                </CbButton>
+            </div>
+        </div>
+
+        @if (_generatingFromRecipe && _recipe != null)
+        {
+            <div role="status"
+                 style="background:var(--accent-soft);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13.5px;color:var(--accent-ink);">
+                Generating shopping list for <strong>@_recipe.Name</strong>…
+            </div>
+        }
+
+        @if (_groceryLists.Count == 0)
+        {
+            <CbCard Padding="48" Style="text-align:center;">
+                <Icon Name="@Icon.Names.Cart" Size="40" />
+                <h3 style="font-size:18px;margin:14px 0 6px 0;">No grocery lists yet</h3>
+                <p style="color:var(--ink-3);font-size:13.5px;margin:0 0 18px 0;max-width:32rem;margin-left:auto;margin-right:auto;line-height:1.55;">
+                    Create a list with <strong>New list</strong>, or open a recipe and use
+                    "What do I need?" to add missing ingredients.
+                </p>
+                <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Plus" OnClick="ShowNewListDialog">
+                    Create a list
+                </CbButton>
+            </CbCard>
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:32px;">
+                @foreach (var list in _groceryLists)
+                {
+                    @RenderList(list)
+                }
+            </div>
+        }
+    </div>
 </UserGuard>
 
 @code {
@@ -124,7 +106,7 @@ else
                 var uid = UserService.CurrentUserId.Value;
                 if (!await DbContext.UserCanAccessRecipeAsync(RecipeId, uid))
                 {
-                    Snackbar.Add("You do not have access to that recipe.", Severity.Warning);
+                    Toast.Show("You do not have access to that recipe.", CbToastSeverity.Warning);
                     Navigation.NavigateTo("/cookbooks");
                 }
                 else
@@ -138,11 +120,11 @@ else
                         var list = await GroceryListService.GenerateFromRecipeAsync(uid, _recipe);
                         if (list.Items.Any())
                         {
-                            Snackbar.Add($"Shopping list created with {list.Items.Count} items!", Severity.Success);
+                            Toast.Show($"Shopping list created with {list.Items.Count} items!", CbToastSeverity.Success);
                         }
                         else
                         {
-                            Snackbar.Add("You have everything you need!", Severity.Info);
+                            Toast.Show("You have everything you need!", CbToastSeverity.Info);
                         }
                     }
                 }
@@ -167,9 +149,174 @@ else
         }
     }
 
-    private async Task TogglePurchased(GroceryListItem item, bool purchased)
+    private RenderFragment RenderList(GroceryList list) => __builder =>
     {
-        item.IsPurchased = purchased;
+        var total = list.Items.Count;
+        var checkedCount = list.Items.Count(i => i.IsPurchased);
+        var pct = total == 0 ? 0 : (int)Math.Round((double)checkedCount / total * 100);
+        var groups = list.Items
+            .OrderBy(i => i.Ingredient.Category)
+            .ThenBy(i => i.Ingredient.Name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(i => i.Ingredient.Category)
+            .ToList();
+
+        <section class="grocery-list" style="max-width:560px;display:flex;flex-direction:column;gap:14px;">
+
+            @* ── Per-list header: name + sub + share + more ─────────────── *@
+            <header style="display:flex;align-items:center;gap:12px;">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:20px;font-weight:600;letter-spacing:-0.018em;line-height:1.15;">
+                        @list.Name
+                    </div>
+                    <div style="font-size:12.5px;color:var(--ink-3);margin-top:2px;">
+                        @total item@(total == 1 ? "" : "s") · created @list.CreatedAt.ToString("MMM d, yyyy")
+                    </div>
+                </div>
+                <button type="button"
+                        title="Mark all purchased & move to pantry"
+                        aria-label="Mark all purchased and move to pantry"
+                        @onclick="@(() => MarkPurchased(list))"
+                        style="@IconBtnStyle">
+                    <Icon Name="@Icon.Names.Share" Size="18" />
+                </button>
+                <button type="button"
+                        title="Delete list"
+                        aria-label="Delete list"
+                        @onclick="@(() => ConfirmDeleteList(list))"
+                        style="@IconBtnStyle">
+                    <Icon Name="@Icon.Names.More" Size="18" />
+                </button>
+            </header>
+
+            @* ── Progress card (GR-02) ───────────────────────────────────── *@
+            <CbCard Padding="14">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;">
+                    <span style="font-size:13px;font-weight:500;">Progress</span>
+                    <span class="num" style="font-size:13px;color:var(--ink-3);">
+                        @checkedCount / @total
+                    </span>
+                </div>
+                <div role="progressbar"
+                     aria-valuenow="@checkedCount" aria-valuemin="0" aria-valuemax="@total"
+                     aria-label="Items purchased"
+                     style="height:6px;background:var(--cream-2);border-radius:3px;overflow:hidden;">
+                    <div style="width:@(pct)%;height:100%;background:var(--accent);transition:width 160ms ease;"></div>
+                </div>
+            </CbCard>
+
+            @* ── Aisle-categorized sections (GR-03) ──────────────────────── *@
+            @if (groups.Count == 0)
+            {
+                <CbCard Padding="20" Style="text-align:center;color:var(--ink-3);font-size:13.5px;">
+                    No items yet. Use Add item to build this list.
+                </CbCard>
+            }
+            else
+            {
+                foreach (var group in groups)
+                {
+                    var aisleItems = group.ToList();
+                    <div>
+                        <CbEyebrow>@group.Key.ToString()</CbEyebrow>
+                        <CbCard Padding="0" Style="overflow:hidden;margin-top:8px;">
+                            @for (var i = 0; i < aisleItems.Count; i++)
+                            {
+                                var item = aisleItems[i];
+                                var isLast = i == aisleItems.Count - 1;
+                                @RenderRow(item, isLast)
+                            }
+                        </CbCard>
+                    </div>
+                }
+            }
+
+            @* ── Bottom action: Add item (GR-04) ─────────────────────────── *@
+            <div style="margin-top:4px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Accent" FullWidth="true" StartIcon="@Icon.Names.Plus"
+                          Style="height:50px;border-radius:25px;font-size:15px;"
+                          OnClick="@(() => ShowAddItemDialog(list))">
+                    Add item
+                </CbButton>
+            </div>
+        </section>
+    };
+
+    private RenderFragment RenderRow(GroceryListItem item, bool isLast) => __builder =>
+    {
+        // The whole row is clickable — toggles purchased state. Rendered as a div with
+        // role="button" + tabindex + keydown handler (rather than a real <button>) so
+        // we can nest a real <button> for the trash action without producing invalid
+        // HTML. Custom 24px circle checkbox per the design (accent-fill + check glyph
+        // when checked, 2px line border when unchecked) is rendered inline so we get
+        // the round shape and accent-fill behavior.
+        var done = item.IsPurchased;
+        var border = isLast ? "none" : "1px solid var(--line)";
+        var rowStyle = $"display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:{border};cursor:pointer;user-select:none;";
+        var boxBorder = done ? "none" : "2px solid var(--line-strong)";
+        var boxBg = done ? "var(--accent)" : "transparent";
+        var boxStyle = $"width:24px;height:24px;border-radius:12px;border:{boxBorder};background:{boxBg};display:grid;place-items:center;flex-shrink:0;color:var(--accent-ink);";
+        var nameStyle = done
+            ? "flex:1;font-size:15px;font-weight:500;text-decoration:line-through;opacity:0.45;min-width:0;overflow:hidden;text-overflow:ellipsis;"
+            : "flex:1;font-size:15px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;";
+        var qtyStyle = done
+            ? "font-size:13px;color:var(--ink-3);opacity:0.45;white-space:nowrap;"
+            : "font-size:13px;color:var(--ink-3);white-space:nowrap;";
+
+        <div role="button"
+             tabindex="0"
+             aria-pressed="@done"
+             aria-label="@($"Toggle {item.Ingredient.Name}")"
+             @onclick="@(() => TogglePurchased(item))"
+             @onkeydown="@(e => OnRowKeyDown(e, item))"
+             style="@rowStyle">
+            <span style="@boxStyle">
+                @if (done)
+                {
+                    <Icon Name="@Icon.Names.Check" Size="14" />
+                }
+            </span>
+            <span style="@nameStyle">@item.Ingredient.Name</span>
+            <span class="num" style="@qtyStyle">
+                @FormatQuantity(item)
+            </span>
+            <button type="button"
+                    title="Remove from list"
+                    aria-label="@($"Remove {item.Ingredient.Name} from list")"
+                    @onclick="@(() => RemoveItem(item))"
+                    @onclick:stopPropagation="true"
+                    style="@RemoveBtnStyle">
+                <Icon Name="@Icon.Names.Trash" Size="14" />
+            </button>
+        </div>
+    };
+
+    private async Task OnRowKeyDown(KeyboardEventArgs e, GroceryListItem item)
+    {
+        if (e.Key == " " || e.Key == "Enter" || e.Code == "Space")
+        {
+            await TogglePurchased(item);
+        }
+    }
+
+    private static string FormatQuantity(GroceryListItem item)
+    {
+        var amount = item.Amount;
+        var amountText = amount == Math.Floor(amount)
+            ? amount.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+            : amount.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        var unit = CookBot.Application.Services.UnitParser.ToDisplayString(item.Unit);
+        return string.IsNullOrWhiteSpace(unit) ? amountText : $"{amountText} {unit}";
+    }
+
+    private const string IconBtnStyle =
+        "display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:17px;background:transparent;border:1px solid var(--line);color:var(--ink-2);cursor:pointer;flex-shrink:0;";
+
+    private const string RemoveBtnStyle =
+        "display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:14px;background:transparent;border:none;color:var(--ink-3);cursor:pointer;flex-shrink:0;margin-left:4px;";
+
+    private async Task TogglePurchased(GroceryListItem item)
+    {
+        item.IsPurchased = !item.IsPurchased;
         await DbContext.SaveChangesAsync();
     }
 
@@ -178,7 +325,7 @@ else
         var unpurchased = list.Items.Where(i => !i.IsPurchased).ToList();
         if (!unpurchased.Any())
         {
-            Snackbar.Add("All items already purchased!", Severity.Info);
+            Toast.Show("All items already purchased!", CbToastSeverity.Info);
             return;
         }
 
@@ -196,31 +343,31 @@ else
                 null);
         }
         await DbContext.SaveChangesAsync();
-        Snackbar.Add($"{unpurchased.Count} items added to pantry!", Severity.Success);
+        Toast.Show($"{unpurchased.Count} items added to pantry!", CbToastSeverity.Success);
     }
 
-    private async Task DeleteList(GroceryList list)
+    private async Task ConfirmDeleteList(GroceryList list)
     {
-        bool? confirm = await DialogService.ShowMessageBox(
-            "Delete List", "Delete this grocery list?",
-            yesText: "Delete", cancelText: "Cancel");
-        if (confirm == true)
-        {
-            DbContext.GroceryLists.Remove(list);
-            await DbContext.SaveChangesAsync();
-            _groceryLists.Remove(list);
-            Snackbar.Add("Grocery list deleted.", Severity.Info);
-        }
+        var parameters = new CbDialogParameters()
+            .Add(nameof(ConfirmDialog.Message), $"Delete the list \"{list.Name}\"? This can't be undone.")
+            .Add(nameof(ConfirmDialog.ConfirmLabel), "Delete")
+            .Add(nameof(ConfirmDialog.CancelLabel), "Cancel")
+            .Add(nameof(ConfirmDialog.Destructive), true);
+        var result = await CbDialogService.ShowAsync<ConfirmDialog>("Delete list", parameters);
+        if (result.Canceled || result.Data is not true) return;
+
+        DbContext.GroceryLists.Remove(list);
+        await DbContext.SaveChangesAsync();
+        _groceryLists.Remove(list);
+        Toast.Show("Grocery list deleted.", CbToastSeverity.Info);
     }
 
     private async Task ShowNewListDialog()
     {
         if (!UserService.CurrentUserId.HasValue) return;
 
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
-        var dialog = await DialogService.ShowAsync<NewGroceryListDialog>("New grocery list", options);
-        var result = await dialog.Result;
-        if (result == null || result.Canceled || result.Data is not string name)
+        var result = await CbDialogService.ShowAsync<NewGroceryListDialog>("New grocery list");
+        if (result.Canceled || result.Data is not string name)
             return;
 
         var displayName = string.IsNullOrWhiteSpace(name)
@@ -236,7 +383,7 @@ else
         DbContext.GroceryLists.Add(list);
         await DbContext.SaveChangesAsync();
         await LoadLists();
-        Snackbar.Add("Grocery list created.", Severity.Success);
+        Toast.Show("Grocery list created.", CbToastSeverity.Success);
     }
 
     private async Task ShowAddItemDialog(GroceryList list)
@@ -245,14 +392,10 @@ else
             return;
 
         var ingredients = await DbContext.Ingredients.OrderBy(i => i.Name).ToListAsync();
-        var parameters = new DialogParameters<AddGroceryListItemDialog>
-        {
-            { x => x.Ingredients, ingredients },
-        };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
-        var dialog = await DialogService.ShowAsync<AddGroceryListItemDialog>("Add item", parameters, options);
-        var result = await dialog.Result;
-        if (result == null || result.Canceled || result.Data is not AddGroceryListItemDialog.GroceryItemResult data)
+        var parameters = new CbDialogParameters()
+            .Add(nameof(AddGroceryListItemDialog.Ingredients), ingredients);
+        var result = await CbDialogService.ShowAsync<AddGroceryListItemDialog>("Add item", parameters);
+        if (result.Canceled || result.Data is not AddGroceryListItemDialog.GroceryItemResult data)
             return;
 
         var item = new GroceryListItem
@@ -265,7 +408,7 @@ else
         DbContext.GroceryListItems.Add(item);
         await DbContext.SaveChangesAsync();
         await LoadLists();
-        Snackbar.Add("Item added to list.", Severity.Success);
+        Toast.Show("Item added to list.", CbToastSeverity.Success);
     }
 
     private async Task RemoveItem(GroceryListItem item)
@@ -273,6 +416,6 @@ else
         DbContext.GroceryListItems.Remove(item);
         await DbContext.SaveChangesAsync();
         await LoadLists();
-        Snackbar.Add("Item removed from list.", Severity.Info);
+        Toast.Show("Item removed from list.", CbToastSeverity.Info);
     }
 }

@@ -1,0 +1,23 @@
+@namespace CookBot.Web.Components.Atoms
+@typeparam TValue
+
+@* CbOption — child of CbSelect (D-17 / ATOM-10).
+   Receives the parent CbSelect via CascadingParameter so it can compute IsSelected
+   against the parent's current Value. Renders a native <option>; the parent's
+   <select @onchange> handler converts the option's value attribute back to TValue. *@
+
+<option value="@SerializeValue()" selected="@IsSelected">
+    @if (ChildContent != null) { @ChildContent } else { @Label }
+</option>
+
+@code {
+    [CascadingParameter] private CbSelect<TValue>? Parent { get; set; }
+
+    [Parameter, EditorRequired] public TValue Value { get; set; } = default!;
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool IsSelected => Parent is not null && Parent.IsSelected(Value);
+
+    private string? SerializeValue() => Value?.ToString();
+}

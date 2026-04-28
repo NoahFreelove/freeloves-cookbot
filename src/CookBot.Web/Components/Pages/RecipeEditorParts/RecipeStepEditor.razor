@@ -1,0 +1,313 @@
+@*  RecipeStepEditor — Phase 6 / Plan 06-04 / ED-03 / ED-04 / ED-05
+    (absorbs v1.1 EDITOR-01 / EDITOR-02 / EDITOR-03 D-B1/D-B2/D-B3/D-A4/D-C3).
+
+    Custom Razor rewrite against Phase 5 atoms + design tokens.
+    Renders a single recipe step row inside a CbCard with:
+      - Step number circle (cream-2 30px) when content step, "section" pill when section step
+      - Step / Section toggle (ED-04). Step→Section conversion with non-empty content
+        confirms via SectionDropConfirmationDialog (CbDialog).
+      - Chip composer when step kind = Step (ED-03)
+      - Plain heading input when step kind = Section (ED-04)
+      - Inline timer-suggestion banner when a numeric+min pattern is detected and not
+        previously dismissed for this session (ED-05).
+      - Persisted timer chip strip below composer (D-C3).
+      - Reorder / delete actions in the right rail.
+
+    Phase 6 hard invariant: zero Mud* components in this file.
+    Phase 7 / Plan 07-01: SectionDropConfirmationDialog migrated to CbDialogService. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Application.Recipes
+@using CookBot.Application.Services
+@using CookBot.Domain.Entities
+@using CookBot.Domain.Interfaces
+@using System.Text.RegularExpressions
+@using CookBot.Web.Components.Atoms
+@using CookBot.Web.Services
+@inject ICbDialogService CbDialogService
+
+<div class="cb-card"
+     style="padding:18px;margin-bottom:12px;display:grid;grid-template-columns:34px 1fr 28px;gap:14px;align-items:flex-start;">
+
+    @* Left: number circle (or section badge) *@
+    @if (_kind == StepKind.Section)
+    {
+        <div style="width:30px;height:30px;border-radius:6px;background:var(--cream-2);display:grid;place-items:center;font-size:10px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em;">§</div>
+    }
+    else
+    {
+        <div class="num"
+             style="width:30px;height:30px;border-radius:15px;background:var(--cream-2);display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--ink-2);">
+            @(Index + 1)
+        </div>
+    }
+
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:0;">
+
+        @* Top row: Step / Section pill toggle. Plain buttons (ED-04). *@
+        <div style="display:flex;align-items:center;gap:6px;">
+            <div class="cb-segmented" role="group" aria-label="Step kind"
+                 style="display:inline-flex;background:var(--cream-2);border-radius:999px;padding:2px;gap:2px;">
+                <button type="button"
+                        class="cb-segment"
+                        aria-pressed="@(_kind == StepKind.Step)"
+                        style="@SegmentStyle(_kind == StepKind.Step)"
+                        @onclick="@(() => OnKindRequested(StepKind.Step))">Step</button>
+                <button type="button"
+                        class="cb-segment"
+                        aria-pressed="@(_kind == StepKind.Section)"
+                        style="@SegmentStyle(_kind == StepKind.Section)"
+                        @onclick="@(() => OnKindRequested(StepKind.Section))">Section</button>
+            </div>
+
+            @if (_kind == StepKind.Step)
+            {
+                <button type="button"
+                        class="cb-btn ghost"
+                        style="font-size:12px;padding:4px 10px;height:24px;"
+                        aria-label="@(_showRawMarkdown ? "View as chips" : "View raw markdown")"
+                        title="@(_showRawMarkdown ? "View as chips" : "View raw markdown")"
+                        @onclick="@(() => _showRawMarkdown = !_showRawMarkdown)">
+                    @(_showRawMarkdown ? "Chips" : "Raw")
+                </button>
+            }
+        </div>
+
+        @* Inline timer-suggestion banner (ED-05). Non-modal; saving never auto-rewrites text. *@
+        @if (_kind == StepKind.Step && _suggestion is { } sug)
+        {
+            <InlineTimerSuggestion Open="true"
+                                   SubstringText="@sug.Substring"
+                                   DurationSeconds="@sug.TotalSeconds"
+                                   OnConvert="@(EventCallback.Factory.Create<int>(this, OnTimerSuggestionConvert))"
+                                   OnDismiss="@(EventCallback.Factory.Create(this, OnTimerSuggestionDismiss))" />
+        }
+
+        @* Body: section heading | raw markdown | chip composer. *@
+        @if (_kind == StepKind.Section)
+        {
+            <CbInput Value="@Step.Text"
+                     ValueChanged="OnHeadingChanged"
+                     Placeholder="Section header (e.g. For the sauce)"
+                     Style="font-size:16px;font-weight:600;" />
+        }
+        else if (_showRawMarkdown)
+        {
+            <CbTextarea Value="@Step.Text"
+                        ValueChanged="OnTextChanged"
+                        Rows="3"
+                        Placeholder="Step text (raw [name](#id) markdown)" />
+        }
+        else
+        {
+            <RecipeChipComposer Interactive="true"
+                                Text="@Step.Text"
+                                TextChanged="OnTextChanged"
+                                Ingredients="@Ingredients" />
+        }
+
+        @* Persisted timer chip strip (D-C3). Visible in BOTH chip view and raw view. *@
+        @if (_kind == StepKind.Step && Step.Timers is { Count: > 0 })
+        {
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;">
+                @foreach (var t in Step.Timers.ToList())
+                {
+                    var captured = t;
+                    <TimerChip Timer="@captured"
+                               OnRemove="@(() => RemoveTimer(captured))"
+                               OnChanged="@(updated => UpdateTimer(captured, updated))" />
+                }
+            </div>
+        }
+    </div>
+
+    @* Right: actions stack (move up / move down / delete). *@
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+        <button type="button"
+                class="cb-step-action"
+                style="background:transparent;border:0;color:var(--ink-4);cursor:@(Index == 0 ? "not-allowed" : "pointer");padding:2px;"
+                disabled="@(Index == 0)"
+                aria-label="Move step up"
+                @onclick="OnMoveUp">
+            <Icon Name="@Icon.Names.ChevD" Size="14" Style="transform:rotate(180deg);" />
+        </button>
+        <button type="button"
+                class="cb-step-action"
+                style="background:transparent;border:0;color:var(--ink-4);cursor:@(IsLast ? "not-allowed" : "pointer");padding:2px;"
+                disabled="@IsLast"
+                aria-label="Move step down"
+                @onclick="OnMoveDown">
+            <Icon Name="@Icon.Names.ChevD" Size="14" />
+        </button>
+        <button type="button"
+                class="cb-step-action"
+                style="background:transparent;border:0;color:var(--ink-4);cursor:pointer;padding:2px;"
+                aria-label="Delete step"
+                @onclick="OnRemove">
+            <Icon Name="@Icon.Names.Trash" Size="14" />
+        </button>
+    </div>
+</div>
+
+@code {
+    public enum StepKind { Step, Section }
+
+    [Parameter] public ParsedStep Step { get; set; } = null!;
+    [Parameter] public int Index { get; set; }
+    [Parameter] public bool IsLast { get; set; }
+    [Parameter] public IReadOnlyList<ParsedIngredient> Ingredients { get; set; } = Array.Empty<ParsedIngredient>();
+    [Parameter] public EventCallback OnRemove { get; set; }
+    [Parameter] public EventCallback OnMoveUp { get; set; }
+    [Parameter] public EventCallback OnMoveDown { get; set; }
+
+    private StepKind _kind;
+
+    // D-A4: ephemeral per-step view-mode flag. NOT persisted. Resets on re-render.
+    private bool _showRawMarkdown;
+
+    // ED-05 timer suggestion: latest detected substring for the current step text, or null.
+    // Excludes durations the user already accepted (in Step.Timers) and durations the user
+    // explicitly dismissed for THIS session (kept in _dismissedDurations — ephemeral, not
+    // persisted; same lifetime semantics as _showRawMarkdown).
+    private TimerDetectionService.DetectedTimer? _suggestion;
+    private readonly HashSet<int> _dismissedDurations = new();
+
+    protected override void OnParametersSet()
+    {
+        _kind = Step.IsSection ? StepKind.Section : StepKind.Step;
+        RefreshSuggestion();
+    }
+
+    private async Task OnKindRequested(StepKind requested)
+    {
+        if (requested == _kind) return;
+
+        if (requested == StepKind.Section)
+        {
+            var timerCount = Step.Timers?.Count ?? 0;
+            var refCount = CountIngredientRefs(Step.Text);
+            if (timerCount > 0 || refCount > 0)
+            {
+                var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: false, CloseOnEscape: true);
+                var parameters = new CbDialogParameters
+                {
+                    ["TimerCount"] = timerCount,
+                    ["RefCount"] = refCount
+                };
+                var result = await CbDialogService.ShowAsync<SectionDropConfirmationDialog>("Convert to a section header?", parameters, options);
+                if (result is null || result.Canceled)
+                {
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            // D-B2: section heading reuses current step text. Drop timers + ingredient refs.
+            Step.IsSection = true;
+            Step.Timers = new List<ParsedTimer>();
+            Step.Text = IngredientLinkPatterns.Pattern.Replace(Step.Text, m => m.Groups[1].Value);
+            _kind = StepKind.Section;
+            _showRawMarkdown = false;
+            _suggestion = null;
+        }
+        else // Section → Step
+        {
+            Step.IsSection = false;
+            _kind = StepKind.Step;
+            RefreshSuggestion();
+        }
+        StateHasChanged();
+    }
+
+    private static int CountIngredientRefs(string text)
+        => string.IsNullOrEmpty(text) ? 0 : IngredientLinkPatterns.Pattern.Matches(text).Count;
+
+    private Task OnTextChanged(string? newText)
+    {
+        Step.Text = newText ?? string.Empty;
+        RefreshSuggestion();
+        return Task.CompletedTask;
+    }
+
+    private Task OnHeadingChanged(string? newHeading)
+    {
+        Step.Text = newHeading ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    private void RemoveTimer(ParsedTimer t)
+    {
+        Step.Timers?.Remove(t);
+        RefreshSuggestion();
+        StateHasChanged();
+    }
+
+    private void UpdateTimer(ParsedTimer original, ParsedTimer updated)
+    {
+        // Mutated in place via TimerChip → original IS updated.
+        StateHasChanged();
+    }
+
+    private void RefreshSuggestion()
+    {
+        if (_kind == StepKind.Section || string.IsNullOrEmpty(Step.Text))
+        {
+            _suggestion = null;
+            return;
+        }
+        var detected = TimerDetectionService.Detect(Step.Text);
+        if (detected.Count == 0)
+        {
+            _suggestion = null;
+            return;
+        }
+        var alreadyAccepted = Step.Timers is null
+            ? new HashSet<int>()
+            : Step.Timers.Select(t => DurationToSeconds(t)).ToHashSet();
+
+        // Surface the first detection that is neither accepted nor session-dismissed.
+        _suggestion = detected.FirstOrDefault(d =>
+            !alreadyAccepted.Contains(d.TotalSeconds) &&
+            !_dismissedDurations.Contains(d.TotalSeconds));
+    }
+
+    private static int DurationToSeconds(ParsedTimer t)
+    {
+        var unit = (t.Unit ?? "min").ToLowerInvariant();
+        if (unit.StartsWith("hr") || unit.StartsWith("hour")) return t.Duration * 3600;
+        if (unit.StartsWith("sec")) return t.Duration;
+        return t.Duration * 60;
+    }
+
+    private void OnTimerSuggestionConvert(int durationSeconds)
+    {
+        var (duration, unit) = SplitToDurationAndUnit(durationSeconds);
+        Step.Timers ??= new List<ParsedTimer>();
+        Step.Timers.Add(new ParsedTimer { Duration = duration, Unit = unit });
+        // After accepting, this duration is in Step.Timers — RefreshSuggestion will skip it
+        // and surface the next detection if any.
+        RefreshSuggestion();
+        StateHasChanged();
+    }
+
+    private void OnTimerSuggestionDismiss()
+    {
+        if (_suggestion is { } sug)
+        {
+            _dismissedDurations.Add(sug.TotalSeconds);
+        }
+        RefreshSuggestion();
+        StateHasChanged();
+    }
+
+    private static (int Duration, string Unit) SplitToDurationAndUnit(int seconds)
+    {
+        if (seconds >= 3600 && seconds % 3600 == 0) return (seconds / 3600, "hr");
+        if (seconds >= 60 && seconds % 60 == 0) return (seconds / 60, "min");
+        return (seconds, "sec");
+    }
+
+    private static string SegmentStyle(bool active)
+        => active
+            ? "background:var(--paper);color:var(--ink);border:0;border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(60,42,18,0.08);"
+            : "background:transparent;color:var(--ink-3);border:0;border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:500;cursor:pointer;";
+}

@@ -1,0 +1,132 @@
+@*  TimerChip — Phase 6 / Plan 06-04 / ED-03 (absorbs v1.1 EDITOR-01 D-C3).
+    Custom Razor rewrite against Phase 5 atoms + design tokens.
+    Renders as <span class="cb-chip timer"> (accent-soft bg, accent-ink text per design
+    handoff `screens/recipe-editor.jsx`) with a clock glyph and the timer label.
+    Click toggles a non-modal inline popover for editing duration / unit / label.
+    The × removes the timer.
+
+    Phase 6 hard invariant: zero Mud* components. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Application.Recipes
+@using CookBot.Domain.Interfaces
+@using CookBot.Web.Components.Atoms
+
+<span class="cb-chip-with-popover" style="position:relative;display:inline-block;vertical-align:baseline;">
+    <span class="cb-chip timer"
+          style="vertical-align:baseline;margin:0 2px;cursor:pointer;"
+          role="button"
+          tabindex="0"
+          title="@FormatDisplay()"
+          @onclick="TogglePopover"
+          @onkeydown="HandleChipKeyDown">
+        <Icon Name="@Icon.Names.Clock" Size="11" />
+        @FormatDisplay()
+        <button type="button"
+                class="cb-chip-remove"
+                aria-label="Remove timer"
+                style="background:transparent;border:0;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 0 0 4px;display:inline-flex;align-items:center;"
+                @onclick:stopPropagation="true"
+                @onclick="HandleRemove">×</button>
+    </span>
+
+    @if (_popoverOpen)
+    {
+        @* Non-modal inline edit popover. Plain CSS positioning — no portal / no JS bridge. *@
+        <div class="cb-card"
+             role="dialog"
+             aria-label="Edit timer"
+             style="position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:240px;padding:14px;box-shadow:0 8px 24px rgba(60,42,18,0.12);">
+            <div style="display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;font-size:13px;">
+                <label for="timer-duration" style="color:var(--ink-3);">Duration</label>
+                <input id="timer-duration"
+                       type="number"
+                       min="1"
+                       class="cb-input"
+                       value="@Timer.Duration"
+                       style="font-size:13px;padding:6px 10px;"
+                       @oninput="OnDurationInput" />
+
+                <label for="timer-unit" style="color:var(--ink-3);">Unit</label>
+                <select id="timer-unit"
+                        class="cb-input"
+                        value="@Timer.Unit"
+                        style="font-size:13px;padding:6px 10px;"
+                        @onchange="OnUnitChanged">
+                    <option value="sec">sec</option>
+                    <option value="min">min</option>
+                    <option value="hr">hr</option>
+                </select>
+
+                <label for="timer-label" style="color:var(--ink-3);">Label</label>
+                <input id="timer-label"
+                       type="text"
+                       class="cb-input"
+                       value="@Timer.Label"
+                       placeholder="optional"
+                       style="font-size:13px;padding:6px 10px;"
+                       @oninput="OnLabelInput" />
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="ClosePopover">Done</CbButton>
+            </div>
+        </div>
+    }
+</span>
+
+@code {
+    [Parameter] public ParsedTimer Timer { get; set; } = new();
+    [Parameter] public EventCallback OnRemove { get; set; }
+    [Parameter] public EventCallback<ParsedTimer> OnChanged { get; set; }
+
+    private bool _popoverOpen;
+
+    private string FormatDisplay()
+        => string.IsNullOrWhiteSpace(Timer.Label)
+            ? $"{Timer.Duration} {Timer.Unit}"
+            : $"{Timer.Duration} {Timer.Unit} — {Timer.Label}";
+
+    private void TogglePopover() => _popoverOpen = !_popoverOpen;
+
+    private void ClosePopover() => _popoverOpen = false;
+
+    private async Task HandleChipKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            TogglePopover();
+        }
+        else if (e.Key == "Backspace" || e.Key == "Delete")
+        {
+            await HandleRemove();
+        }
+    }
+
+    private async Task HandleRemove()
+    {
+        _popoverOpen = false;
+        if (OnRemove.HasDelegate)
+            await OnRemove.InvokeAsync();
+    }
+
+    private async Task OnDurationInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value as string, out var v) && v > 0)
+        {
+            Timer.Duration = v;
+            await OnChanged.InvokeAsync(Timer);
+        }
+    }
+
+    private async Task OnUnitChanged(ChangeEventArgs e)
+    {
+        var v = e.Value as string ?? "min";
+        Timer.Unit = v;
+        await OnChanged.InvokeAsync(Timer);
+    }
+
+    private async Task OnLabelInput(ChangeEventArgs e)
+    {
+        Timer.Label = e.Value as string;
+        await OnChanged.InvokeAsync(Timer);
+    }
+}

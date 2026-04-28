@@ -1,8 +1,10 @@
 using Microsoft.JSInterop;
-using MudBlazor;
 
 namespace CookBot.Web.Services;
 
+// Phase 7 / Plan 07-01: migrated from ISnackbar to ICbToastService alongside the
+// CookbookList / CookbookDetail / ShareCookbookDialog rewrites (all callers).
+// QuestPDF-backed PDF export through CookbookPdfService is preserved verbatim.
 public static class CookbookDownloadHelper
 {
     public static string SafeFileStem(string name)
@@ -19,12 +21,12 @@ public static class CookbookDownloadHelper
         IJSRuntime js,
         int cookbookId,
         int userId,
-        ISnackbar snackbar)
+        ICbToastService toast)
     {
         var doc = await transferService.BuildExportAsync(cookbookId, userId);
         if (doc == null)
         {
-            snackbar.Add("You do not have access to export this cookbook.", Severity.Error);
+            toast.Show("You do not have access to export this cookbook.", CbToastSeverity.Error);
             return false;
         }
 
@@ -32,7 +34,7 @@ public static class CookbookDownloadHelper
         var stem = SafeFileStem(doc.Cookbook.Name);
         await js.InvokeVoidAsync("cookBotDownloadFile", $"{stem}.pdf", "application/pdf",
             Convert.ToBase64String(bytes));
-        snackbar.Add("PDF download started.", Severity.Success);
+        toast.Show("PDF download started.", CbToastSeverity.Success);
         return true;
     }
 
@@ -41,12 +43,12 @@ public static class CookbookDownloadHelper
         IJSRuntime js,
         int cookbookId,
         int userId,
-        ISnackbar snackbar)
+        ICbToastService toast)
     {
         var doc = await transferService.BuildExportAsync(cookbookId, userId);
         if (doc == null)
         {
-            snackbar.Add("You do not have access to export this cookbook.", Severity.Error);
+            toast.Show("You do not have access to export this cookbook.", CbToastSeverity.Error);
             return false;
         }
 
@@ -54,7 +56,7 @@ public static class CookbookDownloadHelper
         var stem = SafeFileStem(doc.Cookbook.Name);
         await js.InvokeVoidAsync("cookBotDownloadFile", $"{stem}.cookbook.json", "application/json",
             Convert.ToBase64String(bytes));
-        snackbar.Add("JSON download started.", Severity.Success);
+        toast.Show("JSON download started.", CbToastSeverity.Success);
         return true;
     }
 }

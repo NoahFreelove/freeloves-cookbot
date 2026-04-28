@@ -1,60 +1,66 @@
 @inject CurrentUserService UserService
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inject ICbDialogService CbDialogService
+@inject ICbToastService Toast
 
-<MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Manage users</MudText>
-    </TitleContent>
-    <DialogContent>
-        @if (!_isAdmin)
+@* Phase 7 / Plan 07-05: AdminManageUsersDialog migrated to CbDialog slots (D-27).
+   Body lists users with a delete-icon button (admin only); footer hosts Add user
+   + Close. Inner dialogs (AddUserDialog, ConfirmDialog) launched via
+   CbDialogService. Toasts via ICbToastService. ZERO Mud*. *@
+
+<div>
+    @if (!_isAdmin)
+    {
+        <div class="cb-card" style="background:var(--cream-2);color:var(--ink-2);padding:12px;margin-bottom:12px;border:none;font-size:13px;">
+            To remove users, select an account that has <strong>admin</strong> permission
+            (the <strong>Home Chef</strong> account on a typical install), then open this
+            dialog again.
+        </div>
+    }
+
+    <p style="margin:0 0 14px 0;font-size:13px;color:var(--ink-3);">
+        Removing a user deletes their cookbooks, recipes, pantries, grocery lists,
+        conversations, and profile. This cannot be undone.
+    </p>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+        @foreach (var user in _users)
         {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Variant="Variant.Outlined">
-                To remove users, select an account that has <strong>admin</strong> permission (the <strong>Home Chef</strong> account on a typical install), then open this dialog again.
-            </MudAlert>
+            <div class="cb-card" style="padding:10px 12px;display:flex;align-items:center;gap:10px;">
+                <span style="flex:1;font-size:14px;color:var(--ink);">@user.DisplayName</span>
+                @if (!user.IsCookBotAdmin)
+                {
+                    <button type="button"
+                            class="cb-btn ghost"
+                            style="padding:4px 8px;color:@(_isAdmin ? "var(--warn)" : "var(--ink-4)");"
+                            disabled="@(!_isAdmin)"
+                            title="@(_isAdmin ? "Remove this user" : "Sign in as an admin user in the header to enable removal")"
+                            aria-label="@($"Delete user {user.DisplayName}")"
+                            @onclick="@(() => ConfirmDeleteUser(user))">
+                        <Icon Name="@Icon.Names.Trash" Size="14" />
+                    </button>
+                }
+                else
+                {
+                    <span style="font-size:12px;color:var(--ink-3);">Admin</span>
+                }
+            </div>
         }
-        <MudText Typo="Typo.body2" Class="mb-4">
-            Removing a user deletes their cookbooks, recipes, pantries, grocery lists, conversations, and profile. This cannot be undone.
-        </MudText>
-        <MudStack Spacing="1">
-            @foreach (var user in _users)
-            {
-                <MudPaper Class="pa-2" Elevation="0" Outlined="true">
-                    <MudStack Row="true" AlignItems="AlignItems.Center">
-                        <MudText Typo="Typo.body1">@user.DisplayName</MudText>
-                        <MudSpacer />
-                        @if (!user.IsCookBotAdmin)
-                        {
-                            <MudTooltip Text="@(_isAdmin ? "Remove this user" : "Sign in as an admin user in the header to enable removal")">
-                                <span>
-                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
-                                                   Color="Color.Error"
-                                                   Disabled="@(!_isAdmin)"
-                                                   aria-label="@($"Delete user {user.DisplayName}")"
-                                                   OnClick="@(() => ConfirmDeleteUser(user))" />
-                                </span>
-                            </MudTooltip>
-                        }
-                        else
-                        {
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">Admin</MudText>
-                        }
-                    </MudStack>
-                </MudPaper>
-            }
-        </MudStack>
-    </DialogContent>
-    <DialogActions>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
         @if (_isAdmin)
         {
-            <MudButton StartIcon="@Icons.Material.Filled.PersonAdd" Color="Color.Primary" OnClick="ShowAddUserDialog">Add User</MudButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="@Icon.Names.Plus"
+                      OnClick="ShowAddUserDialog">
+                Add user
+            </CbButton>
         }
-        <MudButton OnClick="Close">Close</MudButton>
-    </DialogActions>
-</MudDialog>
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Close">Close</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     [Parameter] public EventCallback OnUsersChanged { get; set; }
 
@@ -67,13 +73,12 @@
         _users = await UserService.GetAllUsersAsync();
     }
 
-    private void Close() => MudDialog.Close();
+    private void Close() => DialogInstance?.Close(CbDialogResult.Ok());
 
     private async Task ShowAddUserDialog()
     {
-        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<AddUserDialog>("Add User", options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.ExtraSmall, FullWidth: true);
+        var result = await CbDialogService.ShowAsync<AddUserDialog>("Add user", null, options);
         if (result != null && !result.Canceled && result.Data is string name && !string.IsNullOrWhiteSpace(name))
         {
             await UserService.CreateUserAsync(name);
@@ -85,33 +90,39 @@
 
     private async Task ConfirmDeleteUser(User user)
     {
-        var confirm = await DialogService.ShowMessageBox(
-            "Delete user?",
-            $"Remove \"{user.DisplayName}\" and all of their data?",
-            yesText: "Delete",
-            cancelText: "Cancel");
-        if (confirm != true || !UserService.CurrentUserId.HasValue)
+        var parameters = new CbDialogParameters
+        {
+            ["Title"] = "Delete user",
+            ["Message"] = $"Remove \"{user.DisplayName}\" and all of their data? This cannot be undone.",
+            ["ConfirmLabel"] = "Delete",
+            ["Destructive"] = true,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.ExtraSmall, FullWidth: true);
+        var confirmResult = await CbDialogService.ShowAsync<CookBot.Web.Components.Dialogs.ConfirmDialog>("Delete user", parameters, options);
+
+        if (confirmResult == null || confirmResult.Canceled || confirmResult.Data is not true || !UserService.CurrentUserId.HasValue)
             return;
 
         var result = await UserService.DeleteUserAsAdminAsync(UserService.CurrentUserId.Value, user.Id);
         switch (result)
         {
             case AdminDeleteUserResult.Success:
-                Snackbar.Add($"User \"{user.DisplayName}\" removed.", Severity.Info);
+                Toast.Show($"User \"{user.DisplayName}\" removed.", CbToastSeverity.Info);
                 _users = await UserService.GetAllUsersAsync();
                 await OnUsersChanged.InvokeAsync();
                 break;
             case AdminDeleteUserResult.NotAuthorized:
-                Snackbar.Add("Only an admin user can delete other users.", Severity.Error);
+                Toast.Show("Only an admin user can delete other users.", CbToastSeverity.Error);
                 break;
             case AdminDeleteUserResult.CannotDeleteAdminAccount:
-                Snackbar.Add("Admin accounts cannot be deleted from here.", Severity.Warning);
+                Toast.Show("Admin accounts cannot be deleted from here.", CbToastSeverity.Warning);
                 break;
             case AdminDeleteUserResult.UserNotFound:
-                Snackbar.Add("User was already removed.", Severity.Warning);
+                Toast.Show("User was already removed.", CbToastSeverity.Warning);
                 _users = await UserService.GetAllUsersAsync();
                 await OnUsersChanged.InvokeAsync();
                 break;
         }
+        StateHasChanged();
     }
 }

@@ -1,149 +1,241 @@
 @page "/recipes/{RecipeId:int}"
+@using System.Text.Json
+@using CookBot.Application.Recipes
 @using CookBot.Application.Services
+@using CookBot.Domain.Recipes
 @using CookBot.Infrastructure.Data
+@using CookBot.Web.Components.Atoms
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CurrentUserService UserService
-@inject CookBot.Application.Services.GroceryListService GroceryListService
+@inject JsonRecipeSerializer RecipeSerializer
 @inject NavigationManager Navigation
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inject ICbDialogService CbDialogService
+@inject IRecipeMadeService RecipeMadeService
 @rendermode InteractiveServer
 
-<PageTitle>CookBot - @(_recipe?.Name ?? "Recipe")</PageTitle>
+@*  Recipe View — Phase 6 / Plan 06-03 / RV-01..RV-05.
+    Editorial rewrite against Phase 5 atoms per design handoff
+    `screens/recipe-view.jsx`. Consumes the canonical RecipeDocument
+    directly (Recipe.CanonicalDocumentJson) — NEVER reads
+    Recipe.IngredientsJson / StepsJson / IngredientRefs / TagsJson.
+    Phase 6 SC#3 gate.
+
+    PRAGMATIC notes:
+      - The TopBar (MainLayout) does not currently expose a per-page right
+        slot via cascading parameter; per CONTEXT D-17 fallback, Share/Cook
+        actions render inline at the top of the page content.
+      - "Notes from your last cook" never renders in v1.2 — no RecipeMade
+        log entity exists (Plan 06-01 SUMMARY confirmed). The conditional is
+        wired so the callout appears once a log lands.
+      - Made-count surfaces as 0× with a TODO marker for the same reason.
+      - RecipeDocument has no description field; the 17px lead paragraph
+        from the design hides when no description is available. *@
+
+<PageTitle>CookBot - @(_doc?.Name ?? _recipe?.Name ?? "Recipe")</PageTitle>
 
 <UserGuard>
-@if (_recipe != null)
+@if (_doc != null && _recipe != null)
 {
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
-                       OnClick="@(() => Navigation.NavigateTo($"/cookbooks/{_recipe.CookbookId}"))" />
-        <MudText Typo="Typo.h4" Style="font-weight: 600;">@_recipe.Name</MudText>
-        <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.PlayArrow"
-                   Href="@($"/recipes/{RecipeId}/cook")">
-            Start Cooking
-        </MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.Edit"
-                   OnClick="@(() => Navigation.NavigateTo($"/recipes/{_recipe.Id}/edit"))">
-            Edit
-        </MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
-                   StartIcon="@Icons.Material.Filled.PlaylistAdd"
-                   OnClick="AddAllToShoppingList" Disabled="_addingToList">
-            Add all to shopping list
-        </MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Secondary"
-                   StartIcon="@Icons.Material.Filled.ShoppingCart"
-                   OnClick="AddMissingToShoppingList" Disabled="_addingToList">
-            Add what I need
-        </MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.CheckCircle"
-                   OnClick="MarkAsMade">
-            I made this!
-        </MudButton>
-    </MudStack>
+    @* Inline action row (TopBar right-slot fallback per CONTEXT D-17 PRAGMATIC) *@
+    <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;justify-content:flex-end;gap:10px;align-items:center;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Pencil" OnClick="EditRecipe">Edit</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Share" OnClick="OpenShareDialog">Share</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Clock" OnClick="OpenScheduleDialog">Schedule</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Flame" OnClick="StartCooking">Cook this</CbButton>
+    </div>
 
-    <MudGrid>
-        <MudItem xs="12" md="4">
-            <MudPaper Class="pa-4" Elevation="2" Style="border-radius: 12px;">
-                <MudStack Row="true" Spacing="2" Class="mb-3">
-                    @if (_recipe.PrepTimeMinutes.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
-                            Prep: @(_recipe.PrepTimeMinutes)m
-                        </MudChip>
-                    }
-                    @if (_recipe.CookTimeMinutes.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Filled">
-                            Cook: @(_recipe.CookTimeMinutes)m
-                        </MudChip>
-                    }
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled">
-                        @_recipe.Servings servings
-                    </MudChip>
-                </MudStack>
+    <article style="max-width:1080px;margin:0 auto;padding:24px 32px 80px;">
 
-                @if (_tags.Any())
+        @* Hero (RV-01) *@
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:48px;align-items:end;">
+            <div>
+                @if (_doc.Tags.Count > 0)
                 {
-                    <MudStack Row="true" Spacing="1" Class="mb-4" Wrap="Wrap.Wrap">
-                        @foreach (var tag in _tags)
+                    <CbEyebrow><div style="margin-bottom:14px;">@string.Join(" · ", _doc.Tags)</div></CbEyebrow>
+                }
+                <h1 class="cb-recipe-cap" style="margin:0;">@_doc.Name</h1>
+
+                @* RecipeDocument has no description field today (FUTURE-V1.1-*).
+                   The lead paragraph hides until the schema gains one. *@
+
+                <div style="display:flex;gap:24px;margin-top:28px;padding-top:20px;border-top:1px solid var(--line);">
+                    <div>
+                        <div class="eyebrow" style="font-size:10px;">Active</div>
+                        <div class="num" style="font-size:22px;font-weight:600;margin-top:4px;">
+                            @(_doc.PrepTimeMinutes?.ToString() ?? "—")<span style="font-size:13px;color:var(--ink-3);margin-left:4px;">min</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="eyebrow" style="font-size:10px;">Total</div>
+                        <div class="num" style="font-size:22px;font-weight:600;margin-top:4px;">
+                            @TotalTimeText<span style="font-size:13px;color:var(--ink-3);margin-left:4px;">min</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="eyebrow" style="font-size:10px;">Serves</div>
+                        <div class="num" style="font-size:22px;font-weight:600;margin-top:4px;">@_doc.Servings</div>
+                    </div>
+                    <div>
+                        <div class="eyebrow" style="font-size:10px;">Made</div>
+                        @* TODO: surface made-count when RecipeMade log entity lands (FUTURE-Recently-Cooked) *@
+                        <div class="num" style="font-size:22px;font-weight:600;margin-top:4px;">
+                            @_madeCount<span style="font-size:13px;color:var(--ink-3);margin-left:4px;">×</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <StripedPlaceholder Width="100%" Height="420" Label="hero photo · 4:3" />
+        </div>
+
+        @* Two-column body (RV-02, RV-03) *@
+        <div style="display:grid;grid-template-columns:300px 1fr;gap:56px;">
+
+            @* LEFT — sticky sidebar (RV-02) *@
+            <aside style="position:sticky;top:80px;align-self:start;">
+                <CbEyebrow><div style="margin-bottom:10px;">Ingredients</div></CbEyebrow>
+
+                <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--paper);border:1px solid var(--line);border-radius:10px;margin-bottom:16px;">
+                    <Icon Name="@Icon.Names.Scale" Size="16" />
+                    <span style="font-size:13px;color:var(--ink-3);flex:1;">Scale recipe</span>
+                    <button type="button"
+                            style="width:26px;height:26px;border-radius:13px;border:1px solid var(--line);background:var(--paper);cursor:pointer;color:var(--ink);"
+                            @onclick="DecrementServings"
+                            disabled="@(_targetServings <= 1)"
+                            aria-label="Decrease servings">−</button>
+                    <span class="num" style="min-width:32px;text-align:center;font-weight:600;">@_targetServings</span>
+                    <button type="button"
+                            style="width:26px;height:26px;border-radius:13px;border:1px solid var(--line);background:var(--paper);cursor:pointer;color:var(--ink);"
+                            @onclick="IncrementServings"
+                            disabled="@(_targetServings >= 100)"
+                            aria-label="Increase servings">+</button>
+                </div>
+
+                @foreach (var ing in _doc.Ingredients)
+                {
+                    <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);align-items:baseline;">
+                        <span class="num" style="flex:0 0 64px;color:var(--ink-2);font-weight:500;font-size:14px;">@FormatQty(ing)</span>
+                        <span style="flex:1;min-width:0;color:var(--ink-2);font-size:14px;line-height:1.45;word-break:break-word;">
+                            @(string.IsNullOrWhiteSpace(ing.Name) ? "(unnamed)" : ing.Name)@(string.IsNullOrWhiteSpace(ing.Note) ? "" : $" ({ing.Note})")
+                        </span>
+                    </div>
+                }
+
+                @if (_doc.Tags.Count > 0)
+                {
+                    <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;">
+                        @foreach (var tag in _doc.Tags)
                         {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">@tag</MudChip>
+                            <CbChip Variant="CbChip.CbChipVariant.Tag" Label="@tag" />
                         }
-                    </MudStack>
+                    </div>
                 }
+            </aside>
 
-                <MudText Typo="Typo.h6" Class="mb-2">Ingredients</MudText>
-                <MudNumericField @bind-Value="_targetServings" Label="Servings" Min="1" Max="100"
-                    Variant="Variant.Outlined" Class="mt-2 mb-3" Style="max-width: 150px;" />
-                <MudList T="string" Dense="true">
-                    @foreach (var ri in _recipe.RecipeIngredients.OrderBy(i => i.RecipeLocalId))
-                    {
-                        <MudListItem>
-                            <MudText>
-                                <b>@RecipeScalingService.FormatScaledAmount(ri.Amount, _recipe.Servings, _targetServings) @ri.Unit</b>
-                                @ri.Ingredient.Name
-                                @if (!string.IsNullOrEmpty(ri.Note))
-                                {
-                                    <span style="color: #888;"> (@ri.Note)</span>
-                                }
-                            </MudText>
-                        </MudListItem>
-                    }
-                </MudList>
-            </MudPaper>
-        </MudItem>
+            @* RIGHT — Method (RV-03) *@
+            <div>
+                <CbEyebrow><div style="margin-bottom:18px;">Method</div></CbEyebrow>
 
-        <MudItem xs="12" md="8">
-            <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 12px;">
-                <MudText Typo="Typo.h6" Class="mb-3">Steps</MudText>
-                @foreach (var step in _recipe.Steps.OrderBy(s => s.Order))
+                @{
+                    var contentIndex = 0;
+                }
+                @foreach (var step in _doc.Steps)
                 {
-                    @if (step.IsSection)
+                    @if (step is SectionStep sectionStep)
                     {
-                        <MudText Typo="Typo.h6" Class="mt-4 mb-2 recipe-body">
-                            @((MarkupString)RecipeStepTextFormatter.ToHtml(step.Text))
-                        </MudText>
+                        <div style="padding:24px 0 8px 0;border-bottom:1px solid var(--line);">
+                            <div style="font-size:18px;font-weight:600;letter-spacing:-0.015em;">@sectionStep.Heading</div>
+                        </div>
                     }
-                    else
+                    else if (step is ContentStep content)
                     {
-                        <MudPaper Class="pa-3 mb-2" Elevation="0" Outlined="true">
-                            <div class="recipe-body" style="line-height: 1.6;">
-                                @((MarkupString)RecipeStepTextFormatter.ToHtml(step.Text))
+                        contentIndex++;
+                        <div style="display:grid;grid-template-columns:40px 1fr;gap:16px;padding:20px 0;border-bottom:1px solid var(--line);">
+                            <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);letter-spacing:-0.03em;line-height:1;">@(contentIndex.ToString("D2"))</div>
+                            <div>
+                                <div style="font-size:15px;line-height:1.6;color:var(--ink-2);">@StripIngredientLinks(content.Text)</div>
+                                @if (content.Timers is { Count: > 0 })
+                                {
+                                    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                                        @foreach (var t in content.Timers)
+                                        {
+                                            <CbChip Variant="CbChip.CbChipVariant.Timer" Icon="@Icon.Names.Clock">
+                                                @t.Duration @t.Unit
+                                            </CbChip>
+                                        }
+                                    </div>
+                                }
                             </div>
-                            @foreach (var timer in step.Timers)
-                            {
-                                <MudChip T="string" Color="Color.Primary" Size="Size.Small" Class="mt-1">
-                                    @timer.Duration @timer.Unit
-                                </MudChip>
-                            }
-                        </MudPaper>
+                        </div>
                     }
                 }
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
+
+                @* Last-cook notes (RV-04) — hidden when no notes; v1.2 has no log so always hidden today.
+                   Kept as a conditional so the callout lights up automatically once a log lands. *@
+                @if (!string.IsNullOrWhiteSpace(_lastCookNote))
+                {
+                    <div style="margin-top:28px;padding:20px;background:var(--cream-2);border-radius:12px;">
+                        <CbEyebrow><div style="margin-bottom:8px;">Notes from your last cook</div></CbEyebrow>
+                        <p style="font-size:14px;line-height:1.55;color:var(--ink-2);margin:0;">
+                            "@_lastCookNote"@(_lastCookDate.HasValue ? $" — {_lastCookDate.Value:MMM d}" : "")
+                        </p>
+                    </div>
+                }
+            </div>
+        </div>
+    </article>
+}
+else if (_loaded && _recipe != null && _doc == null)
+{
+    <div style="max-width:720px;margin:48px auto;padding:0 32px;">
+        <CbCard Padding="28">
+            <CbEyebrow><div style="margin-bottom:6px;">Recipe needs migration</div></CbEyebrow>
+            <p style="font-size:15px;line-height:1.5;color:var(--ink-2);">
+                This recipe was saved before the canonical format landed. Open it in the editor and save once
+                to migrate the document.
+            </p>
+            <div style="margin-top:14px;">
+                <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="@Icon.Names.Pencil"
+                          OnClick="@(() => Navigation.NavigateTo($"/recipes/{RecipeId}/edit"))">Open in editor</CbButton>
+            </div>
+        </CbCard>
+    </div>
 }
 else if (_loaded)
 {
-    <MudText>Recipe not found or you do not have access.</MudText>
+    <div style="max-width:720px;margin:48px auto;padding:0 32px;font-size:15px;color:var(--ink-2);">
+        Recipe not found or you do not have access.
+    </div>
 }
 </UserGuard>
 
 @code {
     [Parameter] public int RecipeId { get; set; }
-    private Recipe? _recipe;
+
+    private CookBot.Domain.Entities.Recipe? _recipe;
+    private RecipeDocument? _doc;
     private bool _loaded;
-    private bool _addingToList;
     private int _targetServings = 1;
-    private List<string> _tags = new();
+
+    // Last-cook callout state — populated from the RecipeMade log entity (Plan 07-09 Feature 2).
+    // The conditional in markup hides the callout when there are no logged cooks for this user.
+    private string? _lastCookNote;
+    private DateTime? _lastCookDate;
+    // Made-count surfaces the per-user cook log; 0 reads as "0×" in the hero stat row.
+    private int _madeCount;
 
     private bool _initialized;
     private int _boundRecipeId;
+
+    private string TotalTimeText
+    {
+        get
+        {
+            var prep = _doc?.PrepTimeMinutes ?? 0;
+            var cook = _doc?.CookTimeMinutes ?? 0;
+            var total = prep + cook;
+            return total > 0 ? total.ToString() : "—";
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -153,8 +245,8 @@ else if (_loaded)
             _boundRecipeId = RecipeId;
             _initialized = false;
             _recipe = null;
+            _doc = null;
             _loaded = false;
-            _tags = new();
             _targetServings = 1;
         }
     }
@@ -171,18 +263,38 @@ else if (_loaded)
             if (!await DbContext.UserCanAccessRecipeAsync(RecipeId, userId))
             {
                 _recipe = null;
+                _doc = null;
             }
             else
             {
+                // Load the entity so we can resolve canonical doc + cookbook id for share/cook nav.
+                // Note: we DO NOT read Recipe.IngredientsJson / Recipe.StepsJson / Recipe.TagsJson /
+                // RecipeIngredients / Steps for rendering — only Recipe.CanonicalDocumentJson is consumed.
                 _recipe = await DbContext.Recipes
-                    .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-                    .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
+                    .Include(r => r.Cookbook)
                     .FirstOrDefaultAsync(r => r.Id == RecipeId);
 
-                if (_recipe != null)
+                if (_recipe is { CanonicalDocumentJson: { Length: > 0 } json })
                 {
-                    _targetServings = _recipe.Servings;
-                    _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(_recipe.TagsJson) ?? new();
+                    try
+                    {
+                        _doc = RecipeSerializer.Deserialize(json);
+                        _targetServings = _doc.Servings > 0 ? _doc.Servings : 1;
+                    }
+                    catch (JsonException)
+                    {
+                        // Malformed canonical JSON — fall through to the migration prompt.
+                        _doc = null;
+                    }
+                }
+
+                // Plan 07-09 Feature 2 — surface real RecipeMade data (count + last-cook callout).
+                _madeCount = await RecipeMadeService.GetMadeCountAsync(RecipeId, userId);
+                var lastCook = await RecipeMadeService.GetLastCookAsync(RecipeId, userId);
+                if (lastCook != null)
+                {
+                    _lastCookNote = string.IsNullOrWhiteSpace(lastCook.Notes) ? null : lastCook.Notes;
+                    _lastCookDate = lastCook.CompletedAt;
                 }
             }
 
@@ -191,50 +303,63 @@ else if (_loaded)
         }
     }
 
-    private async Task AddAllToShoppingList()
+    private void IncrementServings()
     {
-        if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
-        _addingToList = true;
-        StateHasChanged();
-
-        var list = await GroceryListService.GenerateAllFromRecipeAsync(
-            UserService.CurrentUserId.Value, _recipe);
-        _addingToList = false;
-
-        if (list.Items.Any())
-        {
-            Snackbar.Add($"Added {list.Items.Count} items to shopping list!", Severity.Success);
-            Navigation.NavigateTo("/grocery-lists");
-        }
-        else
-        {
-            Snackbar.Add("This recipe has no ingredients.", Severity.Info);
-        }
+        if (_targetServings < 100) _targetServings++;
     }
 
-    private async Task AddMissingToShoppingList()
+    private void DecrementServings()
     {
-        if (_recipe == null || !UserService.CurrentUserId.HasValue) return;
-        _addingToList = true;
-        StateHasChanged();
-
-        var list = await GroceryListService.GenerateFromRecipeAsync(
-            UserService.CurrentUserId.Value, _recipe);
-        _addingToList = false;
-
-        if (list.Items.Any())
-        {
-            Snackbar.Add($"Added {list.Items.Count} missing items to shopping list!", Severity.Success);
-            Navigation.NavigateTo("/grocery-lists");
-        }
-        else
-        {
-            Snackbar.Add("You already have everything you need!", Severity.Info);
-        }
+        if (_targetServings > 1) _targetServings--;
     }
 
-    private void MarkAsMade()
+    private string FormatQty(IngredientEntry ing)
     {
-        Navigation.NavigateTo($"/recipes/{RecipeId}/made");
+        if (ing.Amount <= 0) return string.IsNullOrWhiteSpace(ing.Unit) ? "—" : ing.Unit;
+        var origServings = _doc?.Servings > 0 ? _doc.Servings : 1;
+        var formatted = RecipeScalingService.FormatScaledAmount(ing.Amount, origServings, _targetServings);
+        var unitDisplay = string.IsNullOrWhiteSpace(ing.Unit) ? "" : $" {UnitParser.ToDisplayString(ing.Unit)}";
+        return $"{formatted}{unitDisplay}";
+    }
+
+    private static string StripIngredientLinks(string text)
+        => CookBot.Application.Services.RecipeStepTextFormatter.ToPlainText(text);
+
+    private async Task OpenShareDialog()
+    {
+        // Sharing is cookbook-scoped (CookbookShares). ShareCookbookDialog opens via
+        // CbDialogService (migrated in Phase 7 / Plan 07-01).
+        if (_recipe?.Cookbook == null) return;
+        var parameters = new CbDialogParameters
+        {
+            ["CookbookId"] = _recipe.CookbookId,
+            ["CookbookName"] = _recipe.Cookbook.Name,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true, CloseOnEscape: true);
+        await CbDialogService.ShowAsync<ShareCookbookDialog>("Share & export — \"" + _recipe.Cookbook.Name + "\"", parameters, options);
+    }
+
+    private void StartCooking()
+    {
+        Navigation.NavigateTo($"/recipes/{RecipeId}/cook");
+    }
+
+    private void EditRecipe()
+    {
+        Navigation.NavigateTo($"/recipes/{RecipeId}/edit");
+    }
+
+    private async Task OpenScheduleDialog()
+    {
+        // Plan 07-09 Feature 1 — opens the ScheduleRecipeDialog via CbDialogService.
+        if (_recipe == null) return;
+        var parameters = new CbDialogParameters
+        {
+            ["RecipeId"] = _recipe.Id,
+            ["RecipeName"] = _doc?.Name ?? _recipe.Name,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true, CloseOnEscape: true);
+        await CbDialogService.ShowAsync<CookBot.Web.Components.Dialogs.ScheduleRecipeDialog>(
+            $"Schedule \"{_doc?.Name ?? _recipe.Name}\"", parameters, options);
     }
 }

@@ -1,0 +1,53 @@
+@namespace CookBot.Web.Components.Atoms
+@typeparam TValue
+
+@* Styled native <select> wrapper (D-17 / ATOM-10).
+   Generic over TValue — supports string, int, int?, bool, and enum bindings via
+   ConvertFromString. CbOption children register through CascadingValue so each
+   option can compute IsSelected against the parent's current Value. *@
+
+<select class="cb-select" disabled="@Disabled" aria-label="@AriaLabel" @onchange="HandleChange">
+    @if (!string.IsNullOrEmpty(Placeholder))
+    {
+        <option value="" disabled selected="@(Value is null)">@Placeholder</option>
+    }
+    <CascadingValue Value="@(this)" IsFixed="true">
+        @ChildContent
+    </CascadingValue>
+</select>
+
+@code {
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    /// <summary>A11Y-03: optional accessible name for the select when no
+    /// associated &lt;label&gt; element wraps it. Plan 07-06.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    internal bool IsSelected(TValue candidate) =>
+        Value is not null && EqualityComparer<TValue>.Default.Equals(Value, candidate);
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        var raw = e.Value as string;
+        var converted = ConvertFromString(raw);
+        Value = converted;
+        await ValueChanged.InvokeAsync(converted);
+    }
+
+    private TValue? ConvertFromString(string? raw)
+    {
+        if (raw is null) return default;
+        var t = typeof(TValue);
+        if (t == typeof(string)) return (TValue)(object)raw;
+        if (t == typeof(int)) return int.TryParse(raw, out var i) ? (TValue)(object)i : default;
+        if (t == typeof(int?)) return int.TryParse(raw, out var i) ? (TValue)(object)i : default;
+        if (t == typeof(bool)) return bool.TryParse(raw, out var b) ? (TValue)(object)b : default;
+        if (t.IsEnum) return Enum.TryParse(t, raw, out var en) ? (TValue?)en : default;
+        // Fallback: try Convert.ChangeType for primitives
+        try { return (TValue?)Convert.ChangeType(raw, t); }
+        catch { return default; }
+    }
+}

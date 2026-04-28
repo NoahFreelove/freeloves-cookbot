@@ -5,7 +5,6 @@ using CookBot.Infrastructure.Data;
 using CookBot.Infrastructure.Data.Migrations.Helpers;
 using CookBot.Web.Components;
 using CookBot.Web.Services;
-using MudBlazor.Services;
 using QuestPDF.Infrastructure;
 
 QuestPDF.Settings.License = LicenseType.Community;
@@ -15,13 +14,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-builder.Services.AddMudServices();
+builder.Services.AddScoped<ICbDialogService, CbDialogService>();
+builder.Services.AddSingleton<ICbToastService, CbToastService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<AiApiKeyResolutionService>();
 builder.Services.AddScoped<AiApiKeyShareService>();
 builder.Services.AddScoped<CookbookTransferService>();
 builder.Services.AddScoped<CookbookPdfService>();
+builder.Services.AddScoped<IScheduledRecipeService, ScheduledRecipeService>();
+builder.Services.AddScoped<IRecipeMadeService, RecipeMadeService>();
 builder.Services.Configure<CookBotSettings>(builder.Configuration.GetSection("CookBot"));
 
 var app = builder.Build();

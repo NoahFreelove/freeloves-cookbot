@@ -1,0 +1,27 @@
+@namespace CookBot.Web.Components.Layout
+@using Microsoft.AspNetCore.Components.Routing
+
+@* NavRow — Phase 5 / Plan 05-05 / SHELL-04 / D-22.
+   A single sidebar row using <NavLink> so the active class is route-driven —
+   .cb-row.active CSS rule fires automatically when the route matches. *@
+
+@if (!Hidden)
+{
+    <NavLink class="cb-row" ActiveClass="active" Match="@MatchMode" href="@Href">
+        <Icon Name="@IconName" Size="18" />
+        <span style="flex:1;">@Label</span>
+        @if (!string.IsNullOrEmpty(Kbd))
+        {
+            <span class="cb-kbd">@Kbd</span>
+        }
+    </NavLink>
+}
+
+@code {
+    [Parameter, EditorRequired] public string IconName { get; set; } = "";
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+    [Parameter] public string? Kbd { get; set; }
+    [Parameter] public bool Hidden { get; set; }
+    [Parameter] public NavLinkMatch MatchMode { get; set; } = NavLinkMatch.Prefix;
+}

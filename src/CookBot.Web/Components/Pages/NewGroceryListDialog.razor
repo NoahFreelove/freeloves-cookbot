@@ -1,23 +1,27 @@
-@using MudBlazor
+@* Phase 7 / Plan 07-03: "New grocery list" dialog migrated to CbDialog slots.
+   Renders inside CbDialogHost; Title is supplied at ShowAsync call. *@
 
-<MudDialog>
-    <DialogContent>
-        <MudTextField @bind-Value="_name" Label="List name" Variant="Variant.Outlined" AutoFocus="true"
-                      Placeholder="e.g. Weekly shop"
-                      HelperText="Leave blank to use a default name with today's date" />
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">Create</MudButton>
-    </DialogActions>
-</MudDialog>
+<div>
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2);">
+        <span>List name</span>
+        <CbInput @bind-Value="_name" Placeholder="e.g. Weekly shop" />
+        <span style="font-size:11.5px;color:var(--ink-3);">
+            Leave blank to use a default name with today's date.
+        </span>
+    </label>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary" OnClick="Submit">Create</CbButton>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
 
     private string _name = "";
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() => DialogInstance?.Cancel();
 
-    private void Submit() => MudDialog.Close(DialogResult.Ok(_name.Trim()));
+    private void Submit() => DialogInstance?.Close(CbDialogResult.Ok(_name?.Trim() ?? ""));
 }

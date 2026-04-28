@@ -1,185 +1,330 @@
 @page "/cookbooks/{CookbookId:int}/recipes/new"
 @page "/recipes/{RecipeId:int}/edit"
+@using CookBot.Application.DTOs
+@using CookBot.Application.Services
+@using CookBot.Domain.Entities
+@using CookBot.Domain.Interfaces
+@using CookBot.Web.Components.Atoms
+@using CookBot.Web.Components.Pages.RecipeEditorParts
+@using Microsoft.Extensions.Options
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
 @inject CookBot.Application.Services.RecipeService RecipeService
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
-@inject ISnackbar Snackbar
-@inject IDialogService DialogService
+@inject ICbToastService Toast
+@inject ICbDialogService CbDialogService
+@inject IOptions<CookBotSettings> CookBotSettingsOptions
 @rendermode InteractiveServer
+
+@*  Recipe Editor — Phase 6 / Plan 06-04 / ED-01..ED-09 (absorbs v1.1 EDITOR-01..07).
+    Custom Razor rewrite against Phase 5 atoms per design handoff
+    `screens/recipe-editor.jsx`. Borderless title/subtitle inputs, ingredients grid
+    table, chip-aware step composer, right meta rail (Cookbook/Times/Tags/AI), inline
+    timer-suggestion banner, paste-raw-text routing through the canonical schema parser.
+
+    Saves go through RecipeService.UpdateAsync / CreateAsync — which canonicalize via
+    JsonRecipeSerializer round-trip on every save (v1.1 Phase 1). The editor's only
+    obligation is to produce a valid ParsedRecipe; the service handles the rest.
+
+    Hard invariants:
+      - Round-trip integrity (SC#4): Project → Serialize → Parse → ValidateSemantically
+        returns identical RecipeDocument.
+      - AI Suggestions card hidden when UserProfile.AiEnabled = false. *@
 
 <PageTitle>CookBot - @(_isEdit ? "Edit" : "New") Recipe</PageTitle>
 
 <UserGuard>
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" />
-    <MudText Typo="Typo.h4" Style="font-weight: 600;">@(_isEdit ? "Edit" : "New") Recipe</MudText>
-    <MudSpacer />
-    <MudButton Variant="Variant.Text" OnClick="PasteRawText" StartIcon="@Icons.Material.Filled.ContentPaste">
-        Paste Raw Text
-    </MudButton>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveRecipe"
-               StartIcon="@Icons.Material.Filled.Save" Disabled="@_saving">
+@* Top action row (TopBar right-slot fallback per Phase 6 D-16 PRAGMATIC) *@
+<div style="max-width:1180px;margin:0 auto;padding:24px 32px 0 32px;display:flex;align-items:center;gap:10px;">
+    <button type="button"
+            class="cb-btn ghost"
+            style="padding:6px 12px;"
+            aria-label="Back"
+            @onclick="GoBack">
+        <Icon Name="@Icon.Names.ArrowL" Size="14" /> Back
+    </button>
+    <div style="flex:1;color:var(--ink-3);font-size:13px;">
+        @(_existingRecipe?.Cookbook?.Name is { Length: > 0 } cb ? $"Cookbooks / {cb}" : "Cookbooks")
+    </div>
+    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+              StartIcon="@Icon.Names.Copy"
+              OnClick="PasteRawText">Paste raw text</CbButton>
+    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+              OnClick="GoBack">Cancel</CbButton>
+    <CbButton Variant="CbButton.CbButtonVariant.Primary"
+              StartIcon="@Icon.Names.Save"
+              OnClick="SaveRecipe"
+              Disabled="@_saving">
         @(_saving ? "Saving..." : "Save")
-    </MudButton>
-</MudStack>
+    </CbButton>
+</div>
 
-@* ===== Metadata Section ===== *@
-<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
-    <MudText Typo="Typo.subtitle1" Class="mb-3" Style="font-weight: 600;">Metadata</MudText>
-    <MudGrid>
-        <MudItem xs="12" md="6">
-            <MudTextField @bind-Value="_name" T="string" Label="Recipe Name" Variant="Variant.Outlined"
-                          Required="true" RequiredError="Name is required" />
-        </MudItem>
-        <MudItem xs="12" md="2">
-            <MudNumericField @bind-Value="_servings" T="int" Label="Servings" Variant="Variant.Outlined" Min="1" />
-        </MudItem>
-        <MudItem xs="12" md="2">
-            <MudNumericField @bind-Value="_prepTimeMinutes" T="int?" Label="Prep Time (min)" Variant="Variant.Outlined" Min="0" />
-        </MudItem>
-        <MudItem xs="12" md="2">
-            <MudNumericField @bind-Value="_cookTimeMinutes" T="int?" Label="Cook Time (min)" Variant="Variant.Outlined" Min="0" />
-        </MudItem>
-        <MudItem xs="12">
-            <MudTextField @bind-Value="_tagsText" T="string" Label="Tags (comma-separated)" Variant="Variant.Outlined"
-                          Placeholder="e.g. italian, pasta, quick" HelperText="Separate tags with commas" />
-        </MudItem>
-    </MudGrid>
-</MudPaper>
+@if (_warnings.Any())
+{
+    <div style="max-width:1180px;margin:12px auto 0 auto;padding:0 32px;">
+        <div role="status"
+             style="background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 14px;font-size:13.5px;">
+            <strong>Heads up — some fields need attention:</strong>
+            @foreach (var w in _warnings)
+            {
+                <div>@w</div>
+            }
+        </div>
+    </div>
+}
 
-@* ===== Ingredients Section ===== *@
-<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Ingredients</MudText>
-        <MudSpacer />
-        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddIngredient"
-                   StartIcon="@Icons.Material.Filled.Add" Size="Size.Small">
-            Add Ingredient
-        </MudButton>
-    </MudStack>
+<div style="max-width:1180px;margin:0 auto;padding:32px 32px 80px;display:grid;grid-template-columns:1fr 320px;gap:32px;">
+    @* === Main column === *@
+    <div>
+        @* Title (ED-01) — borderless, design tokens *@
+        <input type="text"
+               value="@_name"
+               placeholder="Recipe title"
+               aria-label="Recipe title"
+               style="font-size:38px;font-weight:600;letter-spacing:-0.025em;width:100%;border:0;outline:none;background:transparent;font-family:inherit;color:var(--ink);margin-bottom:6px;"
+               @oninput="OnNameInput" />
 
-    @for (int i = 0; i < _ingredients.Count; i++)
-    {
-        var index = i;
-        var ing = _ingredients[index];
-        <MudGrid Class="mb-2" Style="align-items: center;">
-            <MudItem xs="1">
-                <MudText Typo="Typo.caption" Color="Color.Secondary">@(ing.LocalId)</MudText>
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudAutocomplete T="string" Label="Ingredient" Variant="Variant.Outlined"
-                                 Value="@ing.Name"
-                                 ValueChanged="@(v => ing.Name = v ?? string.Empty)"
-                                 SearchFunc="SearchIngredients"
-                                 CoerceText="true" CoerceValue="false" />
-            </MudItem>
-            <MudItem xs="6" md="2">
-                <MudNumericField T="double" Label="Amount" Variant="Variant.Outlined"
-                                 Value="@ing.Amount"
-                                 ValueChanged="@(v => ing.Amount = v)" Min="0" />
-            </MudItem>
-            <MudItem xs="6" md="2">
-                <MudTextField T="string" Label="Unit" Variant="Variant.Outlined"
-                              Value="@ing.Unit"
-                              ValueChanged="@(v => ing.Unit = v ?? string.Empty)" />
-            </MudItem>
-            <MudItem xs="10" md="3">
-                <MudTextField T="string" Label="Note (optional)" Variant="Variant.Outlined"
-                              Value="@ing.Note"
-                              ValueChanged="@(v => ing.Note = v)" />
-            </MudItem>
-            <MudItem xs="2" md="1">
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
-                               OnClick="@(() => RemoveIngredient(index))" />
-            </MudItem>
-        </MudGrid>
-    }
+        @* Subtitle / description (ED-01) — borderless *@
+        <input type="text"
+               value="@_description"
+               placeholder="A short description of this recipe…"
+               aria-label="Recipe description"
+               style="font-size:15px;color:var(--ink-2);width:100%;border:0;outline:none;background:transparent;font-family:inherit;margin-bottom:24px;"
+               @oninput="OnDescriptionInput" />
 
-    @if (_ingredients.Count == 0)
-    {
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="py-4" Align="Align.Center">
-            No ingredients yet. Click "Add Ingredient" to get started.
-        </MudText>
-    }
-</MudPaper>
+        @* Photo placeholder.
+           v1.2 has no recipe photo column on the entity yet — we keep the
+           StripedPlaceholder visible (matches the design's "missing imagery" tile)
+           and explicitly cancel browser-default drag-and-drop so dropping a file
+           on the placeholder does NOT navigate the page to the dropped URL
+           (which previously wiped any unsaved recipe data). The photo URL field
+           is reserved for a future schema slot. *@
+        <div style="margin-bottom:32px;"
+             @ondragover:preventDefault
+             @ondragover:stopPropagation
+             @ondrop:preventDefault
+             @ondrop:stopPropagation>
+            <StripedPlaceholder Width="100%" Height="180" Label="photo · 4:3 (coming soon)" />
+        </div>
 
-@* ===== Steps Section ===== *@
-<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius: 12px;">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Steps</MudText>
-        <MudSpacer />
-        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddStep"
-                   StartIcon="@Icons.Material.Filled.Add" Size="Size.Small">
-            Add Step
-        </MudButton>
-        <MudButton Variant="Variant.Text" Color="Color.Secondary" OnClick="AddSectionHeader"
-                   StartIcon="@Icons.Material.Filled.Title" Size="Size.Small">
-            Add Section Header
-        </MudButton>
-    </MudStack>
+        @* === Ingredients (ED-02 / ED-06) === *@
+        <CbEyebrow><div style="margin-bottom:12px;">Ingredients</div></CbEyebrow>
+        <div style="background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:32px;">
+            @if (_ingredients.Count == 0)
+            {
+                <div style="padding:14px;color:var(--ink-3);font-size:13.5px;text-align:center;">
+                    No ingredients yet. Click "Add ingredient" to get started.
+                </div>
+            }
+            else
+            {
+                @for (int i = 0; i < _ingredients.Count; i++)
+                {
+                    var index = i;
+                    var ing = _ingredients[index];
+                    var isLast = index == _ingredients.Count - 1;
+                    <div style="display:grid;grid-template-columns:60px 70px 1fr 32px 28px;gap:0;align-items:center;border-bottom:@(isLast ? "none" : "1px solid var(--line)");">
+                        <input type="text"
+                               class="num"
+                               value="@(ing.Amount > 0 ? FormatAmount(ing.Amount) : string.Empty)"
+                               placeholder="qty"
+                               aria-label="Quantity"
+                               style="padding:12px 14px;border:0;background:transparent;font-family:inherit;font-size:14px;font-weight:500;outline:none;"
+                               @oninput="@(e => OnIngredientAmountInput(index, e))"
+                               @onkeydown="@(e => OnIngredientKeyDown(index, 0, e))" />
+                        <input type="text"
+                               value="@ing.Unit"
+                               placeholder="unit"
+                               aria-label="Unit"
+                               style="padding:12px 8px;border:0;background:transparent;font-family:inherit;font-size:13.5px;color:var(--ink-3);outline:none;"
+                               @oninput="@(e => ing.Unit = e.Value as string ?? string.Empty)"
+                               @onkeydown="@(e => OnIngredientKeyDown(index, 1, e))" />
+                        <input type="text"
+                               value="@ing.Name"
+                               placeholder="ingredient name"
+                               aria-label="Ingredient name"
+                               style="padding:12px 8px;border:0;background:transparent;font-family:inherit;font-size:14px;outline:none;"
+                               @oninput="@(e => ing.Name = e.Value as string ?? string.Empty)"
+                               @onkeydown="@(e => OnIngredientKeyDown(index, 2, e))" />
+                        <button type="button"
+                                aria-label="Move ingredient up"
+                                title="Move up"
+                                disabled="@(index == 0)"
+                                style="background:transparent;border:0;color:var(--ink-4);cursor:@(index == 0 ? "not-allowed" : "pointer");padding:0;display:flex;align-items:center;justify-content:center;"
+                                @onclick="@(() => MoveIngredientUp(index))">
+                            <Icon Name="@Icon.Names.ChevD" Size="14" Style="transform:rotate(180deg);" />
+                        </button>
+                        <button type="button"
+                                aria-label="Delete ingredient"
+                                title="Delete"
+                                style="background:transparent;border:0;color:var(--ink-4);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;"
+                                @onclick="@(() => RemoveIngredient(index))">
+                            <Icon Name="@Icon.Names.Trash" Size="14" />
+                        </button>
+                    </div>
+                }
+            }
+            <div style="padding:10px;border-top:1px solid var(--line);background:var(--paper-2);">
+                <button type="button"
+                        class="cb-btn ghost"
+                        style="width:100%;justify-content:center;font-weight:500;"
+                        @onclick="AddIngredient">
+                    <Icon Name="@Icon.Names.Plus" Size="14" /> Add ingredient
+                </button>
+            </div>
+        </div>
 
-    @for (int i = 0; i < _steps.Count; i++)
-    {
-        var index = i;
-        var step = _steps[index];
-        <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border: 1px solid #e0e0e0; border-radius: 8px;">
-            <MudStack Row="true" AlignItems="AlignItems.Start">
-                <MudStack Spacing="0" Style="min-width: 36px;" AlignItems="AlignItems.Center">
-                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small"
-                                   Disabled="@(index == 0)" OnClick="@(() => MoveStepUp(index))" />
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@(index + 1)</MudText>
-                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small"
-                                   Disabled="@(index == _steps.Count - 1)" OnClick="@(() => MoveStepDown(index))" />
-                </MudStack>
-                <MudStack Style="flex: 1;" Spacing="1">
-                    @if (step.IsSection)
+        @* === Steps (ED-03 / ED-04 / ED-05) === *@
+        <CbEyebrow><div style="margin-bottom:12px;">Steps</div></CbEyebrow>
+        @if (_steps.Count == 0)
+        {
+            <div class="cb-card" style="padding:14px;color:var(--ink-3);font-size:13.5px;text-align:center;margin-bottom:12px;">
+                No steps yet. Click "Add step" to get started.
+            </div>
+        }
+        @for (int i = 0; i < _steps.Count; i++)
+        {
+            var index = i;
+            var step = _steps[index];
+            var isLast = index == _steps.Count - 1;
+            <RecipeStepEditor Step="@step"
+                              Index="@index"
+                              IsLast="@isLast"
+                              Ingredients="@_ingredients"
+                              OnRemove="@(() => RemoveStep(index))"
+                              OnMoveUp="@(() => MoveStepUp(index))"
+                              OnMoveDown="@(() => MoveStepDown(index))" />
+        }
+        <button type="button"
+                class="cb-btn ghost"
+                style="margin-top:8px;width:100%;justify-content:center;"
+                @onclick="AddStep">
+            <Icon Name="@Icon.Names.Plus" Size="14" /> Add step
+        </button>
+    </div>
+
+    @* === Right rail — meta cards === *@
+    <aside style="display:flex;flex-direction:column;gap:16px;">
+
+        @* Cookbook (selector) *@
+        <CbCard Padding="18">
+            <CbEyebrow><div style="margin-bottom:10px;">Cookbook</div></CbEyebrow>
+            @if (_availableCookbooks.Count == 0)
+            {
+                <div class="cb-row active" style="background:var(--cream-2);color:var(--ink-2);">
+                    <Icon Name="@Icon.Names.Book" Size="14" />
+                    <span style="flex:1;">No cookbook</span>
+                </div>
+            }
+            else
+            {
+                <CbDropdown TValue="int"
+                            Value="@_selectedCookbookId"
+                            ValueChanged="OnCookbookChanged"
+                            Label="@(_availableCookbooks.FirstOrDefault(c => c.Id == _selectedCookbookId)?.Name ?? "Select cookbook")"
+                            StartIcon="@Icon.Names.Book">
+                    @foreach (var cb in _availableCookbooks)
                     {
-                        <MudTextField @bind-Value="step.Text" T="string" Label="Section Header" Variant="Variant.Outlined"
-                                      Placeholder="e.g. For the sauce" />
+                        <CbDropdownItem TValue="int" Value="@cb.Id" Label="@cb.Name" Icon="@Icon.Names.Book" />
                     }
-                    else
-                    {
-                        var timers = CookBot.Application.Services.TimerDetectionService.DetectTimers(step.Text ?? string.Empty);
-                        var ingredientRefs = DetectIngredientRefsInStep(step.Text ?? string.Empty);
-                        <MudTextField @bind-Value="step.Text" T="string" Label="Step Instructions" Variant="Variant.Outlined"
-                                      Lines="3" Placeholder="Describe this step..."
-                                      Immediate="true" DebounceInterval="500" />
-                        @if (timers.Any() || ingredientRefs.Any())
-                        {
-                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
-                                @foreach (var timer in timers)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled"
-                                             Icon="@Icons.Material.Filled.Timer">
-                                        @timer.Duration @timer.Unit
-                                    </MudChip>
-                                }
-                                @foreach (var refName in ingredientRefs)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text"
-                                             Icon="@Icons.Material.Filled.Egg">
-                                        @refName
-                                    </MudChip>
-                                }
-                            </MudStack>
-                        }
-                    }
-                </MudStack>
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
-                               OnClick="@(() => RemoveStep(index))" />
-            </MudStack>
-        </MudPaper>
-    }
+                </CbDropdown>
+            }
+        </CbCard>
 
-    @if (_steps.Count == 0)
-    {
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="py-4" Align="Align.Center">
-            No steps yet. Click "Add Step" to get started.
-        </MudText>
-    }
-</MudPaper>
+        @* Times & servings *@
+        <CbCard Padding="18">
+            <CbEyebrow><div style="margin-bottom:10px;">Times &amp; servings</div></CbEyebrow>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px;align-items:center;gap:8px;">
+                <span style="color:var(--ink-3);">Active</span>
+                <span style="display:flex;align-items:center;gap:4px;">
+                    <input type="number"
+                           class="num cb-meta-num"
+                           min="0"
+                           value="@(_prepTimeMinutes?.ToString() ?? string.Empty)"
+                           aria-label="Active / prep time in minutes"
+                           style="font-weight:500;width:48px;text-align:right;border:0;background:transparent;font-family:inherit;font-size:13.5px;outline:none;color:var(--ink);"
+                           @oninput="OnPrepTimeInput" />
+                    <span style="color:var(--ink-3);font-size:12.5px;">min</span>
+                </span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px;align-items:center;gap:8px;">
+                <span style="color:var(--ink-3);">Cook</span>
+                <span style="display:flex;align-items:center;gap:4px;">
+                    <input type="number"
+                           class="num cb-meta-num"
+                           min="0"
+                           value="@(_cookTimeMinutes?.ToString() ?? string.Empty)"
+                           aria-label="Cook time in minutes"
+                           style="font-weight:500;width:48px;text-align:right;border:0;background:transparent;font-family:inherit;font-size:13.5px;outline:none;color:var(--ink);"
+                           @oninput="OnCookTimeInput" />
+                    <span style="color:var(--ink-3);font-size:12.5px;">min</span>
+                </span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13.5px;align-items:center;">
+                <span style="color:var(--ink-3);">Serves</span>
+                <input type="number"
+                       class="num cb-meta-num"
+                       min="1"
+                       value="@_servings"
+                       aria-label="Servings"
+                       style="font-weight:500;width:48px;text-align:right;border:0;background:transparent;font-family:inherit;font-size:13.5px;outline:none;color:var(--ink);"
+                       @oninput="OnServingsInput" />
+            </div>
+        </CbCard>
+
+        @* Tags *@
+        <CbCard Padding="18">
+            <CbEyebrow><div style="margin-bottom:10px;">Tags</div></CbEyebrow>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                @if (_tags.Count == 0)
+                {
+                    <span style="font-size:12.5px;color:var(--ink-3);">No tags yet.</span>
+                }
+                else
+                {
+                    @foreach (var t in _tags.ToList())
+                    {
+                        var captured = t;
+                        <span class="cb-chip" style="cursor:default;">
+                            @captured
+                            <button type="button"
+                                    aria-label="@($"Remove tag {captured}")"
+                                    style="background:transparent;border:0;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 0 0 4px;display:inline-flex;align-items:center;"
+                                    @onclick="@(() => RemoveTag(captured))">×</button>
+                        </span>
+                    }
+                }
+            </div>
+            <input type="text"
+                   value="@_tagInput"
+                   placeholder="add tag…"
+                   aria-label="Add tag"
+                   style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--cream);font-family:inherit;font-size:13px;outline:none;"
+                   @oninput="OnTagInputInput"
+                   @onkeydown="OnTagInputKeyDown" />
+        </CbCard>
+
+        @* AI suggestions — hidden when AI off (Phase 6 hard invariant) *@
+        @if (_aiOn)
+        {
+            <CbCard Padding="18" Style="background:var(--accent-soft);border:1px solid var(--accent-soft);">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <Icon Name="@Icon.Names.Spark" Size="14" />
+                    <span style="font-size:13px;font-weight:600;color:var(--accent-ink);">AI suggestions</span>
+                </div>
+                <p style="font-size:12.5px;color:var(--accent-ink);line-height:1.5;margin-bottom:10px;">
+                    Add ingredients and steps; AI suggestions for refinements will appear here once a draft is in place.
+                </p>
+                <button type="button"
+                        class="cb-btn ghost"
+                        style="font-size:12.5px;padding:6px 10px;border-color:rgba(107,31,0,.25);"
+                        disabled
+                        title="AI suggestions are a future capability — Plan 06-04 wires the surface; the backing service ships in Phase 7+">Apply</button>
+            </CbCard>
+        }
+    </aside>
+</div>
 </UserGuard>
 
 @code {
@@ -187,17 +332,24 @@
     [Parameter] public int RecipeId { get; set; }
 
     private string _name = string.Empty;
+    private string _description = string.Empty;
     private int _servings = 4;
     private int? _prepTimeMinutes;
     private int? _cookTimeMinutes;
-    private string _tagsText = string.Empty;
+    private List<string> _tags = new();
+    private string _tagInput = string.Empty;
 
-    private List<CookBot.Domain.Interfaces.ParsedIngredient> _ingredients = new();
-    private List<CookBot.Domain.Interfaces.ParsedStep> _steps = new();
+    private List<ParsedIngredient> _ingredients = new();
+    private List<ParsedStep> _steps = new();
+    private List<string> _warnings = new();
+
+    private List<Cookbook> _availableCookbooks = new();
+    private int _selectedCookbookId;
 
     private int _nextLocalId = 1;
     private bool _isEdit;
     private bool _saving;
+    private bool _aiOn;
     private Recipe? _existingRecipe;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -205,52 +357,71 @@
         if (!UserService.CurrentUserId.HasValue) return;
         var userId = UserService.CurrentUserId.Value;
 
-        if (firstRender && RecipeId > 0)
+        if (firstRender)
         {
-            _isEdit = true;
-            _existingRecipe = await DbContext.Recipes
-                .Include(r => r.Cookbook)
-                .Include(r => r.Steps)
-                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-                .FirstOrDefaultAsync(r => r.Id == RecipeId);
-            if (_existingRecipe != null)
-                _existingRecipe.Steps = _existingRecipe.Steps.OrderBy(s => s.Order).ToList();
-            if (_existingRecipe != null)
+            // Load AI flag (host kill-switch + per-user opt-in).
+            var user = await UserService.GetCurrentUserAsync();
+            var hostOn = CookBotSettingsOptions.Value.AiFeaturesEnabled;
+            var userOn = user?.Profile?.AiEnabled ?? false;
+            _aiOn = hostOn && userOn;
+
+            // Load owned cookbooks for the right-rail selector.
+            _availableCookbooks = await DbContext.Cookbooks
+                .Where(c => c.UserId == userId)
+                .OrderBy(c => c.Name)
+                .ToListAsync();
+
+            if (RecipeId > 0)
             {
-                if (_existingRecipe.Cookbook.UserId != userId)
+                _isEdit = true;
+                _existingRecipe = await DbContext.Recipes
+                    .Include(r => r.Cookbook)
+                    .Include(r => r.Steps)
+                    .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                    .FirstOrDefaultAsync(r => r.Id == RecipeId);
+
+                if (_existingRecipe != null)
+                {
+                    if (_existingRecipe.Cookbook.UserId != userId)
+                    {
+                        Navigation.NavigateTo("/cookbooks");
+                        return;
+                    }
+                    _existingRecipe.Steps = _existingRecipe.Steps.OrderBy(s => s.Order).ToList();
+                    CookbookId = _existingRecipe.CookbookId;
+                    _selectedCookbookId = CookbookId;
+                    PopulateFromRecipe(_existingRecipe);
+                }
+            }
+            else if (CookbookId > 0)
+            {
+                var cookbook = await DbContext.Cookbooks.FindAsync(CookbookId);
+                if (cookbook == null || cookbook.UserId != userId)
                 {
                     Navigation.NavigateTo("/cookbooks");
                     return;
                 }
-                CookbookId = _existingRecipe.CookbookId;
-                PopulateFromRecipe(_existingRecipe);
+                _selectedCookbookId = CookbookId;
             }
+
             StateHasChanged();
-        }
-        else if (firstRender && CookbookId > 0)
-        {
-            var cookbook = await DbContext.Cookbooks.FindAsync(CookbookId);
-            if (cookbook == null || cookbook.UserId != userId)
-            {
-                Navigation.NavigateTo("/cookbooks");
-                return;
-            }
         }
     }
 
     private void PopulateFromRecipe(Recipe recipe)
     {
         _name = recipe.Name;
+        // Recipe entity has no description column today (FUTURE-V1.1-*).
+        _description = string.Empty;
         _servings = recipe.Servings;
         _prepTimeMinutes = recipe.PrepTimeMinutes;
         _cookTimeMinutes = recipe.CookTimeMinutes;
 
-        var tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(recipe.TagsJson ?? "[]") ?? new();
-        _tagsText = string.Join(", ", tags);
+        _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(recipe.TagsJson ?? "[]") ?? new();
 
         _ingredients = recipe.RecipeIngredients
             .OrderBy(ri => ri.RecipeLocalId)
-            .Select(ri => new CookBot.Domain.Interfaces.ParsedIngredient
+            .Select(ri => new ParsedIngredient
             {
                 LocalId = ri.RecipeLocalId,
                 Name = ri.Ingredient.Name,
@@ -263,14 +434,20 @@
 
         _steps = recipe.Steps
             .OrderBy(s => s.Order)
-            .Select(s => new CookBot.Domain.Interfaces.ParsedStep
+            .Select(s => new ParsedStep
             {
                 Text = s.Text,
                 IsSection = s.IsSection,
+                Timers = s.Timers?.Select(t => new ParsedTimer
+                {
+                    Duration = t.Duration,
+                    Unit = t.Unit,
+                    Label = t.Label,
+                }).ToList() ?? new List<ParsedTimer>(),
             }).ToList();
     }
 
-    private void PopulateFromParsed(CookBot.Domain.Interfaces.ParsedRecipe parsed)
+    private void PopulateFromParsed(ParsedRecipe parsed)
     {
         if (!string.IsNullOrWhiteSpace(parsed.Name))
             _name = parsed.Name;
@@ -280,11 +457,11 @@
         _cookTimeMinutes = parsed.CookTimeMinutes;
 
         if (parsed.Tags.Any())
-            _tagsText = string.Join(", ", parsed.Tags);
+            _tags = parsed.Tags.ToList();
 
         if (parsed.Ingredients.Any())
         {
-            _ingredients = parsed.Ingredients.Select(i => new CookBot.Domain.Interfaces.ParsedIngredient
+            _ingredients = parsed.Ingredients.Select(i => new ParsedIngredient
             {
                 LocalId = i.LocalId > 0 ? i.LocalId : _nextLocalId++,
                 Name = i.Name,
@@ -297,22 +474,99 @@
 
         if (parsed.Steps.Any())
         {
-            _steps = parsed.Steps.Select(s => new CookBot.Domain.Interfaces.ParsedStep
+            _steps = parsed.Steps.Select(s => new ParsedStep
             {
                 Text = s.Text,
                 IsSection = s.IsSection,
+                Timers = s.Timers?.Select(t => new ParsedTimer
+                {
+                    Duration = t.Duration,
+                    Unit = t.Unit,
+                    Label = t.Label,
+                }).ToList() ?? new List<ParsedTimer>(),
             }).ToList();
+        }
+
+        _warnings.Clear();
+    }
+
+    // ------------------------------------------------------------------------
+    // Title / description / numeric meta inputs
+    // ------------------------------------------------------------------------
+
+    private void OnNameInput(ChangeEventArgs e) => _name = e.Value as string ?? string.Empty;
+    private void OnDescriptionInput(ChangeEventArgs e) => _description = e.Value as string ?? string.Empty;
+
+    private void OnPrepTimeInput(ChangeEventArgs e)
+    {
+        var v = e.Value as string;
+        _prepTimeMinutes = int.TryParse(v, out var n) && n >= 0 ? n : null;
+    }
+
+    private void OnCookTimeInput(ChangeEventArgs e)
+    {
+        var v = e.Value as string;
+        _cookTimeMinutes = int.TryParse(v, out var n) && n >= 0 ? n : null;
+    }
+
+    private void OnServingsInput(ChangeEventArgs e)
+    {
+        var v = e.Value as string;
+        if (int.TryParse(v, out var n) && n >= 1) _servings = n;
+    }
+
+    // ------------------------------------------------------------------------
+    // Tags
+    // ------------------------------------------------------------------------
+
+    private void OnTagInputInput(ChangeEventArgs e) => _tagInput = e.Value as string ?? string.Empty;
+
+    private void OnTagInputKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == ",")
+        {
+            CommitTag();
+        }
+        else if (e.Key == "Backspace" && string.IsNullOrEmpty(_tagInput) && _tags.Count > 0)
+        {
+            _tags.RemoveAt(_tags.Count - 1);
         }
     }
 
-    // --- Ingredient operations ---
+    private void CommitTag()
+    {
+        var t = (_tagInput ?? string.Empty).Trim().TrimEnd(',').Trim();
+        if (t.Length > 0 && !_tags.Contains(t, StringComparer.OrdinalIgnoreCase))
+            _tags.Add(t);
+        _tagInput = string.Empty;
+    }
+
+    private void RemoveTag(string tag)
+    {
+        _tags.Remove(tag);
+    }
+
+    // ------------------------------------------------------------------------
+    // Cookbook selector
+    // ------------------------------------------------------------------------
+
+    private void OnCookbookChanged(int newId)
+    {
+        if (newId <= 0) return;
+        _selectedCookbookId = newId;
+        CookbookId = newId;
+    }
+
+    // ------------------------------------------------------------------------
+    // Ingredient operations (ED-02 / ED-06 — preserve immutable LocalId on reorder)
+    // ------------------------------------------------------------------------
 
     private void AddIngredient()
     {
-        _ingredients.Add(new CookBot.Domain.Interfaces.ParsedIngredient
+        _ingredients.Add(new ParsedIngredient
         {
             LocalId = _nextLocalId++,
-            Amount = 1,
+            Amount = 0,
             Unit = string.Empty,
             Name = string.Empty,
         });
@@ -324,30 +578,91 @@
             _ingredients.RemoveAt(index);
     }
 
-    private async Task<IEnumerable<string>> SearchIngredients(string value, CancellationToken ct)
+    private void MoveIngredientUp(int index)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Length < 2)
-            return Array.Empty<string>();
-
-        var normalized = value.ToLowerInvariant();
-        return await DbContext.Ingredients
-            .Where(i => i.NormalizedName.Contains(normalized))
-            .OrderBy(i => i.Name)
-            .Take(10)
-            .Select(i => i.Name)
-            .ToListAsync(ct);
+        if (index <= 0 || index >= _ingredients.Count) return;
+        // ED-06: swap REFERENCES — LocalId is preserved on each ParsedIngredient.
+        (_ingredients[index], _ingredients[index - 1]) = (_ingredients[index - 1], _ingredients[index]);
     }
 
-    // --- Step operations ---
+    private void OnIngredientAmountInput(int index, ChangeEventArgs e)
+    {
+        if (index < 0 || index >= _ingredients.Count) return;
+        var s = e.Value as string;
+        if (string.IsNullOrWhiteSpace(s))
+        {
+            _ingredients[index].Amount = 0;
+            return;
+        }
+        // Accept "1", "1.5", "1/2", "1 1/2".
+        if (TryParseAmount(s, out var amt))
+            _ingredients[index].Amount = amt;
+    }
+
+    private static bool TryParseAmount(string s, out double amount)
+    {
+        amount = 0;
+        s = s.Trim();
+        if (string.IsNullOrEmpty(s)) return false;
+        // "1 1/2" or "1/2"
+        var parts = s.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        double total = 0;
+        foreach (var p in parts)
+        {
+            if (p.Contains('/'))
+            {
+                var seg = p.Split('/');
+                if (seg.Length != 2) return false;
+                if (!double.TryParse(seg[0], System.Globalization.CultureInfo.InvariantCulture, out var num)) return false;
+                if (!double.TryParse(seg[1], System.Globalization.CultureInfo.InvariantCulture, out var den) || den == 0) return false;
+                total += num / den;
+            }
+            else
+            {
+                if (!double.TryParse(p, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)) return false;
+                total += v;
+            }
+        }
+        amount = total;
+        return true;
+    }
+
+    private static string FormatAmount(double amount)
+    {
+        if (Math.Abs(amount - Math.Round(amount)) < 0.001) return ((int)Math.Round(amount)).ToString();
+        return amount.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private void OnIngredientKeyDown(int rowIndex, int fieldIndex, KeyboardEventArgs e)
+    {
+        // ED-02 keyboard semantics:
+        //   Backspace on an empty row deletes the row.
+        // Tab/Shift+Tab between fields is browser-native (we don't intercept).
+        if (e.Key == "Backspace")
+        {
+            var ing = _ingredients[rowIndex];
+            var rowEmpty = ing.Amount == 0
+                && string.IsNullOrEmpty(ing.Unit)
+                && string.IsNullOrEmpty(ing.Name);
+            if (rowEmpty && _ingredients.Count > 1)
+            {
+                _ingredients.RemoveAt(rowIndex);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Step operations
+    // ------------------------------------------------------------------------
 
     private void AddStep()
     {
-        _steps.Add(new CookBot.Domain.Interfaces.ParsedStep { Text = string.Empty, IsSection = false });
-    }
-
-    private void AddSectionHeader()
-    {
-        _steps.Add(new CookBot.Domain.Interfaces.ParsedStep { Text = string.Empty, IsSection = true });
+        _steps.Add(new ParsedStep
+        {
+            Text = string.Empty,
+            IsSection = false,
+            Timers = new List<ParsedTimer>(),
+        });
     }
 
     private void RemoveStep(int index)
@@ -368,52 +683,52 @@
         (_steps[index], _steps[index + 1]) = (_steps[index + 1], _steps[index]);
     }
 
-    private List<string> DetectIngredientRefsInStep(string stepText)
-    {
-        if (string.IsNullOrWhiteSpace(stepText) || !_ingredients.Any())
-            return new();
-
-        var lower = stepText.ToLowerInvariant();
-        return _ingredients
-            .Where(i => !string.IsNullOrWhiteSpace(i.Name) && lower.Contains(i.Name.ToLowerInvariant()))
-            .Select(i => i.Name)
-            .ToList();
-    }
-
-    // --- Paste Raw Text ---
+    // ------------------------------------------------------------------------
+    // Paste raw text (ED-07) — opens PasteRawTextDialog via CbDialogService.
+    // ------------------------------------------------------------------------
 
     private async Task PasteRawText()
     {
-        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
-        var dialog = await DialogService.ShowAsync<PasteRawTextDialog>("Paste Raw Text", options);
-        var result = await dialog.Result;
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Md, FullWidth: true, CloseOnEscape: true);
+        var result = await CbDialogService.ShowAsync<PasteRawTextDialog>("Paste Raw Recipe Text", null, options);
 
-        if (result != null && !result.Canceled && result.Data is CookBot.Domain.Interfaces.ParsedRecipe parsed)
+        if (result != null && !result.Canceled && result.Data is ParsedRecipe parsed)
         {
             PopulateFromParsed(parsed);
             StateHasChanged();
         }
     }
 
-    // --- Save ---
+    // ------------------------------------------------------------------------
+    // Save
+    // ------------------------------------------------------------------------
 
     private async Task SaveRecipe()
     {
+        // Commit any pending tag input.
+        if (!string.IsNullOrWhiteSpace(_tagInput)) CommitTag();
+
         if (string.IsNullOrWhiteSpace(_name))
         {
-            Snackbar.Add("Recipe name is required.", Severity.Warning);
+            Toast.Show("Recipe name is required.", CbToastSeverity.Warning);
             return;
         }
 
         if (!_ingredients.Any())
         {
-            Snackbar.Add("Add at least one ingredient.", Severity.Warning);
+            Toast.Show("Add at least one ingredient.", CbToastSeverity.Warning);
             return;
         }
 
         if (!_steps.Any())
         {
-            Snackbar.Add("Add at least one step.", Severity.Warning);
+            Toast.Show("Add at least one step.", CbToastSeverity.Warning);
+            return;
+        }
+
+        if (_selectedCookbookId <= 0)
+        {
+            Toast.Show("Pick a cookbook.", CbToastSeverity.Warning);
             return;
         }
 
@@ -422,16 +737,13 @@
         {
             var userId = UserService.CurrentUserId!.Value;
 
-            var parsed = new CookBot.Domain.Interfaces.ParsedRecipe
+            var parsed = new ParsedRecipe
             {
                 Name = _name,
                 Servings = _servings,
                 PrepTimeMinutes = _prepTimeMinutes,
                 CookTimeMinutes = _cookTimeMinutes,
-                Tags = _tagsText
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Where(t => !string.IsNullOrWhiteSpace(t))
-                    .ToList(),
+                Tags = _tags.ToList(),
                 Ingredients = _ingredients.ToList(),
                 Steps = _steps.ToList(),
             };
@@ -439,18 +751,18 @@
             if (_isEdit && _existingRecipe != null)
             {
                 await RecipeService.UpdateAsync(_existingRecipe.Id, userId, parsed);
-                Snackbar.Add("Recipe updated!", Severity.Success);
+                Toast.Show("Recipe updated!", CbToastSeverity.Success);
             }
             else
             {
-                await RecipeService.CreateAsync(CookbookId, userId, parsed);
-                Snackbar.Add("Recipe created!", Severity.Success);
+                await RecipeService.CreateAsync(_selectedCookbookId, userId, parsed);
+                Toast.Show("Recipe created!", CbToastSeverity.Success);
             }
-            Navigation.NavigateTo($"/cookbooks/{CookbookId}");
+            Navigation.NavigateTo($"/cookbooks/{_selectedCookbookId}");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error saving recipe: {ex.Message}", Severity.Error);
+            Toast.Show($"Error saving recipe: {ex.Message}", CbToastSeverity.Error);
         }
         finally
         {
@@ -460,7 +772,9 @@
 
     private void GoBack()
     {
-        if (CookbookId > 0)
+        if (_selectedCookbookId > 0)
+            Navigation.NavigateTo($"/cookbooks/{_selectedCookbookId}");
+        else if (CookbookId > 0)
             Navigation.NavigateTo($"/cookbooks/{CookbookId}");
         else
             Navigation.NavigateTo("/cookbooks");

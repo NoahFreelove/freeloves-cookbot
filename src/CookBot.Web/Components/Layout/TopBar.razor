@@ -1,0 +1,215 @@
+@namespace CookBot.Web.Components.Layout
+@using CookBot.Web.Services
+@using CookBot.Domain.Entities
+@inject CurrentUserService UserService
+@inject ICbDialogService CbDialogService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+@* TopBar — Phase 5 / Plan 05-05 / SHELL-03 / D-21.
+   56px sticky cream top bar: menu icon + breadcrumb/title/sub + right-side
+   action slot + user-switcher (CbDropdown) + admin Manage-users button +
+   dark-mode toggle. Width matches design handoff shell.jsx TopBar.
+
+   PasswordPromptDialog + AdminManageUsersDialog launch via CbDialogService
+   (migrated in Phase 7 / Plan 07-05). *@
+
+<header class="topbar">
+    <button type="button"
+            class="cb-btn ghost"
+            style="padding:6px;border:0;background:transparent;"
+            title="Toggle sidebar"
+            aria-label="Toggle sidebar"
+            aria-expanded="@(!IsDrawerCollapsed)"
+            @onclick="OnToggleDrawerClick">
+        <Icon Name="@Icon.Names.Menu" Size="18" />
+    </button>
+
+    <div style="display:flex;align-items:baseline;gap:10px;flex:1;min-width:0;">
+        @if (!string.IsNullOrEmpty(Breadcrumb))
+        {
+            <span style="color:var(--ink-3);font-size:14px;">
+                @Breadcrumb <span style="margin:0 6px;color:var(--ink-4);">/</span>
+            </span>
+        }
+        @if (!string.IsNullOrEmpty(Title))
+        {
+            <span style="font-weight:600;font-size:15px;letter-spacing:-0.01em;">@Title</span>
+        }
+        @if (!string.IsNullOrEmpty(Sub))
+        {
+            <span style="color:var(--ink-3);font-size:13px;">@Sub</span>
+        }
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;">
+        @RightSlot
+
+        @if (_users.Any())
+        {
+            <CbDropdown TValue="int" Value="_selectedUserId" ValueChanged="OnUserChanged"
+                        Label="@_currentUserName" StartIcon="@Icon.Names.User">
+                @foreach (var u in _users)
+                {
+                    <CbDropdownItem TValue="int" Value="@u.Id" Label="@u.DisplayName" />
+                }
+            </CbDropdown>
+        }
+
+        @if (_isAdmin)
+        {
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.User" OnClick="ShowAdminManageUsersDialog">
+                Manage users
+            </CbButton>
+        }
+
+        <button type="button" class="cb-btn ghost" style="padding:6px;"
+                title="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
+                aria-label="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
+                aria-pressed="@_isDarkMode"
+                @onclick="ToggleDarkMode">
+            <Icon Name="@Icon.Names.Sun" Size="16" />
+        </button>
+    </div>
+</header>
+
+@code {
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Sub { get; set; }
+    [Parameter] public string? Breadcrumb { get; set; }
+    [Parameter] public RenderFragment? RightSlot { get; set; }
+
+    [Parameter] public bool IsDarkMode { get; set; }
+    [Parameter] public EventCallback<bool> IsDarkModeChanged { get; set; }
+    [Parameter] public EventCallback OnUserSwitched { get; set; }
+    [Parameter] public bool IsDrawerCollapsed { get; set; }
+    [Parameter] public EventCallback OnToggleDrawer { get; set; }
+
+    private List<User> _users = new();
+    private int _selectedUserId;
+    private string _currentUserName = "";
+    private bool _isAdmin;
+    private bool _isDarkMode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await UserService.GetAllUsersAsync();
+        if (UserService.CurrentUserId is int uid)
+        {
+            _selectedUserId = uid;
+            _currentUserName = _users.FirstOrDefault(u => u.Id == uid)?.DisplayName ?? "";
+        }
+        _isAdmin = await UserService.IsCookBotAdminAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Refresh after MainLayout's session-restore runs in its own OnAfterRenderAsync.
+            // CurrentUserId may have flipped from the prerender default to the sessionStorage value.
+            if (UserService.CurrentUserId is int uid && uid != _selectedUserId)
+            {
+                _selectedUserId = uid;
+                _currentUserName = _users.FirstOrDefault(u => u.Id == uid)?.DisplayName ?? _currentUserName;
+                _isAdmin = await UserService.IsCookBotAdminAsync();
+                StateHasChanged();
+            }
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        _isDarkMode = IsDarkMode;
+    }
+
+    private async Task ToggleDarkMode()
+    {
+        _isDarkMode = !_isDarkMode;
+        await IsDarkModeChanged.InvokeAsync(_isDarkMode);
+        // Actual JS interop (localStorage write + body class toggle) is owned by MainLayout
+        // — TopBar just reports the new value via the bound parameter.
+    }
+
+    private async Task OnToggleDrawerClick()
+    {
+        // MainLayout owns the _drawerCollapsed state + the localStorage persistence;
+        // TopBar just signals the intent.
+        await OnToggleDrawer.InvokeAsync();
+    }
+
+    private async Task OnUserChanged(int userId)
+    {
+        // Bail if the dropdown ValueChanged fires for the already-selected user.
+        // (Some interaction paths can re-emit the same value.)
+        if (userId == UserService.CurrentUserId) return;
+
+        if (await UserService.UserHasPasswordAsync(userId))
+        {
+            var user = _users.First(u => u.Id == userId);
+            var parameters = new CbDialogParameters
+            {
+                ["UserId"] = userId,
+                ["UserName"] = user.DisplayName,
+            };
+            var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.ExtraSmall, FullWidth: true);
+            var result = await CbDialogService.ShowAsync<PasswordPromptDialog>("Password required", parameters, options);
+            if (result == null || result.Canceled)
+            {
+                _selectedUserId = UserService.CurrentUserId ?? _selectedUserId;
+                StateHasChanged();
+                return;
+            }
+        }
+
+        // Persist the new user FIRST so the post-reload MainLayout boot reads the right value
+        // from sessionStorage. Only then update in-memory state and force-reload the page.
+        try { await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", userId.ToString()); }
+        catch { /* prerender — ignore */ }
+
+        _selectedUserId = userId;
+        UserService.CurrentUserId = userId;
+        _currentUserName = _users.First(u => u.Id == userId).DisplayName;
+        await OnUserSwitched.InvokeAsync();
+
+        // Hard reload to "/" (home) — NOT the current URL. The current URL may be
+        // user-A-scoped (e.g. /recipes/{recipeId} where the recipe belongs to user A);
+        // reloading the same URL as user B lands them on Not Found. Sending them home
+        // gives them their own dashboard and a clean SignalR circuit.
+        try { await JS.InvokeVoidAsync("cookbot.hardReloadTo", "/"); }
+        catch { Navigation.NavigateTo("/", forceLoad: true); }
+    }
+
+    private async Task ShowAdminManageUsersDialog()
+    {
+        var parameters = new CbDialogParameters
+        {
+            ["OnUsersChanged"] = EventCallback.Factory.Create(this, HandleAdminUsersChanged),
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        await CbDialogService.ShowAsync<AdminManageUsersDialog>("Manage users", parameters, options);
+    }
+
+    private async Task HandleAdminUsersChanged()
+    {
+        _users = await UserService.GetAllUsersAsync();
+        if (UserService.CurrentUserId is int uid && !_users.Any(u => u.Id == uid))
+        {
+            // The acting user was deleted — fall back to first remaining user.
+            if (_users.Any())
+            {
+                var next = _users[0];
+                try { await JS.InvokeVoidAsync("sessionStorage.setItem", "cookbot_current_user", next.Id.ToString()); }
+                catch { /* prerender — ignore */ }
+                UserService.CurrentUserId = next.Id;
+                _selectedUserId = next.Id;
+                _currentUserName = next.DisplayName;
+                await OnUserSwitched.InvokeAsync();
+                try { await JS.InvokeVoidAsync("cookbot.hardReloadTo", "/"); }
+                catch { Navigation.NavigateTo("/", forceLoad: true); }
+                return;
+            }
+        }
+        StateHasChanged();
+    }
+}

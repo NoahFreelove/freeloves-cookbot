@@ -1,0 +1,25 @@
+@* Phase 3 D-B3 / Phase 7 Plan 07-01: confirms a non-empty Step → Section conversion.
+   Renders inside CbDialogHost; supplies Body + Footer markup only. *@
+
+<div>
+    <p style="margin:0 0 16px 0;line-height:1.5;">
+        This will discard
+        @if (TimerCount > 0) { <text>@TimerCount timer(s)</text> }
+        @if (TimerCount > 0 && RefCount > 0) { <text> and </text> }
+        @if (RefCount > 0) { <text>@RefCount ingredient reference(s)</text> }
+        on this step.
+    </p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Accent" OnClick="Confirm">Convert</CbButton>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
+    [Parameter] public int TimerCount { get; set; }
+    [Parameter] public int RefCount { get; set; }
+
+    private void Cancel() => DialogInstance?.Cancel();
+    private void Confirm() => DialogInstance?.Close(CbDialogResult.Ok(true));
+}

@@ -1,0 +1,16 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* CbCard — Phase 5 / ATOM-03 / D-12.
+   Wraps ChildContent in <div class="cb-card"> with configurable padding.
+   The .cb-card class supplies background, border, radius — only padding and
+   any caller-supplied additional inline style are inline. *@
+
+<div class="cb-card" style="padding:@(Padding)px;@Style">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public int Padding { get; set; } = 22;
+    [Parameter] public string? Style { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

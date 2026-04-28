@@ -1,0 +1,11 @@
+@namespace CookBot.Web.Components.Atoms
+
+@* CbEyebrow — Phase 5 / ATOM-05 / D-14.
+   Renders ChildContent inside <div class="eyebrow">. The .eyebrow class
+   handles uppercase + tracking + ink-3 color. *@
+
+<div class="eyebrow">@ChildContent</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

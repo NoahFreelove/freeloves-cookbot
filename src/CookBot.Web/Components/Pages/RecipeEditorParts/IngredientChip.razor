@@ -1,0 +1,82 @@
+@*  IngredientChip — Phase 6 / Plan 06-04 / ED-03 (absorbs v1.1 EDITOR-01 D-A2/D-A3/D-A6).
+    Custom Razor rewrite against Phase 5 atoms + design tokens.
+    Renders as <span class="cb-chip ing"> (cream-2 bg, ink-2 text per design handoff
+    `screens/recipe-editor.jsx`). Unresolved chips render with the "unresolved" tint
+    (warn-soft). The × removal button is a transparent-bg <button> with the close icon.
+    Click on the chip surface raises OnRequestReplace so the parent picker can re-anchor.
+
+    The replace-popover and inline edit menu of the v1.1 prototype is dropped —
+    rich edit-in-place can be added later if needed; for v1.2 the picker re-opens
+    via OnRequestReplace and the user picks a replacement ingredient. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Web.Components.Atoms
+
+<span class="@ChipClass"
+      style="@_chipStyle"
+      data-id="@IngredientId"
+      role="button"
+      tabindex="0"
+      title="@(IsResolved ? DisplayName : $"Unresolved: {DisplayName}")"
+      @onclick="HandleChipClick"
+      @onkeydown="HandleChipKeyDown">
+    @if (!IsResolved)
+    {
+        <Icon Name="@Icon.Names.Flag" Size="11" />
+    }
+    @DisplayName
+    @if (Interactive)
+    {
+        <button type="button"
+                class="cb-chip-remove"
+                aria-label="Remove ingredient"
+                style="background:transparent;border:0;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 0 0 4px;display:inline-flex;align-items:center;"
+                @onclick:stopPropagation="true"
+                @onclick="HandleRemove">×</button>
+    }
+</span>
+
+@code {
+    [Parameter] public string DisplayName { get; set; } = string.Empty;
+    [Parameter] public int IngredientId { get; set; }
+    [Parameter] public bool IsResolved { get; set; } = true;
+    [Parameter] public bool Interactive { get; set; } = true;
+    [Parameter] public EventCallback OnRemove { get; set; }
+    [Parameter] public EventCallback<int> OnRequestReplace { get; set; }
+
+    private string ChipClass => IsResolved ? "cb-chip ing" : "cb-chip ing unresolved";
+
+    // The "unresolved" tint is applied inline so we don't need to add a global CSS rule.
+    // Keeps the change to RecipeEditorParts only.
+    private string _chipStyle => IsResolved
+        ? "vertical-align:baseline;margin:0 2px;"
+        : "vertical-align:baseline;margin:0 2px;background:var(--warn-soft);color:var(--warn);";
+
+    private async Task HandleChipClick()
+    {
+        if (!Interactive) return;
+        if (OnRequestReplace.HasDelegate)
+            await OnRequestReplace.InvokeAsync(IngredientId);
+    }
+
+    private async Task HandleChipKeyDown(KeyboardEventArgs e)
+    {
+        // Keyboard a11y (ED-09): Enter / Space activates the chip (request replace),
+        // Backspace / Delete removes it.
+        if (!Interactive) return;
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            if (OnRequestReplace.HasDelegate)
+                await OnRequestReplace.InvokeAsync(IngredientId);
+        }
+        else if (e.Key == "Backspace" || e.Key == "Delete")
+        {
+            await HandleRemove();
+        }
+    }
+
+    private async Task HandleRemove()
+    {
+        if (OnRemove.HasDelegate)
+            await OnRemove.InvokeAsync();
+    }
+}

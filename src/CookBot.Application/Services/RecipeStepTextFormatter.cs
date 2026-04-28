@@ -54,6 +54,67 @@ public static class RecipeStepTextFormatter
         return IngredientLinkPatterns.Pattern.Replace(normalized, m => m.Groups[1].Value);
     }
 
+    /// <summary>
+    /// Phase 3 D-C1 / D-C3: Renders step text as HTML with detected timer substrings wrapped in
+    /// <c>&lt;span class="timer-suggestion" data-duration-seconds="..."&gt;</c> for the click-to-convert
+    /// popover. Skips substrings whose computed duration is in <paramref name="alreadyConvertedDurationsSeconds"/>
+    /// (so a duration already promoted to an explicit timer chip is NOT re-suggested). Substrings that overlap
+    /// an existing <c>[name](#id)</c> ingredient link are NOT wrapped (avoids double-wrapping inside chips).
+    /// </summary>
+    public static string ToHtmlWithTimerSuggestions(string? text, IReadOnlySet<int> alreadyConvertedDurationsSeconds)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+
+        // Two-pass strategy with Unicode-bracket sentinels (⟦TS:N⟧…⟦/TS⟧, U+27E6 / U+27E7).
+        // Pass 1 marks the original text BEFORE HTML encoding. The sentinels survive HTML
+        // encoding unchanged (they aren't <>&"'), so the post-pass regex can find them and
+        // emit literal <span> markup whose inner text has already been HTML-encoded by ToHtml.
+        var wrappedSource = WrapTimerSuggestionsWithSentinels(text, alreadyConvertedDurationsSeconds);
+        var html = ToHtml(wrappedSource);
+
+        return SentinelToSpanPattern.Replace(
+            html,
+            m => $"<span class=\"timer-suggestion\" data-duration-seconds=\"{m.Groups[1].Value}\">{m.Groups[2].Value}</span>");
+    }
+
+    private static readonly Regex SentinelToSpanPattern = new(
+        @"⟦TS:(\d+)⟧(.*?)⟦/TS⟧",
+        RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static string WrapTimerSuggestionsWithSentinels(string text, IReadOnlySet<int> alreadyConvertedDurationsSeconds)
+    {
+        var detected = TimerDetectionService.Detect(text);
+        if (detected.Count == 0) return text;
+
+        var sb = new StringBuilder();
+        var last = 0;
+        foreach (var d in detected)
+        {
+            if (alreadyConvertedDurationsSeconds.Contains(d.TotalSeconds)) continue;
+            // Avoid wrapping inside an existing [name](#id) ingredient link range — that would corrupt
+            // chip rendering (timer suggestion span nested inside ingredient-ref span).
+            if (OverlapsIngredientLink(text, d.Start, d.Length)) continue;
+
+            sb.Append(text, last, d.Start - last);
+            sb.Append("⟦TS:").Append(d.TotalSeconds).Append("⟧")
+              .Append(d.Substring)
+              .Append("⟦/TS⟧");
+            last = d.Start + d.Length;
+        }
+        sb.Append(text, last, text.Length - last);
+        return sb.ToString();
+    }
+
+    private static bool OverlapsIngredientLink(string text, int start, int length)
+    {
+        foreach (Match m in IngredientLinkPatterns.Pattern.Matches(text))
+        {
+            // Half-open interval intersection.
+            if (start < m.Index + m.Length && m.Index < start + length) return true;
+        }
+        return false;
+    }
+
     private static string EncodeWithLineBreaks(ReadOnlySpan<char> span)
     {
         var s = span.ToString();

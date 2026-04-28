@@ -1,0 +1,134 @@
+@namespace CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@using CookBot.Web.Components.Atoms
+@inject CurrentUserService UserService
+@inject IScheduledRecipeService Scheduler
+@inject ICbToastService Toast
+
+@*  ScheduleRecipeDialog — Plan 07-09 Feature 1.
+    Renders inside CbDialogHost via CbDialogService.ShowAsync<ScheduleRecipeDialog>(...).
+    Captures a wall-clock datetime from <input type="datetime-local"> + optional notes,
+    converts the local time to UTC at submit, and persists via IScheduledRecipeService.
+    Reminders/notifications are out of scope (CONTEXT punt). *@
+
+<div>
+    <div style="margin-bottom:14px;font-size:13.5px;color:var(--ink-2);line-height:1.5;">
+        Add <strong>@RecipeName</strong> to your "Up next" queue. We'll show it on Home so you don't forget;
+        no reminders or notifications get sent.
+    </div>
+
+    <div style="margin-bottom:14px;">
+        <label class="cb-label" for="@_dtId">When</label>
+        <input id="@_dtId"
+               type="datetime-local"
+               class="cb-input"
+               value="@_localDateTimeIso"
+               min="@_minLocalIso"
+               @oninput="OnDateTimeInput"
+               style="max-width:280px;"
+               aria-label="Scheduled date and time" />
+        <div style="margin-top:6px;color:var(--ink-3);font-size:12px;">
+            Your local time. We store it in UTC.
+        </div>
+    </div>
+
+    <div style="margin-bottom:18px;">
+        <label class="cb-label" for="@_notesId">Notes (optional)</label>
+        <CbTextarea @bind-Value="_notes"
+                    Placeholder="e.g. for sunday brunch · marinate the night before"
+                    Rows="2"
+                    AriaLabel="Notes about this scheduled cook" />
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="Cancel">Cancel</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Primary"
+                  StartIcon="@Icon.Names.Clock"
+                  Disabled="@(string.IsNullOrEmpty(_localDateTimeIso) || _busy)"
+                  OnClick="Schedule">
+            @(_busy ? "Saving…" : "Schedule")
+        </CbButton>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
+
+    [Parameter] public int RecipeId { get; set; }
+    [Parameter] public string RecipeName { get; set; } = "this recipe";
+
+    private readonly string _dtId = $"sched-dt-{Guid.NewGuid():N}";
+    private readonly string _notesId = $"sched-notes-{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// String value bound to <input type="datetime-local"> — format
+    /// "yyyy-MM-ddTHH:mm" interpreted in the BROWSER's local time. We convert
+    /// to UTC at submit time. Initialized to "now + 1 hour" rounded to the
+    /// nearest 15 minutes so the user has a sensible default they can adjust.
+    /// </summary>
+    private string _localDateTimeIso = "";
+
+    /// <summary>Lower bound on the picker — prevents scheduling in the past.</summary>
+    private string _minLocalIso = "";
+
+    private string? _notes;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        var local = DateTime.Now.AddHours(1);
+        // Round up to nearest 15-minute mark so the default reads cleanly.
+        var minutes = (15 - (local.Minute % 15)) % 15;
+        local = local.AddMinutes(minutes).AddSeconds(-local.Second).AddMilliseconds(-local.Millisecond);
+        _localDateTimeIso = local.ToString("yyyy-MM-ddTHH:mm");
+        _minLocalIso = DateTime.Now.ToString("yyyy-MM-ddTHH:mm");
+    }
+
+    private void OnDateTimeInput(ChangeEventArgs e)
+    {
+        if (e.Value is string s) _localDateTimeIso = s ?? "";
+    }
+
+    private void Cancel() => DialogInstance?.Cancel();
+
+    private async Task Schedule()
+    {
+        if (string.IsNullOrEmpty(_localDateTimeIso)) return;
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        if (!DateTime.TryParse(_localDateTimeIso, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeLocal, out var localWhen))
+        {
+            Toast.Show("That date or time wasn't recognized — please pick from the picker.", CbToastSeverity.Error);
+            return;
+        }
+
+        if (localWhen < DateTime.Now.AddMinutes(-1))
+        {
+            Toast.Show("Pick a time in the future — past dates can't be scheduled.", CbToastSeverity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var utcWhen = localWhen.ToUniversalTime();
+            await Scheduler.ScheduleAsync(RecipeId, UserService.CurrentUserId.Value, utcWhen, _notes);
+            Toast.Show($"Scheduled \"{RecipeName}\" for {localWhen:MMM d, h:mm tt}.", CbToastSeverity.Success);
+            DialogInstance?.Close(CbDialogResult.Ok(true));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Toast.Show("You no longer have access to this recipe.", CbToastSeverity.Error);
+            DialogInstance?.Cancel();
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Couldn't schedule: {ex.Message}", CbToastSeverity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
