@@ -14,7 +14,26 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 **App today (post-v1.2):** Self-hosted Blazor Server cooking & baking tracker on .NET 10 + SQLite. Custom Razor component system (no MudBlazor) matching the Claude Design handoff — warm cream / cocoa ink / dialed-back orange accent, Inter typography, custom outline icons, striped photo placeholders, tabular numerals across 9 surfaces. AI-assisted recipe generation via Anthropic Claude using token-level constrained-decoding structured output, 2-retry repair loop, secret redaction, prompt-injection defense. Multi-user with optional password (PBKDF2-HMAC-SHA256), session-scoped current user, trusted-LAN posture. Canonical versioned `RecipeDocument` round-trips through AI generation, manual editing, cooking mode, JSON export, and `.cookbook.json` import.
 
-**Next milestone (v1.3) — not yet planned.** Seed material at `.planning/v1.3-PHASE-CANDIDATE-recipe-photos.md` (paste-URL recipe photos as the first format-driven slice) plus carry-forwards in REQUIREMENTS.md `FUTURE-V1.1-*` and the v1.2 audit's tech-debt list. Run `/gsd-new-milestone v1.3` to scaffold.
+**Current milestone (v1.3) — planning (started 2026-05-15).** Production-Ready & Format Maturity. One v3 canonical schema bump carries photos + description + per-step temperature; a prod-ready track makes the app shippable for other self-hosters (Dockerfile, encrypt-at-rest, telemetry, deploy docs); the v1.2 carry-forward tech-debt list closes.
+
+## Current Milestone: v1.3 Production-Ready & Format Maturity
+
+**Goal:** Make CookBot shippable for other self-hosters while landing the deferred format/QOL/polish work — one v3 schema bump carries photos + description + per-step temperature, a new prod-ready track ships Docker + encryption + telemetry + deploy docs, and the v1.2 carry-forward tech-debt list closes.
+
+**Target features (5 buckets):**
+
+- **Schema v3 + Photos** — `Recipe.PhotoUrl` with file upload AND paste-URL (single hero photo, `wwwroot/uploads/`), `Recipe.Description` (closes D-25), per-step temperature (closes FUTURE-V1.1-01), V2→V3 upcaster bundles all three, AI prompt schema update, scheme-allowlist + onerror fallback
+- **Format cleanup** — `LegacyRecipeProjector` deletion (FUTURE-V1.1-03), `TagsJson` → relational `RecipeTag` (FUTURE-V1.1-02), prompt-snapshot regression test (FUTURE-V1.1-04), README "Recipe Format" section (FUTURE-V1.1-05)
+- **QOL** — smart pantry-match algorithm (FUTURE-13, replaces deterministic stub), AiChat "Edit anyway" hardening (FUTURE-15), accent variant picker (FUTURE-14 — terracotta/sage user-facing), Profile-side AI prompt editor (DEFERRED-PROF-AIPROMPT)
+- **Small-stuff polish** — Cookbook reparenting on edit (D-26), Pantry per-row quick-add (D-37), moon glyph for dark-mode toggle (D-15), TopBar RightSlot passthrough (D-16), Home active-timer live JS tick
+- **Prod-ready (self-hosters)** — Dockerfile + docker-compose with persistent volumes for `cookbot.db` + `uploads/`, encrypt-at-rest for `UserProfile.AiApiKey` (FUTURE-01), per-key-owner token-cost telemetry (FUTURE-02), README install/config/backup/upgrade sections, no-AI-key first-run flow
+
+**Key context:**
+- "Self-hostable" means *runnable by others* (Docker, deploy docs, sane defaults), NOT *internet-exposed* — trusted-LAN auth posture is preserved. No Identity middleware, no OAuth, no rate-limit hardening for public access.
+- Schema bumps: photos + description + per-step temperature bundle into a single V2→V3 upcaster step. One AI-prompt regression pass amortizes across all three additions.
+- File upload pipeline is in: `wwwroot/uploads/` with size cap + content-type validation. Paste-URL coexists, with scheme allowlist (`http`/`https` only — defangs `javascript:`/`data:`).
+- The candidate doc `.planning/v1.3-PHASE-CANDIDATE-recipe-photos.md` is starting material; IMG-01..13 will be refined and the "paste-URL only" bright line flipped during requirements drafting.
+- Numbering continues from v1.2 — v1.3 phases start at **Phase 8**.
 
 ## Requirements
 
@@ -67,29 +86,26 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 ### Active
 
-<!-- Empty — between milestones. v1.3 requirements will be authored via `/gsd-new-milestone v1.3`. -->
+<!-- v1.3 Production-Ready & Format Maturity. REQ-IDs land when REQUIREMENTS.md is authored (next step in `/gsd-new-milestone`). The buckets below are the planning frame. -->
 
-*(No active scope. The v1.2 milestone closed 2026-05-15; v1.3 has not been planned yet.)*
+- **Schema v3 + Photos** — recipe photos (file upload + paste-URL, single hero), `Recipe.Description` column, per-step temperature, V2→V3 upcaster, AI schema update
+- **Format cleanup** — `LegacyRecipeProjector` deletion, tags-relational, prompt snapshot test, README format section
+- **QOL** — smart pantry-match, AiChat raw-edit hardening, accent variant picker, Profile-side AI prompt editor
+- **Small-stuff polish** — cookbook reparenting on edit, pantry per-row quick-add, moon glyph, TopBar RightSlot, Home live JS tick
+- **Prod-ready (self-hosters)** — Dockerfile + compose, encrypt-at-rest API key, token-cost telemetry, deploy guide + README rewrite
 
-### Carry-forward (deferred to v1.3+)
+### Carry-forward (deferred to v1.4+)
 
-<!-- Items not in scope yet but on the next-milestone seed list. -->
+<!-- Items not in scope for v1.3; deferred to subsequent milestones. v1.3 absorbs the photos / per-step-temperature / tags-relational / projector-deletion / AI-prompt-snapshot / README-format / FUTURE-01/02/13/14/15 / DEFERRED-PROF-AIPROMPT / D-25/D-26/D-37/D-15/D-16 / live-tick items from the previous carry-forward list. -->
 
-- **Per-step oven temperature end-to-end** (was v1.1 Phase 4 `FEATURE-V2-*`; carries as `FUTURE-V1.1-01`) — proves the versioning pattern works for future format fields
-- **Paste-URL recipe photos** — phase candidate drafted at `.planning/v1.3-PHASE-CANDIDATE-recipe-photos.md` (IMG-01..IMG-09); first format-driven slice for v1.3
-- **`Recipe.TagsJson` → relational `RecipeTag` table** (`FUTURE-V1.1-02`)
-- **AiChat assistant-instructions editor** — Profile is the natural home (`DEFERRED-PROF-AIPROMPT`)
-- **Smart pantry-match algorithm** for HOME-02 (replaces deterministic stub) — `FUTURE-13`
-- **User-facing accent variant picker** (terracotta / sage; tokens already wired) — `FUTURE-14`
-- **AiChat "Edit anyway" hardening** — `FUTURE-15`
-- **Encrypt-at-rest for `UserProfile.AiApiKey`** (`FUTURE-01`)
-- **Per-key-owner token-cost telemetry** (`FUTURE-02`)
-- **Format extensions** — substitutions / equipment / doneness cues / source provenance (`FUTURE-03..06`)
-- **Schema.org Recipe / Cooklang one-way export** (`FUTURE-07`, `FUTURE-11`)
-- **USDA FoodData Central nutrition computation** (`FUTURE-08`)
-- **Tool-use fallback for structured-output regressions** (`FUTURE-09`)
-- **Per-sharer cookbook-import consent banner** (`FUTURE-12`)
-- **6 design-handoff polish items** recorded in v1.2 audit `tech_debt` (TopBar RightSlot passthrough, RecipeEditor description persistence + cookbook reparenting, Pantry quick-add cart icon, dark-mode toggle moon glyph, live timer-band JS tick)
+- **Format extensions** — substitutions / equipment / doneness cues / source provenance (`FUTURE-03..06`) — further format fields beyond v1.3's photo + description + per-step-temperature additions
+- **Schema.org Recipe / Cooklang one-way export** (`FUTURE-07`, `FUTURE-11`) — export interop for SEO / external tools
+- **USDA FoodData Central nutrition computation** (`FUTURE-08`) — auto-derive nutrition from ingredient amounts
+- **Tool-use fallback for structured-output regressions** (`FUTURE-09`) — defensive fallback if Anthropic Structured Outputs regresses
+- **Per-sharer cookbook-import consent banner** (`FUTURE-12`) — UX-visible consent affordance for shared imports (AI-08-AUDIT Markdig lockdown is the technical mitigation)
+- **Backfilling photos for existing recipes** — v1.3 migration leaves `PhotoUrl = null` for existing rows; bulk backfill UI is a separate concern
+- **Multiple photos per recipe / photo gallery** — v1.3 ships single hero photo only
+- **Reverse-image search ("find a photo for this recipe" AI feature)** — separate AI-feature scope, not a format-track item
 
 ### Out of Scope
 
@@ -98,7 +114,7 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 - Web API / SPA / WebAssembly client — Blazor Server with `InteractiveServer` render mode is the chosen architecture and there is no driver to expose a separate API
 - Multi-tenant SaaS hosting — designed for self-hosting on a trusted LAN (`README.md`); auth is intentionally minimal
 - AI providers other than Anthropic — `IAiService` is implemented only by `AnthropicAiService`; adding OpenAI/Gemini is a separate scope item the user has not asked for
-- Containerization assets (Dockerfile, compose) — not requested for this milestone; `run.sh` + `dotnet run` is the deploy story
+- ~~Containerization assets (Dockerfile, compose)~~ — **In scope as of v1.3** (Prod-ready bucket). The previous "not requested" rationale no longer holds: v1.3's self-hostable goal requires a reproducible deploy surface beyond `run.sh`.
 - CI/CD — no `.github/` workflows today; out of scope unless it appears in requirements
 - Postgres / non-SQLite databases — current scale is single-host, single-user-group; SQLite is sufficient
 - Identity middleware / OAuth / SSO — `CookBotSettings.AuthMode` is reserved for future hardening; not in this milestone
@@ -182,4 +198,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state (users, feedback, metrics)
 
 ---
-*Last updated: 2026-05-15 — v1.2 UI Redesign milestone shipped and closed (tag `v1.2`); v1.3 not yet planned. Earlier: 2026-04-27 — v1.2 milestone started; v1.1 paused after Phase 2.*
+*Last updated: 2026-05-15 — v1.3 Production-Ready & Format Maturity milestone started (5 buckets: schema v3 + photos, format cleanup, QOL, small-stuff polish, prod-ready self-hosters; phases start at Phase 8; REQUIREMENTS.md + ROADMAP.md authored next via `/gsd-new-milestone`). Earlier: 2026-05-15 — v1.2 UI Redesign milestone shipped and closed (tag `v1.2`); 2026-04-27 — v1.2 milestone started; v1.1 paused after Phase 2.*
