@@ -8,61 +8,88 @@ Self-hosted Blazor Server cooking and baking tracker that lets a small group of 
 
 A durable home for the recipes the user actually cooks, captured in **one standardized format** that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-## Current Milestone: v1.2 UI Redesign
+## Current State
 
-**Goal:** Replace MudBlazor entirely with custom Razor components matching the Claude Design handoff bundle (`.planning/design-handoff/`) — warm cream / cocoa ink / dialed-back orange accent, Inter only, custom outline icons, striped photo placeholders, tabular numerals — across all 9 surfaces.
+**Shipped milestones:** v1.2 UI Redesign (2026-04-27, tag `v1.2`). Earlier: v1.0 (pre-GSD) + v1.1 Phases 1+2 (Canonical Format + AI Structured Output, 2026-04-25/26, no tag — rolled into v1.2 release).
 
-**Status of v1.1 (Canonical Format & AI Conformance):** **Paused.** Phases 1 and 2 shipped. Phase 3 (Editor UX chip composer) and Phase 4 (per-step temperature + cleanup) are paused; the editor work is **absorbed** into v1.2's `RECIPE-EDITOR` requirements (we'll author the chip composer correctly in the new component system rather than build it twice in MudBlazor and then rewrite). FEATURE-V2-* and POLISH-03/04/05/07 carry forward to a future milestone (likely v1.3).
+**App today (post-v1.2):** Self-hosted Blazor Server cooking & baking tracker on .NET 10 + SQLite. Custom Razor component system (no MudBlazor) matching the Claude Design handoff — warm cream / cocoa ink / dialed-back orange accent, Inter typography, custom outline icons, striped photo placeholders, tabular numerals across 9 surfaces. AI-assisted recipe generation via Anthropic Claude using token-level constrained-decoding structured output, 2-retry repair loop, secret redaction, prompt-injection defense. Multi-user with optional password (PBKDF2-HMAC-SHA256), session-scoped current user, trusted-LAN posture. Canonical versioned `RecipeDocument` round-trips through AI generation, manual editing, cooking mode, JSON export, and `.cookbook.json` import.
 
-**Target features:**
-- Foundation — strip MudBlazor; CSS design tokens; custom shell (`MainLayout` + `Sidebar` + `TopBar`); shared atoms (`CbButton`, `CbChip`, `CbCard`, `CbStat`, `CbEyebrow`, `StripedPlaceholder`, custom outline `Icons`); dialog/select/snackbar primitives
-- Marquee surfaces — Home dashboard (pantry-aware hero), Cooking Mode (tablet, adaptive timer/step hero, always-on ingredient rail), Recipe View (editorial), Recipe Editor (absorbs v1.1 Phase 3 chip composer)
-- Remaining surfaces — Cookbook list/detail, Pantry, Grocery list (mobile-first), AI Chat (streaming canvas), Prompt Builder, Profile + ~14 dialogs
-
-**Carry-forward constraints from v1.1:** AI-off toggle hides all AI surfaces (existing per-user `UserProfile.AiEnabled`); recipe-related screens round-trip the canonical `RecipeDocument` from v1.1 Phases 1/2; no new top-level deps beyond what's needed (no React, no Tailwind — pure Razor + CSS).
+**Next milestone (v1.3) — not yet planned.** Seed material at `.planning/v1.3-PHASE-CANDIDATE-recipe-photos.md` (paste-URL recipe photos as the first format-driven slice) plus carry-forwards in REQUIREMENTS.md `FUTURE-V1.1-*` and the v1.2 audit's tech-debt list. Run `/gsd-new-milestone v1.3` to scaffold.
 
 ## Requirements
 
 ### Validated
 
-<!-- Shipped and confirmed valuable. Inferred from existing codebase (.planning/codebase/). -->
+<!-- Shipped and confirmed valuable. v1.0 (pre-GSD existing features) + v1.1 Phases 1+2 + v1.2. -->
 
-- ✓ Recipe authoring — manual editor with ingredient autocomplete and step composer (`src/CookBot.Web/Components/Pages/RecipeEditor.razor`) — existing
-- ✓ Multi-format paste-in — YAML frontmatter, numbered lines, or free-form, parsed by `IRecipeFormatParser` (`src/CookBot.Application/Services/RecipeFormatParser.cs`) — existing
-- ✓ Step-by-step cooking mode with countdown timers, browser notifications, and ingredient highlighting (`src/CookBot.Web/Components/Pages/CookingMode.razor`, `src/CookBot.Web/wwwroot/js/cooking-timers.js`) — existing
-- ✓ Recipe scaling with fraction display (`src/CookBot.Application/Services/RecipeScalingService.cs`, `FractionFormatter.cs`) — existing
-- ✓ Cookbook organization — group recipes into cookbooks, view/edit (`src/CookBot.Web/Components/Pages/CookbookList.razor`, `CookbookDetail.razor`) — existing
-- ✓ Cookbook export/import as JSON (`src/CookBot.Web/Services/CookbookTransferService.cs`, `src/CookBot.Application/DTOs/CookbookTransferDtos.cs`) — existing
-- ✓ Cookbook PDF export (`src/CookBot.Web/Services/CookbookPdfService.cs`, QuestPDF) — existing
-- ✓ Cookbook sharing between users (`CookbookShare` entity, `ShareCookbookDialog.razor`) — existing
-- ✓ Pantry tracking with AI-assisted population (`src/CookBot.Application/Services/PantryAiPopulationService.cs`, `PantryView.razor`) — existing
-- ✓ Grocery / shopping lists (`src/CookBot.Application/Services/GroceryListService.cs`, `GroceryListView.razor`) — existing
-- ✓ AI chat (Anthropic) for recipe generation, streaming SSE (`src/CookBot.Infrastructure/AI/AnthropicAiService.cs`, `src/CookBot.Web/Components/Pages/AiChat.razor`) — existing
-- ✓ Per-step "Ask about this step" assist in cooking mode (`src/CookBot.Application/Services/RecipeCookingAiContext.cs`) — existing
-- ✓ Prompt builder — copyable system prompt for use in any external LLM (`src/CookBot.Web/Components/Pages/PromptBuilder.razor`) — existing
-- ✓ API key storage and sharing (per-user key, sharer/recipient model that hides the key from recipients) (`src/CookBot.Web/Services/AiApiKeyResolutionService.cs`, `AiApiKeyShareService.cs`) — existing
-- ✓ Multi-user with optional password (PBKDF2-HMAC-SHA256), session-scoped current user (`src/CookBot.Web/Services/CurrentUserService.cs`) — existing
-- ✓ Authorization hardening — ownership and share checks on every recipe/cookbook mutation (`src/CookBot.Infrastructure/Data/RecipeAccessExtensions.cs`, `RecipeService`, `CookbookService`) — existing
-- ✓ AI kill switches — host-wide (`CookBotSettings.AiFeaturesEnabled`) and per-user (`UserProfile.AiEnabled`) — existing
-- ✓ 600+ ingredient seed database with autocomplete (`seeds/ingredients.json`, `DatabaseSeeder.cs`) — existing
-- ✓ Dark mode toggle persisted to `localStorage` (`MainLayout.razor`) — existing
-- ✓ Auto-applied EF Core migrations on startup (`DatabaseSeeder.SeedAsync` → `MigrateAsync`) — existing
+**v1.0 (pre-GSD existing app):**
+- ✓ Recipe authoring — manual editor with ingredient autocomplete and step composer (`src/CookBot.Web/Components/Pages/RecipeEditor.razor`)
+- ✓ Multi-format paste-in — YAML frontmatter, numbered lines, or free-form, parsed by `IRecipeFormatParser` (`src/CookBot.Application/Services/RecipeFormatParser.cs`)
+- ✓ Step-by-step cooking mode with countdown timers, browser notifications, and ingredient highlighting (`src/CookBot.Web/Components/Pages/CookingMode.razor`, `src/CookBot.Web/wwwroot/js/cooking-timers.js`)
+- ✓ Recipe scaling with fraction display (`src/CookBot.Application/Services/RecipeScalingService.cs`, `FractionFormatter.cs`)
+- ✓ Cookbook organization — group recipes into cookbooks, view/edit
+- ✓ Cookbook export/import as JSON (`src/CookBot.Web/Services/CookbookTransferService.cs`)
+- ✓ Cookbook PDF export (`src/CookBot.Web/Services/CookbookPdfService.cs`, QuestPDF)
+- ✓ Cookbook sharing between users (`CookbookShare` entity)
+- ✓ Pantry tracking with AI-assisted population (`PantryAiPopulationService`, `PantryView.razor`)
+- ✓ Grocery / shopping lists (`GroceryListService`, `GroceryListView.razor`)
+- ✓ AI chat (Anthropic) for recipe generation, streaming SSE (`AnthropicAiService`, `AiChat.razor`)
+- ✓ Per-step "Ask about this step" assist in cooking mode (`RecipeCookingAiContext`)
+- ✓ Prompt builder — copyable system prompt for external LLM use (`PromptBuilder.razor`)
+- ✓ Per-user API key storage + share table (recipient never sees the key) (`AiApiKeyResolutionService`, `AiApiKeyShareService`)
+- ✓ Multi-user with optional password (PBKDF2-HMAC-SHA256), session-scoped current user (`CurrentUserService`)
+- ✓ Authorization hardening — ownership and share checks on every recipe/cookbook mutation (`RecipeAccessExtensions`, `RecipeService`, `CookbookService`)
+- ✓ AI kill switches — host-wide (`CookBotSettings.AiFeaturesEnabled`) and per-user (`UserProfile.AiEnabled`)
+- ✓ 600+ ingredient seed database with autocomplete (`seeds/ingredients.json`, `DatabaseSeeder.cs`)
+- ✓ Dark mode toggle persisted to `localStorage`
+- ✓ Auto-applied EF Core migrations on startup (`DatabaseSeeder.SeedAsync` → `MigrateAsync`)
+
+**v1.1 (partial — Phases 1+2 shipped 2026-04-25/26):**
+- ✓ Single canonical, versioned `RecipeDocument` — one schema is the source of truth across YAML wire, JSON export, DB column, and AI prompt; `version` field supports forward-compatible evolution (`CookBot.Domain/Recipes/RecipeDocument.cs`) — v1.1 Phase 1
+- ✓ AI chat reliably emits the canonical format — Anthropic structured-output transport (`SendStructuredAsync<T>`) via `output_config.format`; 2-retry repair loop; `SecretRedactor` strips API keys from error surfaces; `PromptInjectionGuard` wraps recipe content in `<recipe>` tags; `Markdig DisableHtml` lockdown (AI-08-AUDIT) — v1.1 Phase 2
+- ✓ Auto-migrated existing data — `IDatabaseBackupService` (last-3-backup retention) + `LegacyRecipeProjector` + EF migration backfilling `Recipe.CanonicalDocumentJson` for every existing row — v1.1 Phase 1
+
+**v1.2 UI Redesign (shipped 2026-04-27, all 75 reqs):**
+- ✓ UI redesign — replace MudBlazor wholesale with custom Razor component system matching the Claude Design handoff (`wwwroot/css/cookbot-design.css` + 17 atom components + 36 outline icons + Cb dialog/toast/dropdown primitives) — v1.2 Phase 5 (DS-01..06, ATOM-01..10, SHELL-01..04, DIALOG-01..04)
+- ✓ Pantry-aware Home dashboard — "Tonight from your pantry" deterministic-stub matcher + 4-tile glance strip + recently cooked + up next cards — v1.2 Phase 6 (HOME-01..04)
+- ✓ Adaptive Cooking Mode — tablet-optimized; 224px tabular timer hero when running / 52px step hero when idle; always-on right rail with link-only ingredient highlighting; bottom step nav with arrow-key navigation — v1.2 Phase 6 (COOK-01..06)
+- ✓ Editorial Recipe View — 64px display title with hanging accent numerals; 300px sticky scaled-ingredients sidebar; "Notes from your last cook" callout sourced from `IRecipeMadeService` — v1.2 Phase 6 (RV-01..05)
+- ✓ Editor chip composer in custom Razor — keyboard-navigable explicit ingredient picker (no special syntax for users); inline non-modal timer-suggestion banner (no auto-rewrite); step/section toggle with confirmation; immutable-id reorder; paste-raw-text routing through canonical schema parser — v1.2 Phase 6 (ED-01..09, absorbs v1.1 EDITOR-01..07)
+- ✓ Cookbooks (list + detail) — collage thumbnails, detail hero with share/PDF/export — v1.2 Phase 7 (CB-01, CB-02)
+- ✓ Pantry — 4-tile summary strip + categorized stock cards + status badges + AI populate/standardize buttons — v1.2 Phase 7 (PA-01..04)
+- ✓ Grocery — mobile-first aisle-categorized sections with 24px circle checkboxes + sticky add-item button — v1.2 Phase 7 (GR-01..04)
+- ✓ AI Chat as live recipe canvas — 380px chat rail + flex canvas; recipe canvas binds directly to canonical `RecipeDocument` from `IAiRecipeGenerator` (no extractor revival — POLISH-01 preserved); streaming caret + drafting pulse — v1.2 Phase 7 (AIC-01..05)
+- ✓ Prompt Builder rewrite — 320px config rail + dark mono preview sourced from `RecipeSchemaDocumentationProvider` — v1.2 Phase 7 (PB-01..03)
+- ✓ Profile rewrite — density toggle, equipment + dietary multi-select chip rows, AI key card — v1.2 Phase 7 (PROF-01, PROF-02)
+- ✓ Accessibility audit — 2px accent focus rings, keyboard-only nav across 9 surfaces, WCAG AA contrast on warm-cream + cocoa-dark, ARIA roles on atoms, dark-mode smoke pass — v1.2 Phase 7 (A11Y-01..04)
+- ✓ MudBlazor wholesale removed — repo-wide `grep "Mud[A-Z]"` returns zero hits; package + `AddMudServices()` + `@using MudBlazor` + 4 providers + static assets + `DesignSandbox` all deleted — v1.2 Phase 7 (MIG-01..03)
+- ✓ RecipeMade log entity + `IRecipeMadeService` — wires RV-04 last-cook callout, Recipe View made-count, and Home recently-cooked grid — v1.2 Phase 7 post-ship slice 09
 
 ### Active
 
-<!-- Current scope. Building toward these in this milestone. -->
+<!-- Empty — between milestones. v1.3 requirements will be authored via `/gsd-new-milestone v1.3`. -->
 
-- [ ] **Recipe-mode UX without special syntax** — users author and edit recipes (including ingredient references and timers) without ever typing `[name](#id)`, picking between `text:` vs `section:`, or formatting YAML by hand
-- [ ] **Single canonical, versioned recipe format** — one schema is the source of truth across the AI prompt, the YAML wire format, the JSON export, and the DB representation; the format carries an explicit `version` and supports forward-compatible evolution
-- [x] **AI chat reliably emits the canonical format** — Validated in Phase 2: AI Structured Output & Conformance. Anthropic's structured-output transport (`SendStructuredAsync<T>`) emits canonical recipes via `output_config.format`; a 2-retry repair loop bounds validation failures; SecretRedactor strips API keys from error surfaces; PromptInjectionGuard wraps recipe content in `<recipe>` tags. AI-09 (consent banner) deferred to FUTURE-12; AI-08-AUDIT (Markdig DisableHtml lockdown) shipped as the technical replacement.
-- [→] **Format-driven new features** — paused with v1.1; per-step temperature (FEATURE-V2-*) deferred to v1.3+ — see "Future Requirements" in REQUIREMENTS.md
-- [→] **General usability improvements** — paused with v1.1
-- [ ] **UI redesign — replace MudBlazor wholesale** (v1.2) — strip MudBlazor, build custom Razor components against the design handoff at `.planning/design-handoff/`; warm-cream identity tightened with Inter typography, custom outline icons, striped photo placeholders, tabular numerals
-- [ ] **Adaptive Cooking Mode** (v1.2) — tablet-optimized; timer-as-hero when running, step-as-hero when idle; always-on right rail with this-step ingredient highlighting
-- [ ] **Editorial Recipe View** (v1.2) — display-weight title, hanging accent numerals on steps, sticky scaled-ingredient sidebar, "Notes from your last cook" callout
-- [ ] **AI Chat as live recipe canvas** (v1.2) — left-rail conversation + right canvas where streaming text builds a recipe card live; "save to cookbook" affordance is the canvas itself, not a button buried in chat
-- [ ] **Pantry-aware Home dashboard** (v1.2) — leads with "Tonight from your pantry" matching surface; counters demoted to a glance strip with delta sub-text; "Recently cooked" + "Up next" cards
-- [ ] **Editor chip composer in new component system** (v1.2; absorbs v1.1 EDITOR-01..07) — author the chip composer correctly the first time in custom Razor, not in MudBlazor and then again
+*(No active scope. The v1.2 milestone closed 2026-05-15; v1.3 has not been planned yet.)*
+
+### Carry-forward (deferred to v1.3+)
+
+<!-- Items not in scope yet but on the next-milestone seed list. -->
+
+- **Per-step oven temperature end-to-end** (was v1.1 Phase 4 `FEATURE-V2-*`; carries as `FUTURE-V1.1-01`) — proves the versioning pattern works for future format fields
+- **Paste-URL recipe photos** — phase candidate drafted at `.planning/v1.3-PHASE-CANDIDATE-recipe-photos.md` (IMG-01..IMG-09); first format-driven slice for v1.3
+- **`Recipe.TagsJson` → relational `RecipeTag` table** (`FUTURE-V1.1-02`)
+- **AiChat assistant-instructions editor** — Profile is the natural home (`DEFERRED-PROF-AIPROMPT`)
+- **Smart pantry-match algorithm** for HOME-02 (replaces deterministic stub) — `FUTURE-13`
+- **User-facing accent variant picker** (terracotta / sage; tokens already wired) — `FUTURE-14`
+- **AiChat "Edit anyway" hardening** — `FUTURE-15`
+- **Encrypt-at-rest for `UserProfile.AiApiKey`** (`FUTURE-01`)
+- **Per-key-owner token-cost telemetry** (`FUTURE-02`)
+- **Format extensions** — substitutions / equipment / doneness cues / source provenance (`FUTURE-03..06`)
+- **Schema.org Recipe / Cooklang one-way export** (`FUTURE-07`, `FUTURE-11`)
+- **USDA FoodData Central nutrition computation** (`FUTURE-08`)
+- **Tool-use fallback for structured-output regressions** (`FUTURE-09`)
+- **Per-sharer cookbook-import consent banner** (`FUTURE-12`)
+- **6 design-handoff polish items** recorded in v1.2 audit `tech_debt` (TopBar RightSlot passthrough, RecipeEditor description persistence + cookbook reparenting, Pantry quick-add cart icon, dark-mode toggle moon glyph, live timer-band JS tick)
 
 ### Out of Scope
 
@@ -81,41 +108,39 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 **Origin:** The author built this for personal use because online recipe sites are ad-laden and LLM-generated recipes had nowhere to live. The `README.md` notes the app is "completely vibecoded with Claude Opus 4.6" and is shared in case it's useful to others.
 
-**Current footprint:**
-- 4-project Clean/Onion architecture (`Domain`, `Application`, `Infrastructure`, `Web`) plus a Tests project (xUnit 2.9.2)
-- 28 routable Razor pages on Blazor Server with MudBlazor 8.15
-- 5 EF Core migrations through `20260416175214_AiApiKeyShares`
-- ~55 source files in `src/`, ~1.5k lines of codebase docs at `.planning/codebase/`
+**Current footprint (post-v1.2):**
+- 4-project Clean/Onion architecture (`Domain`, `Application`, `Infrastructure`, `Web`) plus a Tests project (xUnit 2.9.2 + bUnit)
+- 9 routable Blazor Server surfaces on the custom Razor component system + 17 Cb atom components + 36 outline icons + Cb dialog/toast/dropdown primitives
+- **Zero MudBlazor dependency** — stripped wholesale in v1.2 Phase 7 / Plan 07-07
+- 196 / 196 tests passing under `dotnet test --filter "Category!=RequiresApiKey"`; live-AI theory tests gated under `RequiresApiKey`
+- EF Core 10 migrations forward-only through the v1.1 + v1.2 work, applied by `DatabaseSeeder.SeedAsync` at startup with `IDatabaseBackupService` retention
 - License: `GPL-3.0-only`
 
-**Format situation today** (from `.planning/codebase/CONCERNS.md` §1–4):
-The app currently has **three competing serializations** that all describe the same recipe concept and have drifted apart:
-1. **YAML frontmatter** (`prepTime`, `cookTime`, `[name](#id)` step links, `text` vs `section` step keys) — what users paste and what the AI is told about
-2. **JSON cookbook export** (`prepTimeMinutes`, `cookTimeMinutes`, `IsSection: bool` on every step, `localId` instead of `id`) — what `.cookbook.json` files contain
-3. **DB-owned JSON columns** (additional `IngredientRefs: List<int>` derived on save, `TagsJson: string` deserialized at every read site) — what SQLite stores
+**Format situation (post-v1.1 Phase 1):** The canonical `RecipeDocument` (`CookBot.Domain/Recipes/RecipeDocument.cs`) is the single source of truth across YAML wire format, JSON export, the DB JSON column (`Recipe.CanonicalDocumentJson`), and the AI prompt. `RecipeUpcasterChain` reconciles v1 → v2; `RecipeJsonSchemaProvider` advertises the schema to Anthropic; `LegacyRecipeProjector` is retained as a deletion-target for v1.3+ (FUTURE-V1.1-03).
 
-The AI is taught only the YAML form. Round-tripping export → import → AI prompt forces three shapes. Standardizing this is the prerequisite for the milestone's other goals.
+**AI conformance situation (post-v1.1 Phase 2):**
+- Anthropic structured-output via `output_config.format` — token-level constrained decoding — replaces the old free-form prompt-and-parse pattern
+- 2-retry repair loop bounds validation failures
+- `SecretRedactor` (AI-07) strips API keys from error surfaces; `PromptInjectionGuard` (AI-08) wraps user/shared content in `<recipe>` tags; `Markdig DisableHtml` lockdown (AI-08-AUDIT) blocks HTML injection in rendered AI output
+- The legacy three-tier `AiChat.ExtractRecipeContent` extractor is permanently deleted (POLISH-01 invariant — preserved through v1.2 AI Chat rewrite)
+- The opt-out clause in `PromptBuilderService` is gone; a lint denylist prevents regression
 
-**AI-format conformance situation** (from `.planning/codebase/CONCERNS.md` §9–13):
-- The system prompt currently has an explicit **opt-out clause** ("If you can't follow this exact format, plain numbered steps are fine — the app will parse them") — `PromptBuilderService.cs:201`
-- The chat extractor `AiChat.ExtractRecipeContent` falls back through three increasingly loose heuristics — the loosest can swallow surrounding prose into the YAML body
-- There is no retry/repair pass when the model emits an unparseable recipe
-- The format spec is duplicated in two literal strings in `PromptBuilderService` (in-app vs copyable prompt) and will drift
-
-**User-flagged concerns:**
-- "Users shouldn't have to know our special syntax" (recipe mode UX)
-- "Standardizing our file format"
-- "Adding new features to the format"
-- "Getting AI chat to actually respond in the format and use it"
+**Outstanding concerns:**
+- AI key encrypt-at-rest (FUTURE-01) — keys are stored as plaintext today; trusted-LAN posture tolerates this for now
+- Token-cost telemetry per key owner (FUTURE-02)
+- Per-sharer cookbook-import consent banner (FUTURE-12) — AI-08-AUDIT Markdig lockdown is the technical replacement for AI-09 but a UX-visible consent affordance remains deferred
 
 ## Constraints
 
-- **Tech stack:** .NET 10 / Blazor Server (`InteractiveServer`) / SQLite via EF Core 10 / MudBlazor 8.15 — Established in current code; changing the platform is not a milestone goal.
-- **AI provider:** Anthropic Claude only (`AnthropicAiService`, models Haiku 4.5 / Sonnet 4.6 / Opus 4.7) — `IAiService` is the abstraction if a second provider ever lands, but not in this milestone.
+- **Tech stack:** .NET 10 / Blazor Server (`InteractiveServer`) / SQLite via EF Core 10 / custom Razor component system (no MudBlazor as of v1.2) — Changing the platform is not a milestone goal.
+- **AI provider:** Anthropic Claude only (`AnthropicAiService`, models Haiku 4.5 / Sonnet 4.6 / Opus 4.7) — `IAiService` is the abstraction if a second provider ever lands.
 - **Persistence:** SQLite single-file (`cookbot.db`) — Self-host friendly; migrations applied at startup by `DatabaseSeeder.SeedAsync`.
-- **Auth posture:** Trusted-LAN self-hosting; no Identity middleware — `CookBotSettings.AuthMode` exists but is "Reserved for future use; not enforced" (`CookBotSettings.cs`).
+- **Auth posture:** Trusted-LAN self-hosting; no Identity middleware — `CookBotSettings.AuthMode` exists but is "Reserved for future use; not enforced".
 - **License:** GPL-3.0-only — All deps must be license-compatible.
-- **Backward compatibility:** Existing `.cookbook.json` exports out in the wild must remain importable; a `version` field on the canonical format is the migration path.
+- **Backward compatibility:** Existing `.cookbook.json` exports out in the wild must remain importable; the `version` field on the canonical `RecipeDocument` is the migration path. `RecipeUpcasterChain` reconciles V1 → V2.
+- **Canonical format invariants:** UI surfaces consume `RecipeDocument` directly via `Recipe.CanonicalDocumentJson` + `JsonRecipeSerializer`. **Never** read `Recipe.IngredientsJson` / `StepsJson` / `IngredientRefs` / `TagsJson` from new code (deletion-targets retained for upcaster). **Never** auto-rewrite step text on save — explicit chips are the only persisted source of timers/ingredient links.
+- **AI invariants:** The structured-output orchestrator (`IAiRecipeGenerator`) + `SecretRedactor` + `PromptInjectionGuard` are preserved verbatim — UI consumes them; do not bypass. The three-tier `AiChat.ExtractRecipeContent` extractor stays deleted (POLISH-01).
+- **No second AI provider abstraction; no `Microsoft.Extensions.AI` migration; no `Newtonsoft.Json`; no `NJsonSchema` — these are tracked as explicit out-of-scope.**
 
 ## Key Decisions
 
@@ -123,17 +148,21 @@ The AI is taught only the YAML form. Round-tripping export → import → AI pro
 |----------|-----------|---------|
 | Blazor Server + MudBlazor (not SPA / WASM) | Single-process self-host story; SignalR circuit is sufficient at this scale | ✓ Good |
 | SQLite + EF Core 10 | Self-hostable, no external services needed; auto-migrate at startup | ✓ Good |
-| Recipe YAML format with `[name](#id)` ingredient links | Lets the AI emit recipes in a parseable shape and lets users paste them in | ⚠️ Revisit — see CONCERNS §1, §5: the syntax is leaky to users and inconsistent with other serializations |
-| Three independent recipe representations (YAML, JSON export, DB owned-entity) | Each grew with its own use case; no single source of truth was defined | ⚠️ Revisit — milestone goal explicitly addresses this |
-| Anthropic-only AI integration | Author uses Claude; no need for provider abstraction yet | — Pending |
+| Recipe YAML format with `[name](#id)` ingredient links | Lets the AI emit recipes in a parseable shape and lets users paste them in | ✓ Resolved (v1.1 Phase 1) — canonical `RecipeDocument` v2 is the source of truth; `[name](#id)` is encoded in `ContentStep.Text` and rendered as keyboard-navigable chips in the editor (v1.2 Phase 6) so users never type the special syntax |
+| Three independent recipe representations (YAML, JSON export, DB owned-entity) | Each grew with its own use case; no single source of truth was defined | ✓ Resolved (v1.1 Phase 1) — collapsed into a single versioned canonical record |
+| Anthropic-only AI integration | Author uses Claude; no need for provider abstraction yet | ✓ Good — `IAiService` remains the only abstraction; structured-output transport added in v1.1 Phase 2 without disturbing the interface |
 | Per-user API key + share table; recipient never sees the key | Self-host friendly without each user needing their own paid account | ✓ Good |
-| AI opt-out clause in system prompt | Tolerated free-form recipes from older models | ⚠️ Revisit — milestone goal: AI must use the format; remove or rework |
+| AI opt-out clause in system prompt | Tolerated free-form recipes from older models | ✓ Resolved (v1.1 Phase 1 Plan 04) — opt-out clause deleted; lint denylist prevents regression |
 | QuestPDF community license for cookbook PDF export | Free, GPL-compatible, server-side render | ✓ Good |
-| `CookbookTransferDocument.SchemaVersion = 1` | Acknowledged versioning need on the JSON export | ⚠️ Revisit — YAML format has no version field at all |
-| Identity middleware deferred | Designed for trusted LAN; complexity not justified yet | — Pending |
-| **v1.2: Replace MudBlazor entirely** | Visual fidelity to the design handoff requires shapes (999px pill buttons, 64px display titles, 224px tabular timer, hanging accent numerals, custom outline icons) that MudBlazor would only approximate; once you skin enough of MudBlazor you've fought it more than you've used it. Pure Razor + CSS is simpler than CSS overrides on every Mud component. | — Pending (v1.2) |
-| **v1.2: Pause v1.1 mid-flight; absorb Phase 3 into v1.2** | The chip composer (v1.1 Phase 3) is being built in MudBlazor right now — replacing MudBlazor wholesale would require rewriting it. Cheaper to author it once in the new component system. Phase 4 (per-step temperature) is real domain work and carries forward to v1.3+. | — Pending (v1.2) |
-| **v1.2: Skip the milestone research step** | The Claude Design handoff bundle (chats + 9 fully-specified screens + design system tokens in `styles.css`) already encodes stack/features/architecture/pitfalls. Spawning 4 parallel researchers would duplicate work. | — Logged (v1.2 milestone start) |
+| `CookbookTransferDocument.SchemaVersion = 1` | Acknowledged versioning need on the JSON export | ✓ Good — extended in v1.1 Phase 2 (Plan 02-04) to route through `RecipeUpcasterChain` on deserialize |
+| Identity middleware deferred | Designed for trusted LAN; complexity not justified yet | — Pending (still deferred post-v1.2) |
+| **v1.2: Replace MudBlazor entirely** | Visual fidelity to the design handoff requires shapes (999px pill buttons, 64px display titles, 224px tabular timer, hanging accent numerals, custom outline icons) that MudBlazor would only approximate; once you skin enough of MudBlazor you've fought it more than you've used it. | ✓ Good (v1.2 Phase 7 / Plan 07-07) — package deleted, repo-wide `Mud[A-Z]` grep zero hits, dotnet build 0/0, tests 196/196 preserved |
+| **v1.2: Pause v1.1 mid-flight; absorb Phase 3 into v1.2** | The chip composer (v1.1 Phase 3) was being built in MudBlazor — replacing MudBlazor wholesale would require rewriting it. Cheaper to author it once in the new component system. | ✓ Good (v1.2 Phase 6 / Plan 06-04) — chip composer shipped in custom Razor; EDITOR-01..07 absorbed as ED-03..09; round-trip canonical doc integrity preserved through save path |
+| **v1.2: Skip the milestone research step** | The Claude Design handoff bundle already encoded stack/features/architecture/pitfalls. Spawning 4 parallel researchers would duplicate work. | ✓ Good — milestone shipped on time; design handoff was sufficient research |
+| **v1.2: D-30 coexistence** (Plan 05-05) | Phase 5 MainLayout removed Mud layout chrome but RETAINED the four MudBlazor providers (Theme/Popover/Dialog/Snackbar) through Phase 6 to support unmigrated dialogs | ✓ Good — let Phases 5/6/7 ship serially without forcing a flag-day cutover; clean atomic strip in Plan 07-07 |
+| **v1.2: D-39 AiChat canvas binds canonical RecipeDocument** (Plan 07-04) | AI Chat right canvas reads directly from `_lastStructuredRecipe.Value` (the canonical `RecipeDocument` produced by `IAiRecipeGenerator`), not from rendered chat text. POLISH-01 invariant preserved | ✓ Good — three-tier extractor stays deleted; AI Chat is now a "live recipe canvas" in the design-handoff sense |
+| **v1.2: D-43 density toggle in localStorage** (Plan 07-05) | UserProfile has no Density column; adding one solely for a UI-pref toggle would require a migration | ✓ Good — matches existing `cookbot_dark_mode` localStorage pattern; `data-density` set on `<html>` before first paint |
+| **v1.2 close: FUTURE-15 — AiChat "Edit anyway" path deferred** (audit 2026-05-01) | Validation-failed path routes RawResponse through `IRecipeFormatParser.TryParse`; if raw JSON also fails parse, degraded fallback (toast, no navigation) is non-crashing but fragile. Audit-flagged as known edge | — Deferred to v1.3+ |
 
 ## Evolution
 
@@ -153,4 +182,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state (users, feedback, metrics)
 
 ---
-*Last updated: 2026-04-27 — v1.2 UI Redesign milestone started; v1.1 paused after Phase 2*
+*Last updated: 2026-05-15 — v1.2 UI Redesign milestone shipped and closed (tag `v1.2`); v1.3 not yet planned. Earlier: 2026-04-27 — v1.2 milestone started; v1.1 paused after Phase 2.*
