@@ -14,25 +14,25 @@
 
 Single source of truth for the visual identity. Mirrors `.planning/design-handoff/project/styles.css` — warm-cream surfaces, cocoa ink, dialed-back orange accent.
 
-- [ ] **DS-01**: A `cookbot-design.css` global stylesheet defines CSS custom properties for the full token palette from `.planning/design-handoff/project/styles.css` — surfaces (`--cream`, `--cream-2`, `--paper`, `--paper-2`, `--line`, `--line-strong`), ink (`--ink`, `--ink-2/3/4`), accent (`--accent`, `--accent-soft`, `--accent-ink`), green/warn variants, type families, density (`--pad`, `--pad-sm`, `--gap`), radii — and is loaded once per page render via `_Host`/`App.razor`.
-- [ ] **DS-02**: Three accent variants — orange (default), terracotta, sage — selectable via `data-accent` on `<html>`. Tokens are wired and verified; user-facing accent picker is **not** surfaced this milestone (variants exist for future per-user theming).
-- [ ] **DS-03**: Two density modes — `comfy` (default), `compact` — selectable via `data-density` on `<html>`. A density toggle ships on the Profile surface and persists to `UserProfile`.
-- [ ] **DS-04**: Inter-only typography stack with `font-feature-settings: "ss01", "cv11"` on the body and `tnum` on a `.num` utility class for tabular numerals; loaded from rsms.me/inter/inter.css (existing) — no second font.
-- [ ] **DS-05**: Dark-mode parity for every token; the existing `cookbot_dark_mode` localStorage toggle drives `<html data-theme="dark">`; every surface is verified visually in both light and dark themes before phase verification.
-- [ ] **DS-06**: A striped photo placeholder primitive (`.cb-ph` class) — diagonal stripes + dashed border + monospace caption — replaces every missing-imagery slot in the design (used by Home hero, Recipe View hero, Recipe Editor photo upload, Cookbook list collages, Recently cooked tiles).
+- [x] **DS-01**: A `cookbot-design.css` global stylesheet defines CSS custom properties for the full token palette from `.planning/design-handoff/project/styles.css` — surfaces (`--cream`, `--cream-2`, `--paper`, `--paper-2`, `--line`, `--line-strong`), ink (`--ink`, `--ink-2/3/4`), accent (`--accent`, `--accent-soft`, `--accent-ink`), green/warn variants, type families, density (`--pad`, `--pad-sm`, `--gap`), radii — and is loaded once per page render via `_Host`/`App.razor`.
+- [x] **DS-02**: Three accent variants — orange (default), terracotta, sage — selectable via `data-accent` on `<html>`. Tokens are wired and verified; user-facing accent picker is **not** surfaced this milestone (variants exist for future per-user theming).
+- [x] **DS-03**: Two density modes — `comfy` (default), `compact` — selectable via `data-density` on `<html>`. A density toggle ships on the Profile surface and persists to `UserProfile`.
+- [x] **DS-04**: Inter-only typography stack with `font-feature-settings: "ss01", "cv11"` on the body and `tnum` on a `.num` utility class for tabular numerals; loaded from rsms.me/inter/inter.css (existing) — no second font.
+- [x] **DS-05**: Dark-mode parity for every token; the existing `cookbot_dark_mode` localStorage toggle drives `<html data-theme="dark">`; every surface is verified visually in both light and dark themes before phase verification.
+- [x] **DS-06**: A striped photo placeholder primitive (`.cb-ph` class) — diagonal stripes + dashed border + monospace caption — replaces every missing-imagery slot in the design (used by Home hero, Recipe View hero, Recipe Editor photo upload, Cookbook list collages, Recently cooked tiles).
 
 ### ATOM — Shared component primitives
 
 Replaces MudBlazor's button/chip/card primitives with custom Razor components matching the design exactly.
 
-- [ ] **ATOM-01**: `<CbButton>` Razor component — variants `primary` (cocoa fill), `accent` (orange fill), `ghost` (transparent + border), `subtle` (light gray fill); 999px pill radius; supports `StartIcon`, `EndIcon`, `FullWidth`, `Disabled`, `Type`, `OnClick`. Replaces every `MudButton` call site.
-- [ ] **ATOM-02**: `<CbChip>` Razor component — variants `default`, `timer` (accent-soft bg), `ing` (cream-2 bg), `tag` (transparent + border); supports `Icon`, `Label`, optional `OnClick` for actionable chips. Replaces every `MudChip` call site.
-- [ ] **ATOM-03**: `<CbCard>` Razor component — paper bg, 14px radius, line border; supports `Padding` slots and arbitrary child content. Replaces every `MudPaper` call site.
-- [ ] **ATOM-04**: `<CbStat>` tile component — label + tabular-numeral value (36px) + optional sub-text; min-height 124px; used on Home stat strip and Pantry summary strip.
-- [ ] **ATOM-05**: `<CbEyebrow>` component — 11px uppercase letter-spaced 0.14em ink-3 weight 500; renders inline above section headers and card content.
-- [ ] **ATOM-06**: `<StripedPlaceholder>` component — width/height + label parameters; renders the `.cb-ph` shape from DS-06.
-- [ ] **ATOM-07**: Custom outline icon set — single `<Icon>` Razor component covering all 36 icons from `.planning/design-handoff/project/icons.jsx` (home, book, pantry, cart, spark, prompt, user, menu, search, plus, check, clock, flame, pause, play, arrowR, arrowL, bell, sun, share, download, copy, pencil, more, trash, scale, bolt, filter, grid, list, chevD, chevR, flag, send, save, link); 1.6 stroke width; sized via `Size` parameter. Replaces every `Icons.Material.Filled.*` reference.
-- [ ] **ATOM-08**: `<CbBadge>` for status pills — variants `in-stock` (green-soft), `low` (warn-soft), `expiring` (accent-soft), `out` (gray); used on Pantry rows and Home pantry-match suggestions.
+- [x] **ATOM-01**: `<CbButton>` Razor component — variants `primary` (cocoa fill), `accent` (orange fill), `ghost` (transparent + border), `subtle` (light gray fill); 999px pill radius; supports `StartIcon`, `EndIcon`, `FullWidth`, `Disabled`, `Type`, `OnClick`. Replaces every `MudButton` call site.
+- [x] **ATOM-02**: `<CbChip>` Razor component — variants `default`, `timer` (accent-soft bg), `ing` (cream-2 bg), `tag` (transparent + border); supports `Icon`, `Label`, optional `OnClick` for actionable chips. Replaces every `MudChip` call site.
+- [x] **ATOM-03**: `<CbCard>` Razor component — paper bg, 14px radius, line border; supports `Padding` slots and arbitrary child content. Replaces every `MudPaper` call site.
+- [x] **ATOM-04**: `<CbStat>` tile component — label + tabular-numeral value (36px) + optional sub-text; min-height 124px; used on Home stat strip and Pantry summary strip.
+- [x] **ATOM-05**: `<CbEyebrow>` component — 11px uppercase letter-spaced 0.14em ink-3 weight 500; renders inline above section headers and card content.
+- [x] **ATOM-06**: `<StripedPlaceholder>` component — width/height + label parameters; renders the `.cb-ph` shape from DS-06.
+- [x] **ATOM-07**: Custom outline icon set — single `<Icon>` Razor component covering all 36 icons from `.planning/design-handoff/project/icons.jsx` (home, book, pantry, cart, spark, prompt, user, menu, search, plus, check, clock, flame, pause, play, arrowR, arrowL, bell, sun, share, download, copy, pencil, more, trash, scale, bolt, filter, grid, list, chevD, chevR, flag, send, save, link); 1.6 stroke width; sized via `Size` parameter. Replaces every `Icons.Material.Filled.*` reference.
+- [x] **ATOM-08**: `<CbBadge>` for status pills — variants `in-stock` (green-soft), `low` (warn-soft), `expiring` (accent-soft), `out` (gray); used on Pantry rows and Home pantry-match suggestions.
 - [x] **ATOM-09**: `<CbToggle>` switch + `<CbCheckbox>` + `<CbRadio>` form primitives for binary/multi-select settings; replace `MudSwitch`, `MudCheckBox`, `MudRadio` call sites. *(Phase 5 Plan 03 — shipped 2026-04-27)*
 - [x] **ATOM-10**: `<CbInput>` text input + `<CbTextarea>` + `<CbSelect>` form primitives — line-border, paper bg, 8px radius, focus ring; support `placeholder`, `@bind`, change events. Replace every `MudTextField`, `MudSelect`, `MudAutocomplete` non-recipe-editor call site. *(Phase 5 Plan 03 — shipped 2026-04-27 — implementation deferred for replacing call sites at MudTextField/MudSelect/MudAutocomplete to Phase 6/7 surface migration; primitives shipped)*
 
@@ -170,6 +170,7 @@ Captured here so they aren't lost. Not in v1.2 scope — most carry forward from
 - **FUTURE-12** — Per-sharer cookbook-import consent banner (carry from v1.1).
 - **FUTURE-13** — Smart pantry-match for HOME-02 hero (expiration-aware, %-of-pantry-used, dietary-filtered) — v1.2 ships a deterministic stub.
 - **FUTURE-14** — User-facing accent variant picker (terracotta/sage in addition to orange) — tokens are wired in v1.2 but not surfaced.
+- **FUTURE-15** — `AiChat` "Edit anyway" hardening. Validation-failed path (`AiChat.razor:725-744`) routes `RawResponse` through `IRecipeFormatParser.TryParse`; if the raw JSON also fails parse the user gets a "could not be parsed" toast with no navigation. Degraded but non-crashing. Surfaced as `WARN-AICHAT-RAW-EDIT-EDGE` in `.planning/v1.2-MILESTONE-AUDIT.md`.
 
 **Obsolete:** v1.1 FUTURE-10 (MudBlazor 9.x upgrade) — rendered moot by v1.2 stripping MudBlazor entirely.
 

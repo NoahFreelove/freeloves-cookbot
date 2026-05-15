@@ -24,10 +24,9 @@
       - The TopBar (MainLayout) does not currently expose a per-page right
         slot via cascading parameter; per CONTEXT D-17 fallback, Share/Cook
         actions render inline at the top of the page content.
-      - "Notes from your last cook" never renders in v1.2 — no RecipeMade
-        log entity exists (Plan 06-01 SUMMARY confirmed). The conditional is
-        wired so the callout appears once a log lands.
-      - Made-count surfaces as 0× with a TODO marker for the same reason.
+      - "Notes from your last cook" and made-count are sourced from
+        IRecipeMadeService (GetLastCookAsync / GetMadeCountAsync, wired in
+        slice 09). The callout hides when there is no logged cook.
       - RecipeDocument has no description field; the 17px lead paragraph
         from the design hides when no description is available. *@
 

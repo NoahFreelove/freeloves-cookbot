@@ -23,6 +23,7 @@ wwwroot/lib/
 *.db
 *.db-shm
 *.db-wal
+*.db.pre-*.bak
 
 ## Secrets
 appsettings.*.json

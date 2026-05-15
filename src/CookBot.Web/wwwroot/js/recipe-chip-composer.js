@@ -1,15 +1,15 @@
 // recipe-chip-composer.js
-// Phase 3 (D-A1, D-D3, D-D4): caret-anchored MudAutocomplete + cooking-mode scroll-highlight + fail-soft probe.
+// Phase 3 (D-A1, D-D3, D-D4): caret-anchored ingredient picker + cooking-mode scroll-highlight + fail-soft probe.
 // Module shape mirrors cooking-timers.js (window.<Name> = { ... }; no ES modules).
 window.RecipeChipComposer = {
     // D-D4: probe called by C# on first render; if this throws or returns non-"ok",
-    // the composer falls back to MudTextField Lines=3 (raw [name](#id) text editing).
+    // the composer falls back to CbTextarea (raw [name](#id) text editing).
     ping() {
         return "ok";
     },
 
     // D-A1: returns the caret pixel position relative to the parent element rect.
-    // Used by C# to absolutely-position the MudAutocomplete<Ingredient> popover at the @-trigger location.
+    // Used by C# to absolutely-position the ingredient picker at the @-trigger location.
     // For contenteditable spans, uses Selection/Range API (no mirror-div needed).
     getCaretCoords(elementId) {
         const el = document.getElementById(elementId);
