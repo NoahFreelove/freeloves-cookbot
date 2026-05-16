@@ -21,6 +21,9 @@ public sealed record ContentStep : StepNode
     [JsonPropertyName("timers")]
     public IReadOnlyList<TimerEntry>? Timers { get; init; }
 
+    [JsonPropertyName("temperature")]
+    public StepTemperature? Temperature { get; init; }
+
     /// <summary>Forward-compat: unknown step-level keys round-trip per FORMAT-09.</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extras { get; init; } = new();

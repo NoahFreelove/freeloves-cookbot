@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -24,6 +25,14 @@ public sealed record RecipeDocument
 
     [JsonPropertyName("cookTimeMinutes")]
     public int? CookTimeMinutes { get; init; }
+
+    [JsonPropertyName("photoUrl")]
+    [MaxLength(2048)]
+    public string? PhotoUrl { get; init; }
+
+    [JsonPropertyName("description")]
+    [MaxLength(4096)]
+    public string? Description { get; init; }
 
     [JsonPropertyName("tags")]
     public IReadOnlyList<string> Tags { get; init; } = [];

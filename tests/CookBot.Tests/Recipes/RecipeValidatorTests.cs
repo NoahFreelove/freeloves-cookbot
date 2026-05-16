@@ -114,4 +114,69 @@ public class RecipeValidatorTests
         Assert.False(r.IsValid);
         Assert.Contains(r.Errors, e => e.Path == "/" && e.Code == "REQUIRED");
     }
+
+    // ── D-27 per-unit Temperature validation (10 rows) ─────────────────────
+
+    /// <summary>
+    /// Builds a minimal single-step RecipeDocument with the given StepTemperature for testing.
+    /// </summary>
+    private static RecipeDocument BuildDocWithTemperature(StepTemperature temperature)
+        => new()
+        {
+            Version = 2,
+            Name = "Temp Test",
+            Servings = 1,
+            Steps = new StepNode[] { new ContentStep { Text = "Cook.", Temperature = temperature } },
+        };
+
+    [Theory]
+    [InlineData("F", 350, false)]      // F whole-degree → valid
+    [InlineData("F", 350.5, true)]     // F fractional → INVALID_TEMPERATURE
+    [InlineData("C", 180, false)]      // C whole-degree → valid
+    [InlineData("C", 180.5, true)]     // C fractional → INVALID_TEMPERATURE
+    [InlineData("Gas", 4, false)]      // Gas whole-step in range → valid
+    [InlineData("Gas", 4.5, false)]    // Gas 0.5-step in range → valid
+    [InlineData("Gas", 0.5, true)]     // Gas below 1.0 → INVALID_TEMPERATURE
+    [InlineData("Gas", 9.5, false)]    // Gas at ceiling → valid
+    [InlineData("Gas", 10, true)]      // Gas above 9.5 → INVALID_TEMPERATURE
+    [InlineData("Gas", 4.25, true)]    // Gas not 0.5-step → INVALID_TEMPERATURE
+    public void Temperature_Validation_PerUnitRules(string unitStr, double valueDouble, bool expectInvalid)
+    {
+        var unit = unitStr switch
+        {
+            "F" => TemperatureUnit.F,
+            "C" => TemperatureUnit.C,
+            "Gas" => TemperatureUnit.Gas,
+            _ => throw new ArgumentOutOfRangeException(nameof(unitStr)),
+        };
+        var doc = BuildDocWithTemperature(new StepTemperature { Value = (decimal)valueDouble, Unit = unit });
+        var result = _validator.Validate(doc);
+
+        if (expectInvalid)
+        {
+            Assert.True(
+                result.Errors.Any(e => e.Code == "INVALID_TEMPERATURE"),
+                $"Expected INVALID_TEMPERATURE for {unitStr}={valueDouble} but got: {string.Join(", ", result.Errors.Select(e => $"{e.Path} {e.Code}"))}");
+        }
+        else
+        {
+            Assert.True(result.IsValid,
+                $"Expected valid for {unitStr}={valueDouble} but got errors: {string.Join(", ", result.Errors.Select(e => $"{e.Path} {e.Code} {e.Message}"))}");
+        }
+    }
+
+    [Fact]
+    public void Temperature_NullTemperature_IsValid()
+    {
+        // Temperature == null is valid; no INVALID_TEMPERATURE error produced
+        var doc = new RecipeDocument
+        {
+            Version = 2,
+            Name = "X",
+            Servings = 1,
+            Steps = new StepNode[] { new ContentStep { Text = "Cook.", Temperature = null } },
+        };
+        var result = _validator.Validate(doc);
+        Assert.DoesNotContain(result.Errors, e => e.Code == "INVALID_TEMPERATURE");
+    }
 }
