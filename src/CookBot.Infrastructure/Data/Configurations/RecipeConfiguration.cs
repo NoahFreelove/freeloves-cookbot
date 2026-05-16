@@ -16,6 +16,11 @@ public class RecipeConfiguration : IEntityTypeConfiguration<Recipe>
         builder.Property(r => r.CanonicalDocumentJson)
             .HasColumnType("TEXT");
 
+        // Phase 8 / SCHEMA-05: hero photo URL, nullable. Max-length enforced via fluent API per D-28.
+        builder.Property(r => r.PhotoUrl).HasMaxLength(2048);
+        // Phase 8 / SCHEMA-06: recipe description, nullable. Max-length enforced via fluent API per D-28.
+        builder.Property(r => r.Description).HasMaxLength(4096);
+
         builder.OwnsMany(r => r.Steps, steps =>
         {
             steps.ToJson();

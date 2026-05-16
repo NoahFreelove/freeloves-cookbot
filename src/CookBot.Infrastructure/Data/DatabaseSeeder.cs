@@ -26,10 +26,15 @@ public static class DatabaseSeeder
     {
         // Step 1: backup before migrate (D-15 / MIGRATION-02 / Pitfall C4).
         // Conditional on a non-empty pending list — skips on no-op startups.
+        // D-31: derive the backup label from the FIRST pending migration name (e.g. "AddRecipePhotoUrlAndDescription")
+        // so each migration in Plans 07/08/11/12 produces its own correctly-named .pre-{Name}.bak file.
         var pending = (await context.Database.GetPendingMigrationsAsync()).ToList();
         if (pending.Count > 0)
         {
-            await backupService.BackupBeforeMigrationAsync("RecipeCanonicalDocument", CancellationToken.None);
+            // Migration names are formatted as "{timestamp}_{Name}" — split on first underscore to recover just the class name.
+            var raw = pending[0];
+            var label = raw.Split('_', 2).Length == 2 ? raw.Split('_', 2)[1] : raw;
+            await backupService.BackupBeforeMigrationAsync(label, CancellationToken.None);
         }
 
         // Step 2: apply migrations.
