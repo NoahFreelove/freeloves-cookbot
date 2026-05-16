@@ -4,6 +4,11 @@ using CookBot.Domain.Interfaces;
 
 namespace CookBot.Tests.Services;
 
+// SCHEMA-12 audit (Plan 08-01): structural assertions verified; v3 nullable additions in Plans 02-04 will not regress this file.
+// All assertions in this file compare parsed object fields (Name, Servings, PrepTimeMinutes, etc.)
+// rather than serialized YAML/JSON string blobs, so no H11 string-comparison brittleness is present.
+// JsonRecipeSerializer._compact uses DefaultIgnoreCondition = WhenWritingNull (line 26) — null v3
+// fields will NOT appear in serialized output and so will NOT change any existing fixtures.
 public class RecipeFormatParserTests
 {
     private static RecipeFormatParser CreateParser()
