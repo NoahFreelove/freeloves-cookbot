@@ -1,0 +1,49 @@
+# Phase 9 / Plan 09-06 — keep the build context lean and prevent the operator's
+# local cookbot.db / planning notes / IDE state from leaking into the image.
+
+# .NET / C# build artifacts
+**/bin/
+**/obj/
+**/publish/
+*.dll
+*.exe
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VCS
+.git/
+.gitignore
+
+# GSD planning / docs — not needed inside the container
+.planning/
+.claude/
+.superpowers/
+*.md
+README.md
+LICENSE
+
+# Local runtime data — never leak operator's DB into a built image
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db.pre-*.bak
+
+# User-uploaded photos at build time (runtime volume mounts here)
+src/CookBot.Web/wwwroot/uploads/*
+!src/CookBot.Web/wwwroot/uploads/.gitkeep
+
+# appsettings overrides (operator-specific; mounted/env at runtime, not baked)
+**/appsettings.Development.json
+**/appsettings.Production.json
+
+# Docker meta
+Dockerfile.*
+docker-compose.override*.yml
