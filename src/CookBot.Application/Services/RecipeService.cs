@@ -45,6 +45,14 @@ public class RecipeService
             Servings = parsed.Servings,
             PrepTimeMinutes = parsed.PrepTimeMinutes,
             CookTimeMinutes = parsed.CookTimeMinutes,
+            // Phase 9 / Plan 09-02 — write the new v3 columns to the Recipe
+            // entity (Phase 8 SCHEMA-05/06 added the columns; Phase 9 wires
+            // the editor → persistence path). The canonical doc round-trip
+            // below ALSO writes PhotoUrl/Description into the canonical JSON,
+            // so the SQL column reads and the canonical doc reads stay in
+            // lockstep on every save (v1.1 canonical-first invariant).
+            PhotoUrl = parsed.PhotoUrl,
+            Description = parsed.Description,
         };
 
         // CLEAN-02 (Plan 11): relational RecipeTag rows are the sole tag persistence path (D-26 finalized).
@@ -143,6 +151,14 @@ public class RecipeService
         recipe.Servings = parsed.Servings;
         recipe.PrepTimeMinutes = parsed.PrepTimeMinutes;
         recipe.CookTimeMinutes = parsed.CookTimeMinutes;
+        // Phase 9 / Plan 09-02 — write the new v3 columns into the loaded
+        // Recipe entity (Phase 8 SCHEMA-05/06 added the columns; Phase 9 wires
+        // the editor → persistence path). The canonical doc round-trip below
+        // ALSO writes PhotoUrl/Description into the canonical JSON, so the SQL
+        // column reads and the canonical doc reads stay in lockstep on every
+        // save (v1.1 canonical-first invariant).
+        recipe.PhotoUrl = parsed.PhotoUrl;
+        recipe.Description = parsed.Description;
         recipe.UpdatedAt = DateTime.UtcNow;
 
         // CLEAN-02 (Plan 11): relational RecipeTag rows are the sole tag persistence path (D-26 finalized).
