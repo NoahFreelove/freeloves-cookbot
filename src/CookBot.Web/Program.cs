@@ -42,6 +42,14 @@ builder.Services.AddDataProtection()
     .SetApplicationName("FreelovesCookBot")
     .PersistKeysToDbContext<CookBotDbContext>();
 
+// Phase 9 / Plan 09-06 / PROD-05 / D-43 — /healthz returns 200 when CookBotDbContext.Database.CanConnectAsync()
+// succeeds at request time. The seeder runs before app.Run(), so condition (a) "seeder completed" is implicit:
+// if the seeder throws, the app never starts listening and /healthz is unreachable — operators see the failure
+// via `docker ps` + `docker logs` instead of a silent restart loop (PITFALL M6 mitigation alongside compose's
+// restart: on-failure + retries: 3 stanza).
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<CookBotDbContext>(name: "database");
+
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<AiApiKeyResolutionService>();
 builder.Services.AddScoped<AiApiKeyShareService>();
@@ -82,6 +90,11 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Phase 9 / Plan 09-06 / PROD-05 / D-43 — /healthz endpoint. Docker compose's healthcheck
+// stanza polls curl -f http://localhost:7000/healthz every 30s with start_period: 30s to
+// absorb seeder time on first boot.
+app.MapHealthChecks("/healthz");
 
 // Seed database
 using (var scope = app.Services.CreateScope())
