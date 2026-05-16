@@ -142,7 +142,29 @@
                 </div>
 
                 <div style="position:relative;">
-                    <StripedPlaceholder Width="100%" Height="300" Label="dish photo · primary" />
+                    @* PHOTO-11 — tonight-from-your-pantry hero photo. When the top pantry match
+                       has a PhotoUrl set (and hasn't failed to load) render it; otherwise fall
+                       back to the StripedPlaceholder. PHOTO-08 referrerpolicy + lazy load.
+                       PITFALL H4 one-shot debounce via the _photoFailedFor HashSet (HandlePhotoError). *@
+                    @{
+                        var heroMatch = _pantryMatches.Count > 0 ? _pantryMatches[0] : null;
+                        var heroHasPhoto = heroMatch != null
+                            && !string.IsNullOrEmpty(heroMatch.PhotoUrl)
+                            && !_photoFailedFor.Contains(heroMatch.RecipeId);
+                    }
+                    @if (heroHasPhoto && heroMatch is not null)
+                    {
+                        <img src="@heroMatch.PhotoUrl"
+                             alt="@($"{heroMatch.RecipeName} photo")"
+                             referrerpolicy="no-referrer"
+                             loading="lazy"
+                             @onerror="@(() => HandlePhotoError(heroMatch.RecipeId))"
+                             style="width:100%;height:300px;object-fit:cover;border-radius:10px;display:block;" />
+                    }
+                    else
+                    {
+                        <StripedPlaceholder Width="100%" Height="300" Label="dish photo · primary" />
+                    }
                     @if (_pantryMatches.Count > 0)
                     {
                         var top = _pantryMatches[0];
@@ -177,8 +199,26 @@
                     <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;">
                         @foreach (var r in _recentlyCooked)
                         {
+                            var tileRecipeId = r.RecipeId;
+                            var tileHasPhoto = !string.IsNullOrEmpty(r.PhotoUrl)
+                                && !_photoFailedFor.Contains(tileRecipeId);
                             <div style="cursor:pointer;" @onclick="() => GoToRecipe(r.RecipeId)">
-                                <StripedPlaceholder Width="100%" Height="92" Label="cooked" />
+                                @* PHOTO-11 — recently-cooked tile thumbnail. Each tile keys its
+                                   onerror by recipe id so a single broken tile does not gate
+                                   the whole row. PITFALL H4 one-shot via _photoFailedFor. *@
+                                @if (tileHasPhoto)
+                                {
+                                    <img src="@r.PhotoUrl"
+                                         alt="@($"{r.Name} photo")"
+                                         referrerpolicy="no-referrer"
+                                         loading="lazy"
+                                         @onerror="@(() => HandlePhotoError(tileRecipeId))"
+                                         style="width:100%;height:92px;object-fit:cover;border-radius:10px;display:block;" />
+                                }
+                                else
+                                {
+                                    <StripedPlaceholder Width="100%" Height="92" Label="cooked" />
+                                }
                                 <div style="font-size:13px;font-weight:500;margin-top:8px;">@r.Name</div>
                                 <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px;">@r.SubLine</div>
                             </div>

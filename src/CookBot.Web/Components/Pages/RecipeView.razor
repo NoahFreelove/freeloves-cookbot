@@ -54,8 +54,13 @@
                 }
                 <h1 class="cb-recipe-cap" style="margin:0;">@_doc.Name</h1>
 
-                @* RecipeDocument has no description field today (FUTURE-V1.1-*).
-                   The lead paragraph hides until the schema gains one. *@
+                @* D-39 view-side mirror — Description is the recipe's lede, rendered directly
+                   under the title to mirror RecipeEditor's reading order (name → description
+                   → ingredients). Hidden when the canonical doc has no description. *@
+                @if (!string.IsNullOrWhiteSpace(_doc.Description))
+                {
+                    <p class="recipe-lede" style="font-size:16px;color:var(--ink-2);margin:8px 0 0 0;line-height:1.5;">@_doc.Description</p>
+                }
 
                 <div style="display:flex;gap:24px;margin-top:28px;padding-top:20px;border-top:1px solid var(--line);">
                     <div>
@@ -83,7 +88,24 @@
                     </div>
                 </div>
             </div>
-            <StripedPlaceholder Width="100%" Height="420" Label="hero photo · 4:3" />
+            @* PHOTO-10 hero photo. Canonical-first read: prefer _doc.PhotoUrl (the canonical
+               document Recipe.CanonicalDocumentJson deserialized to). PITFALL H4 one-shot
+               debounce — _heroPhotoFailed is set inside the Blazor @onerror handler; we
+               re-render the StripedPlaceholder instead of the <img>, so the browser cannot
+               loop on a broken URL. PHOTO-08 referrerpolicy='no-referrer' + loading='lazy'. *@
+            @if (!string.IsNullOrEmpty(_doc.PhotoUrl) && !_heroPhotoFailed)
+            {
+                <img src="@_doc.PhotoUrl"
+                     alt="@($"{_doc.Name} hero photo")"
+                     referrerpolicy="no-referrer"
+                     loading="lazy"
+                     @onerror="HandleHeroPhotoError"
+                     style="width:100%;height:420px;object-fit:cover;border-radius:10px;display:block;" />
+            }
+            else
+            {
+                <StripedPlaceholder Width="100%" Height="420" Label="hero photo · 4:3" />
+            }
         </div>
 
         @* Two-column body (RV-02, RV-03) *@
@@ -225,6 +247,12 @@ else if (_loaded)
     private bool _initialized;
     private int _boundRecipeId;
 
+    // PHOTO-10 / PITFALL H4 — one-shot photo-load-failure flag. Once an <img> @onerror
+    // fires we set this to true and re-render with the StripedPlaceholder fallback;
+    // the browser cannot keep retrying because the DOM element is no longer an <img>.
+    // Reset alongside _recipe / _doc when the bound RecipeId changes.
+    private bool _heroPhotoFailed;
+
     private string TotalTimeText
     {
         get
@@ -247,6 +275,9 @@ else if (_loaded)
             _doc = null;
             _loaded = false;
             _targetServings = 1;
+            // PHOTO-10 / PITFALL H4 — reset the photo-failure flag for the new recipe so
+            // its hero gets a fresh chance to load even if the previous recipe had a broken URL.
+            _heroPhotoFailed = false;
         }
     }
 
@@ -346,6 +377,18 @@ else if (_loaded)
     private void EditRecipe()
     {
         Navigation.NavigateTo($"/recipes/{RecipeId}/edit");
+    }
+
+    /// <summary>
+    /// PHOTO-10 / PITFALL H4 — Blazor-side one-shot debounce for a broken hero photo URL.
+    /// Setting _heroPhotoFailed and calling StateHasChanged causes the @if branch in markup
+    /// to flip to StripedPlaceholder, removing the <img> element entirely; the browser cannot
+    /// re-fire onerror because the element is gone.
+    /// </summary>
+    private void HandleHeroPhotoError()
+    {
+        _heroPhotoFailed = true;
+        StateHasChanged();
     }
 
     private async Task OpenScheduleDialog()

@@ -363,6 +363,12 @@ else
     private CookBot.Application.AI.StructuredResult<CookBot.Domain.Recipes.RecipeDocument>? _lastStructuredRecipe;
     private CancellationTokenSource? _generationCts;
 
+    // PHOTO-12 / PITFALL H4 — one-shot photo-load-failure flag for the AiChat canvas card.
+    // Reset every time _lastStructuredRecipe is cleared (new conversation, conversation switch,
+    // free-form chat turn, retry, or new generation start) so each generated doc.PhotoUrl gets
+    // a fresh load attempt. POLISH-01 invariant: PhotoUrl is read DIRECTLY from doc, no extractor.
+    private bool _aiChatPhotoFailed;
+
     private static readonly Regex CookbookRecipeTokenRegex = new(@"\{\{cookbook_recipes:(\d+)\}\}", RegexOptions.Compiled);
 
     private string _canvasStatusText
@@ -446,6 +452,7 @@ else
         // assembly time (see AssembleMessagesForAiCall). The note is NOT persisted.
         // Drop any stale structured-recipe state from a different conversation.
         _lastStructuredRecipe = null;
+        _aiChatPhotoFailed = false; // PHOTO-12 / PITFALL H4 — reset photo-failure flag alongside the canonical accumulator.
     }
 
     private void OnConvRowKeyDown(KeyboardEventArgs e, AiConversation conv)
@@ -462,6 +469,7 @@ else
         _messages.Clear();
         _selectedConversationId = 0;
         _lastStructuredRecipe = null;
+        _aiChatPhotoFailed = false; // PHOTO-12 / PITFALL H4 — reset photo-failure flag alongside the canonical accumulator.
         await Task.CompletedTask;
     }
 
@@ -475,6 +483,7 @@ else
             _currentConversation = null;
             _messages.Clear();
             _lastStructuredRecipe = null;
+            _aiChatPhotoFailed = false; // PHOTO-12 / PITFALL H4 — reset photo-failure flag alongside the canonical accumulator.
         }
     }
 
@@ -508,6 +517,7 @@ else
         _messages.Add(new CookBot.Domain.Interfaces.AiMessage { Role = "user", Content = userMsg });
         // A free-form chat turn invalidates any prior structured-recipe state.
         _lastStructuredRecipe = null;
+        _aiChatPhotoFailed = false; // PHOTO-12 / PITFALL H4 — reset photo-failure flag alongside the canonical accumulator.
 
         _isStreaming = true;
         _streamingContent = "";
@@ -567,6 +577,7 @@ else
 
         _isDraftingRecipe = true;
         _lastStructuredRecipe = null;
+        _aiChatPhotoFailed = false; // PHOTO-12 / PITFALL H4 — reset photo-failure flag alongside the canonical accumulator.
         StateHasChanged();
 
         try
@@ -757,6 +768,7 @@ else
     private async Task RetryRecipeGeneration()
     {
         _lastStructuredRecipe = null;
+        _aiChatPhotoFailed = false; // PHOTO-12 / PITFALL H4 — reset photo-failure flag alongside the canonical accumulator.
         var lastUserMessage = _messages.LastOrDefault(m => m.Role == "user")?.Content;
         if (!string.IsNullOrEmpty(lastUserMessage))
             await GenerateRecipeAsync(lastUserMessage);
@@ -875,6 +887,19 @@ else
         return Markdig.Markdown.ToHtml(content, AssistantContentPipeline);
     }
 
+    /// <summary>
+    /// PHOTO-12 / PITFALL H4 — Blazor-side one-shot debounce for a broken AI-emitted photo URL.
+    /// Setting _aiChatPhotoFailed and calling StateHasChanged causes RenderRecipeDocument to
+    /// skip the <img> entirely on next render; the browser cannot re-fire onerror because the
+    /// element is gone. The flag is cleared everywhere _lastStructuredRecipe is cleared
+    /// (new conversation, retry, free-form chat turn, new generation start).
+    /// </summary>
+    private void HandleAiChatPhotoError()
+    {
+        _aiChatPhotoFailed = true;
+        StateHasChanged();
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Render helpers (presentation only)
     // ──────────────────────────────────────────────────────────────────────
@@ -912,6 +937,23 @@ else
         var ingredients = doc.Ingredients;
         var contentSteps = doc.Steps.OfType<ContentStep>().ToList();
         var stepCount = contentSteps.Count;
+
+        @* PHOTO-12 — surface doc.PhotoUrl directly from the canonical accumulator
+           (_lastStructuredRecipe.Value).
+           POLISH-01 invariant: ONE direct property access on the doc — no extractor,
+           no helper, no projection from rendered text. PHOTO-08 referrerpolicy +
+           lazy load. PITFALL H4 one-shot debounce via _aiChatPhotoFailed; when the
+           flag is set (or doc.PhotoUrl is empty), render NOTHING — the AI canvas
+           legitimately can omit a photo and we do not want a striped tile in that case. *@
+        @if (!string.IsNullOrEmpty(doc.PhotoUrl) && !_aiChatPhotoFailed)
+        {
+            <img src="@doc.PhotoUrl"
+                 alt="@($"{doc.Name} photo")"
+                 referrerpolicy="no-referrer"
+                 loading="lazy"
+                 @onerror="HandleAiChatPhotoError"
+                 style="width:100%;max-height:280px;object-fit:cover;border-radius:12px;margin-bottom:16px;display:block;" />
+        }
 
         <CbEyebrow>
             @{
