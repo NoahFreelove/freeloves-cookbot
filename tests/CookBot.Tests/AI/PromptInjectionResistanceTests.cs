@@ -1,6 +1,7 @@
 using CookBot.Application.AI;
 using CookBot.Application.Recipes;
 using CookBot.Application.DTOs;
+using CookBot.Application.Services;
 using CookBot.Domain.Recipes;
 using CookBot.Infrastructure.AI;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -64,9 +65,12 @@ public class PromptInjectionResistanceTests
         var schemaProvider = new RecipeJsonSchemaProvider();
         var docProvider = new RecipeSchemaDocumentationProvider();
 
-        var ai = new AnthropicAiService(settings, validator);
+        var photoValidator = new RecipePhotoUrlValidator();
+        var ai = new AnthropicAiService(settings, validator, photoValidator);
         var generator = new AiRecipeGenerator(
             ai, schemaProvider, validator, docProvider,
+            new NoOpAiUsageLogWriter(),
+            settings,
             NullLogger<AiRecipeGenerator>.Instance);
 
         var result = await generator.GenerateAsync(userPrompt, apiKey);
@@ -94,5 +98,15 @@ public class PromptInjectionResistanceTests
             // Refusal is acceptable — the model declined the adversarial frame.
             Assert.NotNull(result.SanitizedError);
         }
+    }
+
+    /// <summary>Telemetry off for the live-API resistance test (no userId plumbed).</summary>
+    private sealed class NoOpAiUsageLogWriter : IAiUsageLogWriter
+    {
+        public Task WriteAsync(
+            int userId, int keyOwnerId, string modelName,
+            int inputTokens, int outputTokens, decimal estimatedCostUsd,
+            bool isRetryAttempt, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 }

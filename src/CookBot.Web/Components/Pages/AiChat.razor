@@ -584,8 +584,13 @@ else
         {
             var apiKey = _effectiveAi?.ApiKey;
             var modelId = _effectiveAi?.ModelId;
+            // PROD-15 / PITFALL C2 — telemetry needs both who triggered the call (callerUserId)
+            // and whose key paid (keyOwnerId). When the resolver returned a shared key,
+            // SharedFromUserId is the owner; otherwise the caller IS the owner.
+            var callerUserId = UserService.CurrentUserId;
+            var keyOwnerId = _effectiveAi?.SharedFromUserId ?? callerUserId;
             var result = await AiRecipeGenerator.GenerateAsync(
-                userPrompt, apiKey, modelId, _generationCts.Token);
+                userPrompt, apiKey, modelId, callerUserId, keyOwnerId, _generationCts.Token);
 
             _lastStructuredRecipe = result;
 

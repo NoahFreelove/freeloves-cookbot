@@ -1,9 +1,11 @@
 using System.Text.Json.Nodes;
 using CookBot.Application.AI;
+using CookBot.Application.DTOs;
 using CookBot.Application.Recipes;
 using CookBot.Domain.Interfaces;
 using CookBot.Domain.Recipes;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace CookBot.Tests.AI;
 
@@ -83,7 +85,19 @@ public class AiRecipeGeneratorTests
             new RecipeJsonSchemaProvider(),
             new RecipeValidator(),
             new RecipeSchemaDocumentationProvider(),
+            new NoOpAiUsageLogWriter(),
+            Options.Create(new CookBotSettings()),
             NullLogger<AiRecipeGenerator>.Instance);
+    }
+
+    /// <summary>Telemetry off — these tests don't pass userId, so the writer is never called.</summary>
+    private sealed class NoOpAiUsageLogWriter : IAiUsageLogWriter
+    {
+        public Task WriteAsync(
+            int userId, int keyOwnerId, string modelName,
+            int inputTokens, int outputTokens, decimal estimatedCostUsd,
+            bool isRetryAttempt, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     // ---------- Tests ----------
