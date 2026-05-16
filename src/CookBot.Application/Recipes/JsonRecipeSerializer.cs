@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CookBot.Application.Recipes.Converters;
 using CookBot.Domain.Recipes;
 
 namespace CookBot.Application.Recipes;
@@ -30,6 +31,7 @@ public sealed class JsonRecipeSerializer
         {
             WriteIndented = true,
         };
+        _indented.Converters.Add(new StepTemperatureJsonConverter());
     }
 
     /// <summary>Compact JSON, suitable for the DB column.</summary>
