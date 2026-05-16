@@ -5,8 +5,8 @@ milestone_name: Production-Ready & Format Maturity
 status: planning
 stopped_at: null
 paused_at: null
-last_updated: "2026-05-15T21:00:00.000Z"
-last_activity: "2026-05-15 — v1.3 ROADMAP.md created (3 phases: 8 Format Foundation, 9 Photos + Prod-Ready Infrastructure, 10 QOL + Polish + Consumer Surfaces; 63 requirements mapped; traceability table filled in REQUIREMENTS.md). Next: /gsd:plan-phase 8"
+last_updated: "2026-05-15T21:40:00.000Z"
+last_activity: "2026-05-15 — Phase 8 context gathered (4 gray areas resolved: TagsJson drop same-phase via follow-up migration; ContentStep.Temperature.Value: decimal for gas half-stops; four granular EF migrations; Verify.Xunit replaces hand-rolled prompt snapshot; RecipeTag.Name trim + preserve case). Next: /gsd:plan-phase 8"
 progress:
   total_phases: 3
   completed_phases: 0
@@ -27,12 +27,12 @@ See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 ## Current Position
 
-Phase: Phase 8 — Format Foundation (not started)
+Phase: Phase 8 — Format Foundation (context gathered, not yet planned)
 Plan: —
 Status: Ready to plan
-Last activity: 2026-05-15 — ROADMAP.md written; REQUIREMENTS.md traceability table filled
+Last activity: 2026-05-15 — `/gsd-discuss-phase 8` completed; `.planning/phases/08-format-foundation/08-CONTEXT.md` + `08-DISCUSSION-LOG.md` written; 4 gray areas resolved (D-26, D-27, D-31, D-34, D-35).
 
-**Next step:** `/gsd:plan-phase 8` (or `/gsd-discuss-phase 8` first if open questions need resolution before planning)
+**Next step:** `/gsd:plan-phase 8`
 
 **Phase numbering:** Continues from v1.2 — v1.3 phases are 8, 9, 10.
 
@@ -82,7 +82,7 @@ Hard invariants carried into v1.3:
 
 ### Open questions (for /gsd-discuss-phase, not blockers)
 
-- **Phase 8 — TagsJson column drop timing:** Same phase as `AddRecipeTagTable` migration or a separate follow-up migration? SUMMARY.md notes drop within Phase 8 is cleanest.
+- ~~**Phase 8 — TagsJson column drop timing:**~~ RESOLVED 2026-05-15 (CONTEXT.md D-26) — drops in same phase via follow-up `DropTagsJsonColumn` migration after callsite switchover.
 - **Phase 9 — Sentinel-prefix detection heuristic:** `CfDJ8...` prefix identifies Data Protection ciphertext; `sk-ant-` prefix identifies Anthropic plaintext keys. Confirm exact detection logic at discuss/plan time.
 - **Phase 9 — Token pricing table values:** Verify current Anthropic per-million-token prices for Haiku 4.5, Sonnet 4.6, Opus 4.7 at Phase 9 plan time; embed with verification date.
 - **Phase 10 — Pantry-match scoring weights:** Proposed formula `coverageScore - 0.3 * recentlyMadePenalty` is an engineering estimate; make configurable in `appsettings.json`, not hardcoded.
@@ -93,8 +93,8 @@ None — ready to begin Phase 8 planning.
 
 ## Session Continuity
 
-Last session: 2026-05-15T21:00:00Z
-Stopped at: ROADMAP.md + STATE.md + REQUIREMENTS.md traceability written; all 63 requirements mapped to phases 8/9/10.
-Resume file: None
+Last session: 2026-05-15T21:40:00Z
+Stopped at: Phase 8 context gathered.
+Resume file: `.planning/phases/08-format-foundation/08-CONTEXT.md`
 
-**Next:** `/gsd:plan-phase 8` — Format Foundation (16 requirements: SCHEMA-01..12 + CLEAN-01..04).
+**Next:** `/gsd:plan-phase 8` — Format Foundation (16 requirements: SCHEMA-01..12 + CLEAN-01..04; 5 user-resolved decisions in CONTEXT.md D-26/D-27/D-31/D-34/D-35).
