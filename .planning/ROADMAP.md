@@ -57,7 +57,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 - [x] 08-01-PLAN.md — Wave 1: Schema-assertion test FIRST (RED gate) + RecipeFormatParserTests audit (SCHEMA-11, SCHEMA-12)
 - [x] 08-02-PLAN.md — Wave 1: StepTemperature record + enum + round-trip tests (SCHEMA-03)
-- [ ] 08-03-PLAN.md — Wave 2: RecipeDocument + ContentStep v3 fields + RecipeValidator per-unit rules (SCHEMA-01/02/06/07; turns Plan 01 GREEN)
+- [x] 08-03-PLAN.md — Wave 2: RecipeDocument + ContentStep v3 fields + RecipeValidator per-unit rules (SCHEMA-01/02/06/07; turns Plan 01 GREEN)
 - [ ] 08-04-PLAN.md — Wave 3: Migration_V2_To_V3 upcaster + CurrentVersion bump + DI registration + per-field fixture matrix (SCHEMA-04, SCHEMA-05)
 - [ ] 08-05-PLAN.md — Wave 3: RecipeFormatParser + JsonRecipeSerializer round-trip + StepTemperatureJsonConverter + v3 fixtures (SCHEMA-08, SCHEMA-09, SCHEMA-12)
 - [ ] 08-06-PLAN.md — Wave 3: SCHEMA-10 denylist extension + RecipeSchemaDocumentationProvider v3 example + self-checking negative-path test (SCHEMA-10)
@@ -113,7 +113,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 5. Foundation — Design tokens, atoms, shell, dialogs | v1.2 | 5/5 | Complete | 2026-04-27 |
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
-| 8. Format Foundation | v1.3 | 2/13 | In Progress|  |
+| 8. Format Foundation | v1.3 | 3/13 | In Progress|  |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 0/TBD | Not started | — |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 
