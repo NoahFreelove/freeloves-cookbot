@@ -54,3 +54,4 @@ artifacts/
 *~
 .superpowers/
 docs/*
+.claude/worktrees/
