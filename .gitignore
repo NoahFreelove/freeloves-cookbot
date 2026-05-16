@@ -55,3 +55,8 @@ artifacts/
 .superpowers/
 docs/*
 .claude/worktrees/
+
+## Phase 9 / PHOTO-01 — user-uploaded recipe photos. Runtime contents are excluded
+# but the directory must exist on fresh clone, so .gitkeep is force-included.
+src/CookBot.Web/wwwroot/uploads/*
+!src/CookBot.Web/wwwroot/uploads/.gitkeep
