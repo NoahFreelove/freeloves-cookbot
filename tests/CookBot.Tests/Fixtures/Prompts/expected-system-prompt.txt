@@ -17,8 +17,10 @@ When providing a recipe, emit a fenced code block with this exact JSON shape:
 
 ```recipe
 {
-  "version": 2,
+  "version": 3,
   "name": "Recipe Name",
+  "photoUrl": "https://example.com/photo.jpg",
+  "description": "A classic weeknight pasta with a rich tomato sauce.",
   "servings": 4,
   "prepTimeMinutes": 15,
   "cookTimeMinutes": 30,
@@ -31,7 +33,8 @@ When providing a recipe, emit a fenced code block with this exact JSON shape:
     { "kind": "content", "text": "Step instruction with [ingredient name](#1)." },
     { "kind": "section", "heading": "Section header" },
     { "kind": "content", "text": "Bake for 25 minutes.",
-      "timers": [{ "duration": 25, "unit": "min", "label": "bake" }] }
+      "timers": [{ "duration": 25, "unit": "min", "label": "bake" }],
+      "temperature": { "value": 375, "unit": "F" } }
   ]
 }
 ```
@@ -39,6 +42,7 @@ When providing a recipe, emit a fenced code block with this exact JSON shape:
 Use [ingredient name](#id) markdown links in step text to reference ingredients by their per-recipe id.
 Steps come in two kinds: "content" (with text and optional timers) or "section" (with a heading only).
 Timers carry a duration (int), a unit ("min" / "hr" / "sec"), and an optional label.
+Temperature carries a value (number) and a unit ("F", "C", or "Gas").
 
 If you cannot emit a recipe in the structured format, ask the user a clarifying question instead.
 
