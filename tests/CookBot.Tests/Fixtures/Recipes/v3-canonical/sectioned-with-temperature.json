@@ -1,0 +1,15 @@
+{
+  "version": 3,
+  "name": "Sectioned Roast",
+  "servings": 4,
+  "prepTimeMinutes": 15,
+  "cookTimeMinutes": 60,
+  "tags": ["roast"],
+  "ingredients": [
+    { "id": 1, "name": "Chicken", "amount": 1, "unit": "whole" }
+  ],
+  "steps": [
+    { "kind": "section", "heading": "Prep" },
+    { "kind": "content", "text": "Place [chicken](#1) in a roasting dish.", "temperature": { "value": 350, "unit": "F" } }
+  ]
+}
