@@ -35,7 +35,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 ### 📋 v1.3 Production-Ready & Format Maturity (Phases 8–10)
 
 - [x] **Phase 8: Format Foundation** — V2→V3 canonical schema bump, LegacyRecipeProjector deletion, TagsJson→RecipeTag migration, lint denylist update, parser and snapshot tests (completed 2026-05-16)
-- [ ] **Phase 9: Photos + Prod-Ready Infrastructure** — File upload pipeline + paste-URL safety, Docker + compose, encrypt-at-rest API key, token-cost telemetry write path, README deploy docs
+- [x] **Phase 9: Photos + Prod-Ready Infrastructure** — File upload pipeline + paste-URL safety, Docker + compose, encrypt-at-rest API key, token-cost telemetry write path, README deploy docs (completed 2026-05-16)
 - [ ] **Phase 10: QOL, Polish & Consumer Surfaces** — Smart pantry-match, AI Chat hardening, accent picker, Profile prompt editor, telemetry widget, cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick
 
 ## Phase Details
@@ -92,7 +92,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 - [x] 09-04-PLAN.md — Wave 3: DataProtection.EntityFrameworkCore 10.0.8 + CookBotDbContext IDataProtectionKeyContext + AddDataProtectionKeysTable migration + sentinel-prefix re-encryption in DatabaseSeeder + AiApiKeyResolutionService read path + EditProfile write path + SecretRedactor extension + 3 integration tests (PROD-06..11)
 - [x] 09-05-PLAN.md — Wave 4: AiUsageLog entity + AddAiUsageLog migration + AiPricing config + StructuredResult InputTokens/OutputTokens + AnthropicAiService SSE usage capture + AiRecipeGenerator consolidated write site + D-42 prompt prose + D-41 365-day cleanup + AI-return-path PhotoUrl validation (PROD-12..17, PHOTO-07)
 - [x] 09-06-PLAN.md — Wave 4: HealthChecks.EntityFrameworkCore 10.0.* + Program.cs /healthz wiring + Dockerfile (sdk:10.0→aspnet:10.0) + docker-compose.yml (restart: on-failure + healthcheck) + .dockerignore (PROD-01..05, D-43)
-- [ ] 09-07-PLAN.md — Wave 5: README Install + Configuration + Backup & restore + Upgrade sections; reverse-proxy callout; PDF text-only note (D-40); cross-user telemetry disclosure (PITFALL M9) (PHOTO-14, PROD-18..21)
+- [x] 09-07-PLAN.md — Wave 5: README Install + Configuration + Backup & restore + Upgrade sections; reverse-proxy callout; PDF text-only note (D-40); cross-user telemetry disclosure (PITFALL M9) (PHOTO-14, PROD-18..21)
 
 **UI hint**: yes
 
@@ -123,7 +123,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
-| 9. Photos + Prod-Ready Infrastructure | v1.3 | 6/7 | In Progress|  |
+| 9. Photos + Prod-Ready Infrastructure | v1.3 | 7/7 | Complete   | 2026-05-16 |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 
 ---
