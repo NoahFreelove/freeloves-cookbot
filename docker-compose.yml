@@ -1,0 +1,42 @@
+# Phase 9 / Plan 09-06 / PROD-02 / PROD-04 / D-43 — single-service compose for FreelovesCookBot.
+#
+# Two named volumes:
+#   - cookbot_db mounts /data for cookbot.db + WAL sidecars (PITFALL M5).
+#     The DataProtection key ring is colocated in cookbot.db via PersistKeysToDbContext
+#     (Plan 09-04 / PROD-07) — eliminates PITFALL C1 without a third named volume.
+#   - cookbot_uploads mounts /app/wwwroot/uploads (PHOTO-14 + PITFALL C6).
+#
+# restart: on-failure + healthcheck retries: 3 (D-43 + PITFALL M6) — overrides PROD-02's
+# `unless-stopped`. Container exits visibly after 3 failed boots instead of silently looping.
+#
+# start_period: 30s absorbs first-boot seeder time (migrations + sentinel-prefix re-encryption +
+# 365-day AiUsageLog cleanup all run BEFORE app.Run() per DatabaseSeeder.SeedAsync order).
+
+services:
+  cookbot:
+    build: .
+    image: freelovescookbot:latest
+    container_name: cookbot
+    ports:
+      - "${COOKBOT_PORT:-7000}:7000"
+    environment:
+      ASPNETCORE_URLS: http://+:7000
+      ConnectionStrings__DefaultConnection: "Data Source=/data/cookbot.db"
+      COOKBOT_PORT: "7000"
+      # PROD-19 hint: set CookBot__AnthropicApiKey here as a per-host fallback, or leave
+      # empty and rely on per-user keys.
+      # CookBot__AnthropicApiKey: ""
+    volumes:
+      - cookbot_db:/data
+      - cookbot_uploads:/app/wwwroot/uploads
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7000/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  cookbot_db: {}
+  cookbot_uploads: {}

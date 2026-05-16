@@ -9,6 +9,10 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- Phase 9 / Plan 09-06 / PROD-05 / D-43: AddDbContextCheck<CookBotDbContext> for /healthz endpoint.
+         First-party Microsoft package, audited Approved in 09-RESEARCH lines 108-115. Floating 10.0.*
+         tracks .NET 10 servicing line (matches DataProtection.EntityFrameworkCore pinning style). -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.*" />
     <PackageReference Include="QuestPDF" Version="2025.1.0" />
   </ItemGroup>
 
