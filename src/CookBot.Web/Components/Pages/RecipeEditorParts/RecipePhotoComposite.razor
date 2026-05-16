@@ -1,0 +1,222 @@
+@*  RecipePhotoComposite — Phase 9 / Plan 09-02 / PHOTO-08 + PHOTO-09 + D-38.
+
+    The recipe-photo composite block that sits at the TOP of RecipeEditor, above
+    the recipe name input (D-38). Both inputs are always visible side-by-side:
+      - Left column: 240x180 preview thumbnail (4:3) — <img> when a valid PhotoUrl
+        is bound and the browser successfully loaded it; <StripedPlaceholder>
+        when PhotoUrl is null/empty OR the load failed.
+      - Right column (vertical stack): paste-URL CbInput, validation error line,
+        "or upload" <InputFile>, Clear button.
+
+    Hard invariants (PHOTO-08 / PITFALL H4):
+      - <img> has referrerpolicy="no-referrer" AND loading="lazy" on every render.
+      - The onerror fallback uses a Blazor state flag (_photoLoadFailed) — set
+        once per failed load; the placeholder renders instead, so the browser
+        cannot loop the onerror event (PITFALL H4 ONE-SHOT requirement).
+
+    Paste-URL flow (PHOTO-07 / PITFALL H5):
+      - RecipePhotoUrlValidator.TryValidate runs BEFORE PhotoUrlChanged fires.
+      - Whitespace-only / empty input persists as null (D-38: empty strings are
+        never persisted).
+      - javascript:, data:, file:, ftp:, vbscript:, // and malformed shapes
+        produce a human-readable error and do NOT update the parent's PhotoUrl.
+
+    Upload flow (PHOTO-02/03/04 / PITFALL H1):
+      - file.Size > 10 MB → toast "File too large — 10 MB max." (pre-stream check).
+      - LocalRecipePhotoStorage performs the magic-byte sniff; SVG / HTML / garbage
+        throws InvalidImageException which we render as a toast.
+
+    Layout is LOCKED (D-38) — no tabs, no accordions, no drag-zone. Zero Mud*. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Application.Services
+@using CookBot.Web.Components.Atoms
+@using CookBot.Web.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject RecipePhotoUrlValidator UrlValidator
+@inject LocalRecipePhotoStorage PhotoStorage
+@inject ICbToastService Toast
+
+<div class="cb-card"
+     style="display:grid;grid-template-columns:240px 1fr;gap:18px;padding:18px;margin-bottom:18px;align-items:flex-start;">
+
+    @* Left column: preview (4:3 ~240x180) — placeholder when null/empty or load failed. *@
+    <div style="width:240px;">
+        @if (string.IsNullOrWhiteSpace(PhotoUrl) || _photoLoadFailed)
+        {
+            <StripedPlaceholder Width="240" Height="180" Label="hero photo · 4:3" />
+        }
+        else
+        {
+            <img src="@PhotoUrl"
+                 alt="Recipe photo preview"
+                 referrerpolicy="no-referrer"
+                 loading="lazy"
+                 @onerror="HandleImageLoadError"
+                 style="width:240px;height:180px;object-fit:cover;border-radius:10px;display:block;" />
+        }
+    </div>
+
+    @* Right column: stacked paste-URL + error line + upload + clear. *@
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0;">
+
+        <CbInput Type="url"
+                 Value="@_urlInput"
+                 ValueChanged="OnUrlPaste"
+                 Placeholder="Paste a photo URL (https://…) or upload a file"
+                 AriaLabel="Recipe photo URL" />
+
+        @if (_urlError is not null)
+        {
+            <div role="alert" style="color:var(--warn);font-size:12px;line-height:1.4;">
+                @_urlError
+            </div>
+        }
+
+        <div style="display:flex;align-items:center;gap:10px;">
+            <label class="cb-btn ghost"
+                   style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:6px 12px;margin:0;">
+                <Icon Name="@Icon.Names.Plus" Size="14" /> Or upload file
+                <InputFile OnChange="OnFilePicked"
+                           accept="image/jpeg,image/png,image/gif,image/webp"
+                           style="display:none;" />
+            </label>
+
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                      OnClick="ClearPhoto"
+                      Disabled="@(string.IsNullOrWhiteSpace(PhotoUrl) && string.IsNullOrEmpty(_urlInput))">
+                Clear
+            </CbButton>
+        </div>
+
+        <div style="font-size:11.5px;color:var(--ink-3);line-height:1.4;">
+            JPEG, PNG, GIF, or WebP — 10 MB max. Or paste any https:// image URL.
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The current photo URL. Bound from RecipeEditor; null/empty means no photo.</summary>
+    [Parameter] public string? PhotoUrl { get; set; }
+
+    /// <summary>Fires on accept-and-validated URL paste OR successful upload OR Clear.</summary>
+    [Parameter] public EventCallback<string?> PhotoUrlChanged { get; set; }
+
+    // Mirrors PhotoUrl while the user types — we don't push every keystroke to the
+    // parent, only validated values. Synced from PhotoUrl in OnParametersSet so
+    // the field stays consistent after PopulateFromRecipe.
+    private string _urlInput = string.Empty;
+
+    // The human-readable validation message ("Only http and https URLs are allowed",
+    // "Not a valid URL", etc.). Null on accept-lanes; non-null on reject-lanes.
+    private string? _urlError;
+
+    // PITFALL H4 — once an <img> onerror fires we flip this flag and the left-column
+    // conditional renders the placeholder instead. Because the <img> stops rendering,
+    // the browser cannot loop the onerror event. Reset when PhotoUrl genuinely changes
+    // to a different non-null value.
+    private bool _photoLoadFailed;
+
+    // Remember the previous PhotoUrl across renders so we can detect a genuine change
+    // and reset _photoLoadFailed only on transitions (not every parameter set).
+    private string? _lastSyncedPhotoUrl;
+
+    protected override void OnParametersSet()
+    {
+        // Sync _urlInput from PhotoUrl whenever the parent re-binds (e.g. after
+        // PopulateFromRecipe loads an existing PhotoUrl).
+        if (!string.Equals(PhotoUrl, _lastSyncedPhotoUrl, StringComparison.Ordinal))
+        {
+            _urlInput = PhotoUrl ?? string.Empty;
+            // A genuine change to a new non-null value clears the prior failure flag
+            // so the new URL gets one shot at loading.
+            if (!string.IsNullOrWhiteSpace(PhotoUrl))
+            {
+                _photoLoadFailed = false;
+            }
+            _lastSyncedPhotoUrl = PhotoUrl;
+        }
+    }
+
+    private async Task OnUrlPaste(string? value)
+    {
+        _urlInput = value ?? string.Empty;
+
+        // D-38: whitespace-only input persists as null. Empty strings are never persisted.
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _urlError = null;
+            _photoLoadFailed = false;
+            await PhotoUrlChanged.InvokeAsync(null);
+            return;
+        }
+
+        if (UrlValidator.TryValidate(value, out var normalized, out var errorCode))
+        {
+            _urlError = null;
+            _photoLoadFailed = false;
+            await PhotoUrlChanged.InvokeAsync(normalized);
+        }
+        else
+        {
+            _urlError = errorCode switch
+            {
+                "SCHEME_NOT_ALLOWED" => "Only http and https URLs are allowed.",
+                "PROTOCOL_RELATIVE_REJECTED" => "Only http and https URLs are allowed.",
+                "MALFORMED" => "Not a valid URL.",
+                _ => "Could not use that URL.",
+            };
+            // Reject lanes do NOT fire PhotoUrlChanged — parent's PhotoUrl is unchanged.
+        }
+    }
+
+    private async Task OnFilePicked(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) return;
+
+        // PITFALL H1 / PHOTO-04 — pre-stream size check. The SignalR receive limit
+        // is 12 MB to leave headroom; we reject files larger than the 10 MB per-file
+        // cap BEFORE opening the read stream so the user gets a clear toast rather
+        // than a silent SignalR drop.
+        if (file.Size > 10L * 1024L * 1024L)
+        {
+            Toast.Show("File too large — 10 MB max.", CbToastSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            var url = await PhotoStorage.SaveAsync(file, default);
+            _photoLoadFailed = false;
+            _urlError = null;
+            _urlInput = url;
+            await PhotoUrlChanged.InvokeAsync(url);
+        }
+        catch (InvalidImageException ex)
+        {
+            // PITFALL H3 — magic-byte sniff rejected (SVG / HTML-as-jpg / truncated / garbage).
+            Toast.Show($"Image rejected: {ex.Message} — JPEG, PNG, GIF, WebP only.", CbToastSeverity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Upload failed: {ex.Message}", CbToastSeverity.Error);
+        }
+    }
+
+    private async Task ClearPhoto()
+    {
+        _urlInput = string.Empty;
+        _urlError = null;
+        _photoLoadFailed = false;
+        await PhotoUrlChanged.InvokeAsync(null);
+    }
+
+    private void HandleImageLoadError()
+    {
+        // PITFALL H4 — one-shot. Setting this flag flips the left-column conditional
+        // to render <StripedPlaceholder> instead of <img>, so the browser cannot
+        // trigger the onerror event a second time.
+        _photoLoadFailed = true;
+        StateHasChanged();
+    }
+}
