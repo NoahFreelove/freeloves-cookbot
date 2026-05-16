@@ -72,10 +72,10 @@
         @* ── Cookbook cards grid ────────────────────────────────────────────── *@
         @{
             var ownedFiltered = FilterByName(_cookbooks.Select(cb =>
-                new CookbookCardModel(cb.Id, cb.Name, cb.Recipes.Count, OwnedAuthorLine(cb), false))).ToList();
+                new CookbookCardModel(cb.Id, cb.Name, cb.Recipes.Count, OwnedAuthorLine(cb), false, SamplePhotoUrls(cb)))).ToList();
             var sharedFiltered = FilterByName(_sharedCookbooks.Select(s =>
                 new CookbookCardModel(s.Cookbook.Id, s.Cookbook.Name, s.Cookbook.Recipes.Count,
-                    $"{s.Cookbook.User.DisplayName} · shared", true))).ToList();
+                    $"{s.Cookbook.User.DisplayName} · shared", true, SamplePhotoUrls(s.Cookbook)))).ToList();
         }
 
         @if (ownedFiltered.Count == 0 && _searchText.Length == 0)
@@ -142,7 +142,49 @@
     private enum ViewMode { Grid, List }
     private ViewMode _viewMode = ViewMode.Grid;
 
-    private record CookbookCardModel(int Id, string Name, int RecipeCount, string AuthorLine, bool ReadOnly);
+    /// <summary>
+    /// PHOTO-13 — SampledPhotoUrls is up to 6 real Recipe.PhotoUrls (in stable RecipeId order)
+    /// from the cookbook's recipes; empty slots fall back to the accent-tinted striped tile.
+    /// </summary>
+    private record CookbookCardModel(int Id, string Name, int RecipeCount, string AuthorLine, bool ReadOnly, IReadOnlyList<string> SampledPhotoUrls);
+
+    /// <summary>
+    /// PHOTO-13 / PITFALL H4 — per-collage-cell photo-failure tracker keyed by (cookbookId, cellIndex).
+    /// Same one-shot debounce pattern as the Home tile: once a cell's <img> @onerror fires,
+    /// we render the accent-tinted striped tile in its place. Stable across re-renders within a
+    /// page session; cleared via LoadCookbooks() on user/data refresh.
+    /// </summary>
+    private readonly Dictionary<int, HashSet<int>> _collageFailedFor = new();
+
+    private bool CollageCellFailed(int cookbookId, int cellIndex)
+        => _collageFailedFor.TryGetValue(cookbookId, out var set) && set.Contains(cellIndex);
+
+    private void HandleCollagePhotoError(int cookbookId, int cellIndex)
+    {
+        if (!_collageFailedFor.TryGetValue(cookbookId, out var set))
+        {
+            set = new HashSet<int>();
+            _collageFailedFor[cookbookId] = set;
+        }
+        set.Add(cellIndex);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// PHOTO-13 — Sample up to 6 photo URLs from a cookbook's recipes for the 3×2 collage.
+    /// Orders by RecipeId asc (stable across renders), filters non-null PhotoUrls, takes 6.
+    /// Recipes are already eager-loaded via LoadCookbooks (`.Include(c => c.Recipes)`),
+    /// so no additional query is issued here.
+    /// </summary>
+    private static IReadOnlyList<string> SamplePhotoUrls(Cookbook cb)
+    {
+        return cb.Recipes
+            .Where(r => !string.IsNullOrWhiteSpace(r.PhotoUrl))
+            .OrderBy(r => r.Id)
+            .Take(6)
+            .Select(r => r.PhotoUrl!)
+            .ToList();
+    }
 
     private string SearchPlaceholder
     {
@@ -202,12 +244,32 @@
              @onclick="() => ViewCookbook(card.Id)"
              @onkeydown="@(e => OnCardKeyDown(e, card.Id))">
 
-            @* Tinted header with 3×2 striped-tile collage *@
+            @* Tinted header with 3×2 photo / striped-tile collage.
+               PHOTO-13 — when SampledPhotoUrls has a value at index i (and that cell has not
+               failed to load), render an <img>; otherwise fall back to the accent-tinted
+               striped tile. PHOTO-08 referrerpolicy + lazy load. PITFALL H4 one-shot
+               debounce via _collageFailedFor[cookbookId][cellIndex]. *@
             <div style="height:180px;background:@AccentFor(card.Id);position:relative;display:flex;align-items:flex-end;padding:16px;">
                 <div style="position:absolute;inset:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
                     @for (var i = 0; i < 6; i++)
                     {
-                        <div style="background:rgba(255,255,255,0.55);border-radius:4px;background-image:repeating-linear-gradient(135deg, rgba(60,42,18,0.06) 0 1px, transparent 1px 8px);"></div>
+                        var cellIndex = i;
+                        var cookbookId = card.Id;
+                        var samples = card.SampledPhotoUrls;
+                        var hasPhoto = cellIndex < samples.Count && !CollageCellFailed(cookbookId, cellIndex);
+                        if (hasPhoto)
+                        {
+                            <img src="@samples[cellIndex]"
+                                 alt=""
+                                 referrerpolicy="no-referrer"
+                                 loading="lazy"
+                                 @onerror="@(() => HandleCollagePhotoError(cookbookId, cellIndex))"
+                                 style="width:100%;height:100%;object-fit:cover;border-radius:4px;display:block;" />
+                        }
+                        else
+                        {
+                            <div style="background:rgba(255,255,255,0.55);border-radius:4px;background-image:repeating-linear-gradient(135deg, rgba(60,42,18,0.06) 0 1px, transparent 1px 8px);"></div>
+                        }
                     }
                 </div>
             </div>
@@ -278,6 +340,11 @@
     {
         if (UserService.CurrentUserId is int userId)
         {
+            // PHOTO-13 / PITFALL H4 — fresh data pull, fresh photo-failure tracking.
+            // Reset before reload so newly-set PhotoUrls on previously-failed cells
+            // get a fresh chance to render.
+            _collageFailedFor.Clear();
+
             _cookbooks = await DbContext.Cookbooks
                 .Include(c => c.Recipes)
                 .Include(c => c.Shares)

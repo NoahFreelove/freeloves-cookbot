@@ -93,6 +93,16 @@ public partial class Home : ComponentBase
     /// </summary>
     private List<HomeRecentRecipe> _recentlyCooked = new();
 
+    /// <summary>
+    /// PHOTO-11 / PITFALL H4 — one-shot photo-load-failure tracker keyed by recipe id.
+    /// When an <img> @onerror fires we add the recipe id to this set and re-render
+    /// with the StripedPlaceholder fallback; the browser cannot loop on a broken URL
+    /// because the <img> element is gone. HashSet membership makes repeat HandlePhotoError
+    /// calls a no-op (idempotent), and failures are scoped per recipe id so a single
+    /// broken tile does not gate the whole row.
+    /// </summary>
+    private readonly HashSet<int> _photoFailedFor = new();
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
@@ -170,6 +180,11 @@ public partial class Home : ComponentBase
         _user = await UserService.GetCurrentUserAsync();
         if (_user == null) return;
 
+        // PHOTO-11 / PITFALL H4 — fresh page-session pull, fresh photo-failure tracking.
+        // Reset before any data load so newly-set PhotoUrls on previously-failed recipes
+        // get a fresh chance to render.
+        _photoFailedFor.Clear();
+
         // AI-off contract (HOME-01 / D-12): host kill-switch AND user opt-in must both be on.
         var aiHostOn = CookBotSettingsOptions.Value.AiFeaturesEnabled;
         var aiUserOn = _user.Profile?.AiEnabled ?? false;
@@ -225,7 +240,8 @@ public partial class Home : ComponentBase
             _recentlyCooked = madeLog.Select(m => new HomeRecentRecipe(
                 m.RecipeId,
                 m.Recipe?.Name ?? "(deleted recipe)",
-                $"cooked {DescribeRelative(m.CompletedAt)}")).ToList();
+                $"cooked {DescribeRelative(m.CompletedAt)}",
+                m.Recipe?.PhotoUrl)).ToList();
         }
         else
         {
@@ -235,12 +251,13 @@ public partial class Home : ComponentBase
                             || r.Cookbook.Shares.Any(s => s.SharedWithUserId == userId))
                 .OrderByDescending(r => r.UpdatedAt)
                 .Take(4)
-                .Select(r => new { r.Id, r.Name, r.UpdatedAt })
+                .Select(r => new { r.Id, r.Name, r.UpdatedAt, r.PhotoUrl })
                 .ToListAsync();
             _recentlyCooked = recent.Select(r => new HomeRecentRecipe(
                 r.Id,
                 r.Name,
-                DescribeRelative(r.UpdatedAt))).ToList();
+                DescribeRelative(r.UpdatedAt),
+                r.PhotoUrl)).ToList();
         }
 
         // Plan 07-09 Feature 1 — populate the "Up next" card from real ScheduledRecipe
@@ -310,7 +327,8 @@ public partial class Home : ComponentBase
                 matched,
                 total,
                 MatchMetaLine(recipe, matched, total),
-                firstMissing?.Ingredient?.Name));
+                firstMissing?.Ingredient?.Name,
+                recipe.PhotoUrl));
         }
 
         return matches
@@ -395,6 +413,16 @@ public partial class Home : ComponentBase
             ? "in stock"
             : (m.MissingIngredientName != null ? $"missing {m.MissingIngredientName}" : "missing items");
 
+    /// <summary>
+    /// PHOTO-11 / PITFALL H4 — Blazor-side one-shot debounce for a broken tile thumbnail.
+    /// HashSet.Add is idempotent, so a re-fire while StateHasChanged is pending is a no-op.
+    /// </summary>
+    private void HandlePhotoError(int recipeId)
+    {
+        _photoFailedFor.Add(recipeId);
+        StateHasChanged();
+    }
+
     private void GoToRecipe(int recipeId) => Navigation.NavigateTo($"/recipes/{recipeId}");
     private void GoToCookbooks() => Navigation.NavigateTo("/cookbooks");
     private void GoToPantry() => Navigation.NavigateTo("/pantry");
@@ -437,16 +465,19 @@ public partial class Home : ComponentBase
 }
 
 /// <summary>Pantry-match row record (HOME-02). MissingIngredientName drives the "missing parsley"-style chip.</summary>
+/// <remarks>PhotoUrl flows from Recipe.PhotoUrl when available — drives the tonight-from-your-pantry
+/// hero thumbnail (PHOTO-11). Null when the recipe has no photo set yet; UI renders StripedPlaceholder.</remarks>
 public sealed record HomePantryMatch(
     int RecipeId,
     string RecipeName,
     int MatchedCount,
     int TotalCount,
     string MetaLine,
-    string? MissingIngredientName);
+    string? MissingIngredientName,
+    string? PhotoUrl);
 
-/// <summary>Recently cooked tile (HOME-04).</summary>
-public sealed record HomeRecentRecipe(int RecipeId, string Name, string SubLine);
+/// <summary>Recently cooked tile (HOME-04). PhotoUrl drives the tile thumbnail (PHOTO-11).</summary>
+public sealed record HomeRecentRecipe(int RecipeId, string Name, string SubLine, string? PhotoUrl);
 
 /// <summary>Up next row (Plan 07-09 Feature 1) — backed by ScheduledRecipe.</summary>
 public sealed record HomeUpNext(int ScheduledRecipeId, int RecipeId, string RecipeName, string WhenLine, string? Notes);
