@@ -4,7 +4,6 @@ using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
 using CookBot.Infrastructure.AI;
 using CookBot.Infrastructure.Data;
-using CookBot.Infrastructure.Data.Migrations.Helpers;
 using CookBot.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -25,12 +24,9 @@ public static class DependencyInjection
         services.AddScoped<IStructuredAiService>(sp => (IStructuredAiService)sp.GetRequiredService<IAiService>());
         services.AddScoped<PromptBuilderService>();
 
-        // Phase 1 / D-15: pre-migration backup; D-14: relational -> RecipeDocument projector.
+        // Phase 1 / D-15: pre-migration backup.
+        // CLEAN-01 (Plan 10): projector DI registrations removed (D-32 step d).
         services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();
-        services.AddScoped<LegacyRecipeProjector>();
-        // Bind IRecipeProjector to the same scoped instance so RecipeService and the seeder
-        // see the same projector and CookBot.Application stays infrastructure-free.
-        services.AddScoped<CookBot.Application.Recipes.IRecipeProjector>(sp => sp.GetRequiredService<LegacyRecipeProjector>());
 
         services.AddApplication();
 

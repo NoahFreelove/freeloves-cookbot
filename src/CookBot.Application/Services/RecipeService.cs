@@ -2,6 +2,7 @@ using System.Text.Json;
 using CookBot.Application.Recipes;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
+using CookBot.Domain.Recipes;
 
 namespace CookBot.Application.Services;
 
@@ -12,7 +13,6 @@ public class RecipeService
     private readonly IRepository<Ingredient> _ingredientRepo;
     private readonly IRepository<Cookbook> _cookbookRepo;
     private readonly IRepository<RecipeTag> _recipeTagRepo;
-    private readonly IRecipeProjector _projector;
     private readonly JsonRecipeSerializer _canonicalSerializer;
 
     public RecipeService(
@@ -21,7 +21,6 @@ public class RecipeService
         IRepository<Ingredient> ingredientRepo,
         IRepository<Cookbook> cookbookRepo,
         IRepository<RecipeTag> recipeTagRepo,
-        IRecipeProjector projector,
         JsonRecipeSerializer canonicalSerializer)
     {
         _parser = parser;
@@ -29,7 +28,6 @@ public class RecipeService
         _ingredientRepo = ingredientRepo;
         _cookbookRepo = cookbookRepo;
         _recipeTagRepo = recipeTagRepo;
-        _projector = projector;
         _canonicalSerializer = canonicalSerializer;
     }
 
@@ -99,7 +97,28 @@ public class RecipeService
 
         // MIGRATION-03 hybrid persistence: relational columns continue to be written;
         // canonical document JSON is recomputed on every save (Plan 01-03 / D-12).
-        var canonicalDoc = _projector.Project(recipe);
+        // CLEAN-01 (Plan 10 / D-32 step b): direct RecipeDocument construction from parsed.
+        // NOTE: Callers that READ tags via Recipe.Tags must .Include(r => r.Tags) on the Recipe query.
+        var canonicalDoc = new RecipeDocument
+        {
+            Version = RecipeUpcasterChain.CurrentVersion,
+            Name = parsed.Name,
+            Servings = parsed.Servings,
+            PrepTimeMinutes = parsed.PrepTimeMinutes,
+            CookTimeMinutes = parsed.CookTimeMinutes,
+            PhotoUrl = parsed.PhotoUrl,
+            Description = parsed.Description,
+            Tags = recipe.Tags.Select(t => t.Name).ToList(),
+            Ingredients = parsed.Ingredients.Select(i => new IngredientEntry { Id = i.LocalId, Name = i.Name, Amount = i.Amount, Unit = i.Unit, Note = i.Note }).ToList(),
+            Steps = parsed.Steps.Select<ParsedStep, StepNode>(s => s.IsSection
+                ? new SectionStep { Heading = s.Text }
+                : new ContentStep
+                {
+                    Text = s.Text,
+                    Timers = s.Timers?.Select(t => new TimerEntry { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList(),
+                    Temperature = s.Temperature,
+                }).ToList(),
+        };
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
 
         return await _recipeRepo.AddAsync(recipe);
@@ -180,7 +199,28 @@ public class RecipeService
         }
 
         // MIGRATION-03 hybrid persistence: recompute canonical document on every save.
-        var canonicalDoc = _projector.Project(recipe);
+        // CLEAN-01 (Plan 10 / D-32 step b): direct RecipeDocument construction from parsed.
+        // NOTE: Callers that READ tags via Recipe.Tags must .Include(r => r.Tags) on the Recipe query.
+        var canonicalDoc = new RecipeDocument
+        {
+            Version = RecipeUpcasterChain.CurrentVersion,
+            Name = parsed.Name,
+            Servings = parsed.Servings,
+            PrepTimeMinutes = parsed.PrepTimeMinutes,
+            CookTimeMinutes = parsed.CookTimeMinutes,
+            PhotoUrl = parsed.PhotoUrl,
+            Description = parsed.Description,
+            Tags = recipe.Tags.Select(t => t.Name).ToList(),
+            Ingredients = parsed.Ingredients.Select(i => new IngredientEntry { Id = i.LocalId, Name = i.Name, Amount = i.Amount, Unit = i.Unit, Note = i.Note }).ToList(),
+            Steps = parsed.Steps.Select<ParsedStep, StepNode>(s => s.IsSection
+                ? new SectionStep { Heading = s.Text }
+                : new ContentStep
+                {
+                    Text = s.Text,
+                    Timers = s.Timers?.Select(t => new TimerEntry { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList(),
+                    Temperature = s.Temperature,
+                }).ToList(),
+        };
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
 
         await _recipeRepo.UpdateAsync(recipe);

@@ -3,7 +3,6 @@ using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Enums;
-using CookBot.Infrastructure.Data.Migrations.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace CookBot.Infrastructure.Data;
@@ -20,7 +19,6 @@ public static class DatabaseSeeder
     public static async Task SeedAsync(
         CookBotDbContext context,
         IDatabaseBackupService backupService,
-        LegacyRecipeProjector projector,
         JsonRecipeSerializer serializer,
         string contentRootPath)
     {
@@ -51,8 +49,9 @@ public static class DatabaseSeeder
                 "This indicates an incomplete v1.1 backfill — restore from cookbot.db.pre-* backup and re-run.");
         }
 
-        // Step 3: idempotent backfill (D-16 / MIGRATION-01 / MIGRATION-07).
-        await BackfillCanonicalDocumentAsync(context, projector, serializer);
+        // Step 3 (legacy backfill removed): CLEAN-01 (Plan 10 / D-32 steps b-e).
+        // All rows have CanonicalDocumentJson populated from Phase 1's milestone backfill.
+        // The null-canonical guard above (D-33) catches any future regression.
 
         // Step 4: existing seed logic — unchanged.
         if (await context.Users.AnyAsync())
@@ -119,35 +118,6 @@ public static class DatabaseSeeder
 
         await context.SaveChangesAsync();
         await EnsureAtLeastOneCookBotAdminAsync(context);
-    }
-
-    /// <summary>
-    /// Idempotent canonical-document backfill (D-16 / MIGRATION-01 / MIGRATION-07).
-    /// Selects only rows where <c>CanonicalDocumentJson</c> is NULL, batched at 50 to bound memory.
-    /// On a fresh install (zero recipes) or a re-run after backfill is complete, this is a no-op.
-    /// </summary>
-    private static async Task BackfillCanonicalDocumentAsync(
-        CookBotDbContext db,
-        LegacyRecipeProjector projector,
-        JsonRecipeSerializer serializer)
-    {
-        const int batchSize = 50;
-        while (true)
-        {
-            var batch = await db.Recipes
-                .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-                .Include(r => r.Steps)
-                .Where(r => r.CanonicalDocumentJson == null)
-                .Take(batchSize)
-                .ToListAsync();
-            if (batch.Count == 0) break;
-            foreach (var recipe in batch)
-            {
-                var doc = projector.Project(recipe);
-                recipe.CanonicalDocumentJson = serializer.Serialize(doc);
-            }
-            await db.SaveChangesAsync();
-        }
     }
 
     /// <summary>If no admin is set (e.g. legacy DB), promote the Home Chef account or the lowest-Id user.</summary>
