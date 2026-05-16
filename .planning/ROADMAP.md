@@ -90,8 +90,8 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 - [x] 09-02-PLAN.md — Wave 2: RecipePhotoComposite (D-38) + StepTemperaturePicker + RecipeEditor wiring + Description CbTextarea (D-39) + RecipeService persistence (PHOTO-08, PHOTO-09)
 - [x] 09-03-PLAN.md — Wave 2: RecipeView hero + Description lede + Home tonight/recently-cooked tiles + AiChat canvas + CookbookList collage real-photo sampler (PHOTO-08, PHOTO-10..13)
 - [x] 09-04-PLAN.md — Wave 3: DataProtection.EntityFrameworkCore 10.0.8 + CookBotDbContext IDataProtectionKeyContext + AddDataProtectionKeysTable migration + sentinel-prefix re-encryption in DatabaseSeeder + AiApiKeyResolutionService read path + EditProfile write path + SecretRedactor extension + 3 integration tests (PROD-06..11)
-- [ ] 09-05-PLAN.md — Wave 4: AiUsageLog entity + AddAiUsageLog migration + AiPricing config + StructuredResult InputTokens/OutputTokens + AnthropicAiService SSE usage capture + AiRecipeGenerator consolidated write site + D-42 prompt prose + D-41 365-day cleanup + AI-return-path PhotoUrl validation (PROD-12..17, PHOTO-07)
-- [ ] 09-06-PLAN.md — Wave 4: HealthChecks.EntityFrameworkCore 10.0.* + Program.cs /healthz wiring + Dockerfile (sdk:10.0→aspnet:10.0) + docker-compose.yml (restart: on-failure + healthcheck) + .dockerignore (PROD-01..05, D-43)
+- [x] 09-05-PLAN.md — Wave 4: AiUsageLog entity + AddAiUsageLog migration + AiPricing config + StructuredResult InputTokens/OutputTokens + AnthropicAiService SSE usage capture + AiRecipeGenerator consolidated write site + D-42 prompt prose + D-41 365-day cleanup + AI-return-path PhotoUrl validation (PROD-12..17, PHOTO-07)
+- [x] 09-06-PLAN.md — Wave 4: HealthChecks.EntityFrameworkCore 10.0.* + Program.cs /healthz wiring + Dockerfile (sdk:10.0→aspnet:10.0) + docker-compose.yml (restart: on-failure + healthcheck) + .dockerignore (PROD-01..05, D-43)
 - [ ] 09-07-PLAN.md — Wave 5: README Install + Configuration + Backup & restore + Upgrade sections; reverse-proxy callout; PDF text-only note (D-40); cross-user telemetry disclosure (PITFALL M9) (PHOTO-14, PROD-18..21)
 
 **UI hint**: yes
@@ -123,7 +123,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
-| 9. Photos + Prod-Ready Infrastructure | v1.3 | 4/7 | In Progress|  |
+| 9. Photos + Prod-Ready Infrastructure | v1.3 | 6/7 | In Progress|  |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 
 ---
