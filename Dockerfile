@@ -21,6 +21,16 @@ RUN dotnet publish src/CookBot.Web/CookBot.Web.csproj -c Release -o /app /p:UseA
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
+
+# Phase 9 / Plan 09-06 — install curl for docker-compose.yml healthcheck stanza.
+# The mcr.microsoft.com/dotnet/aspnet:10.0 base image is minimal and does NOT include
+# curl by default (verified empirically; 09-RESEARCH line 97/548 claimed otherwise — Rule 1 fix).
+# Without this, the compose healthcheck reports "unhealthy" forever even though /healthz
+# itself returns 200. apt-get adds ~3-4 MB; acceptable for clear D-43 semantics.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app ./
 
 # PROD-03 + PITFALL M4: bind on 0.0.0.0; default localhost binding is unreachable from outside the container.
