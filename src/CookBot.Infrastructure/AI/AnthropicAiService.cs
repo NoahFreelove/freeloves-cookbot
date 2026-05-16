@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using CookBot.Application.AI;
 using CookBot.Application.DTOs;
 using CookBot.Application.Recipes;
+using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
 using CookBot.Domain.Recipes;
 using Microsoft.Extensions.Options;
@@ -32,11 +33,19 @@ public class AnthropicAiService : IAiService, IStructuredAiService
 
     private readonly CookBotSettings _settings;
     private readonly RecipeValidator _validator;
+    private readonly RecipePhotoUrlValidator _photoValidator;
 
-    public AnthropicAiService(IOptions<CookBotSettings> settings, RecipeValidator validator)
+    public AnthropicAiService(
+        IOptions<CookBotSettings> settings,
+        RecipeValidator validator,
+        RecipePhotoUrlValidator photoValidator)
     {
         _settings = settings.Value;
         _validator = validator;
+        // Phase 9 / Plan 09-05 / PHOTO-07 + PITFALL H5 — scrub AI-emitted PhotoUrl on the
+        // structured-output return path so a model-emitted javascript:/data:/file: scheme
+        // never reaches the editor or the DB.
+        _photoValidator = photoValidator;
     }
 
     protected virtual HttpClient CreateHttpClient(string? apiKey)
@@ -207,6 +216,14 @@ public class AnthropicAiService : IAiService, IStructuredAiService
         // CreateHttpClient handles fallback to settings if apiKey is null.
         var resolvedKey = apiKey ?? _settings.AnthropicApiKey;
 
+        // Phase 9 / Plan 09-05 / PROD-12 — token usage observed off the SSE stream.
+        // message_start.message.usage.input_tokens fires once at the top of the stream and
+        // is final at that point. message_delta.usage.output_tokens fires repeatedly and is
+        // CUMULATIVE per the Anthropic streaming spec — we capture the LAST value (overwrite,
+        // never +=) so a naive sum cannot produce n*(n+1)/2 over-counting.
+        var inputTokens = 0;
+        var outputTokens = 0;
+
         HttpClient http;
         try
         {
@@ -216,7 +233,8 @@ public class AnthropicAiService : IAiService, IStructuredAiService
         {
             return new StructuredResult<T>(
                 Ok: false, Value: null, RawResponse: null, Validation: null,
-                SanitizedError: SecretRedactor.Redact($"AI client init failure: {ex.Message}", resolvedKey));
+                SanitizedError: SecretRedactor.Redact($"AI client init failure: {ex.Message}", resolvedKey),
+                InputTokens: inputTokens, OutputTokens: outputTokens);
         }
 
         try
@@ -259,7 +277,8 @@ public class AnthropicAiService : IAiService, IStructuredAiService
             {
                 return new StructuredResult<T>(
                     Ok: false, Value: null, RawResponse: null, Validation: null,
-                    SanitizedError: SecretRedactor.Redact($"AI transport failure: {ex.Message}", resolvedKey));
+                    SanitizedError: SecretRedactor.Redact($"AI transport failure: {ex.Message}", resolvedKey),
+                    InputTokens: inputTokens, OutputTokens: outputTokens);
             }
 
             using (response)
@@ -271,7 +290,8 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                         Ok: false, Value: null, RawResponse: null, Validation: null,
                         SanitizedError: SecretRedactor.Redact(
                             $"Anthropic API error {(int)response.StatusCode}: {errorBody}",
-                            resolvedKey));
+                            resolvedKey),
+                        InputTokens: inputTokens, OutputTokens: outputTokens);
                 }
 
                 // SSE accumulation — match StreamMessageAsync line-reading discipline.
@@ -302,14 +322,38 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                             if (delta.TryGetProperty("text", out var text))
                                 accumulated.Append(text.GetString());
                         }
+                        // PROD-12 — input_tokens fires once at the top of the stream in
+                        // message_start.message.usage. Defensive TryGetProperty chain:
+                        // missing fields silently keep inputTokens at 0.
+                        else if (type == "message_start")
+                        {
+                            if (evt.RootElement.TryGetProperty("message", out var msg) &&
+                                msg.TryGetProperty("usage", out var usage) &&
+                                usage.TryGetProperty("input_tokens", out var inTok) &&
+                                inTok.ValueKind == JsonValueKind.Number)
+                            {
+                                inputTokens = inTok.GetInt32();
+                            }
+                        }
                         // P-5: capture stop_reason from message_delta — short-circuit on refusal.
+                        // PROD-12 (sibling capture): message_delta.delta.usage.output_tokens is
+                        // CUMULATIVE per the Anthropic streaming spec. Overwrite, NEVER `+=`.
                         else if (type == "message_delta")
                         {
-                            if (evt.RootElement.TryGetProperty("delta", out var d) &&
-                                d.TryGetProperty("stop_reason", out var sr) &&
-                                sr.ValueKind == JsonValueKind.String)
+                            if (evt.RootElement.TryGetProperty("delta", out var d))
                             {
-                                stopReason = sr.GetString();
+                                if (d.TryGetProperty("stop_reason", out var sr) &&
+                                    sr.ValueKind == JsonValueKind.String)
+                                {
+                                    stopReason = sr.GetString();
+                                }
+                                if (d.TryGetProperty("usage", out var u) &&
+                                    u.TryGetProperty("output_tokens", out var outTok) &&
+                                    outTok.ValueKind == JsonValueKind.Number)
+                                {
+                                    // CRITICAL: cumulative — last value wins. PITFALL.
+                                    outputTokens = outTok.GetInt32();
+                                }
                             }
                         }
                     }
@@ -321,7 +365,8 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                 {
                     return new StructuredResult<T>(
                         Ok: false, Value: null, RawResponse: null, Validation: null,
-                        SanitizedError: "The AI declined to produce a recipe for this request.");
+                        SanitizedError: "The AI declined to produce a recipe for this request.",
+                        InputTokens: inputTokens, OutputTokens: outputTokens);
                 }
 
                 // Typed deserialize.
@@ -334,7 +379,8 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                     {
                         return new StructuredResult<T>(
                             Ok: false, Value: null, RawResponse: null, Validation: null,
-                            SanitizedError: "Model returned empty content.");
+                            SanitizedError: "Model returned empty content.",
+                            InputTokens: inputTokens, OutputTokens: outputTokens);
                     }
                     rawNode = JsonNode.Parse(json);
                     doc = JsonSerializer.Deserialize<T>(json, JsonOptions);
@@ -344,14 +390,40 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                     return new StructuredResult<T>(
                         Ok: false, Value: null, RawResponse: rawNode, Validation: null,
                         SanitizedError: SecretRedactor.Redact(
-                            $"Deserialization failed: {ex.Message}", resolvedKey));
+                            $"Deserialization failed: {ex.Message}", resolvedKey),
+                        InputTokens: inputTokens, OutputTokens: outputTokens);
                 }
 
                 if (doc is null)
                 {
                     return new StructuredResult<T>(
                         Ok: false, Value: null, RawResponse: rawNode, Validation: null,
-                        SanitizedError: "Model returned empty content.");
+                        SanitizedError: "Model returned empty content.",
+                        InputTokens: inputTokens, OutputTokens: outputTokens);
+                }
+
+                // Phase 9 / Plan 09-05 / PHOTO-07 + PITFALL H5 — scrub AI-emitted PhotoUrl
+                // through the scheme allowlist. A model may emit a javascript:/data:/file:
+                // URL despite the system-prompt; null it out before the doc reaches the
+                // editor or DB. RecipeDocument is an immutable record, so we replace via
+                // `with`. Mutates the local `doc`; the validator never throws.
+                if (doc is RecipeDocument photoCheckDoc && !string.IsNullOrWhiteSpace(photoCheckDoc.PhotoUrl))
+                {
+                    if (_photoValidator.TryValidate(photoCheckDoc.PhotoUrl, out var normalized, out _))
+                    {
+                        // On accept-with-value, normalize. On accept-empty (whitespace only,
+                        // already covered by the IsNullOrWhiteSpace guard above) normalized is null.
+                        if (!string.Equals(normalized, photoCheckDoc.PhotoUrl, StringComparison.Ordinal))
+                        {
+                            doc = (T)(object)(photoCheckDoc with { PhotoUrl = normalized });
+                        }
+                    }
+                    else
+                    {
+                        // Reject lane — null out the emitted PhotoUrl. The rest of the doc
+                        // is still usable; the editor will render the StripedPlaceholder fallback.
+                        doc = (T)(object)(photoCheckDoc with { PhotoUrl = null });
+                    }
                 }
 
                 // Semantic validation runs only for RecipeDocument. Other Ts skip the validator.
@@ -363,12 +435,15 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                         Value: validation.IsValid ? doc : null,
                         RawResponse: rawNode,
                         Validation: validation,
-                        SanitizedError: null);
+                        SanitizedError: null,
+                        InputTokens: inputTokens,
+                        OutputTokens: outputTokens);
                 }
 
                 // For non-recipe Ts: deserialization success implies Ok.
                 return new StructuredResult<T>(
-                    Ok: true, Value: doc, RawResponse: rawNode, Validation: null, SanitizedError: null);
+                    Ok: true, Value: doc, RawResponse: rawNode, Validation: null, SanitizedError: null,
+                    InputTokens: inputTokens, OutputTokens: outputTokens);
             }
         }
         finally

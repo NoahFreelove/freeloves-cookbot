@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using CookBot.Application.AI;
 using CookBot.Application.DTOs;
 using CookBot.Application.Recipes;
+using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
 using CookBot.Domain.Recipes;
 using CookBot.Infrastructure.AI;
@@ -58,8 +59,9 @@ public class AnthropicStructuredOutputTests
         public TestableAnthropicAiService(
             IOptions<CookBotSettings> settings,
             RecipeValidator validator,
+            RecipePhotoUrlValidator photoValidator,
             HttpMessageHandler handler)
-            : base(settings, validator)
+            : base(settings, validator, photoValidator)
         {
             _handler = handler;
         }
@@ -75,8 +77,9 @@ public class AnthropicStructuredOutputTests
         FakeHttpMessageHandler handler)
     {
         var validator = new RecipeValidator();
+        var photoValidator = new RecipePhotoUrlValidator();
         var schemaProvider = new RecipeJsonSchemaProvider();
-        var svc = new TestableAnthropicAiService(MakeSettings(), validator, handler);
+        var svc = new TestableAnthropicAiService(MakeSettings(), validator, photoValidator, handler);
         return (svc, schemaProvider.GetSchema());
     }
 

@@ -4,6 +4,8 @@ namespace CookBot.Application.Recipes;
 // the v3 format-spec prose used in both AI prompt sites (Plan 04 wires it in).
 // Per D-20 / D-22, the prose closes with the strict directive — no opt-out clause.
 // Per D-36 / SCHEMA-10, canonical field names only (photoUrl, description, temperature).
+// Per D-42 (Phase 9 / Plan 09-05), two field-level clauses distinguish `description`
+// from `steps[0]` so the model stops treating the first step as a preamble paragraph.
 public sealed class RecipeSchemaDocumentationProvider : IRecipeSchemaDocumentationProvider
 {
     private const string FormatPrompt = """
@@ -37,6 +39,10 @@ public sealed class RecipeSchemaDocumentationProvider : IRecipeSchemaDocumentati
         Steps come in two kinds: "content" (with text and optional timers) or "section" (with a heading only).
         Timers carry a duration (int), a unit ("min" / "hr" / "sec"), and an optional label.
         Temperature carries a value (number) and a unit ("F", "C", or "Gas").
+
+        Field guidance:
+        - `description`: 1–2 sentences saying what the dish is — no history, no cooking advice.
+        - `steps[]`: begin with the first cooking action — do not write an introductory paragraph as step 1.
 
         If you cannot emit a recipe in the structured format, ask the user a clarifying question instead.
 

@@ -24,6 +24,9 @@ public static class DependencyInjection
         services.AddScoped<IStructuredAiService>(sp => (IStructuredAiService)sp.GetRequiredService<IAiService>());
         services.AddScoped<PromptBuilderService>();
 
+        // Phase 9 / Plan 09-05 / PROD-14 — AiRecipeGenerator (Application) sees this interface only.
+        services.AddScoped<IAiUsageLogWriter, AiUsageLogWriter>();
+
         // Phase 1 / D-15: pre-migration backup.
         // CLEAN-01 (Plan 10): projector DI registrations removed (D-32 step d).
         services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();

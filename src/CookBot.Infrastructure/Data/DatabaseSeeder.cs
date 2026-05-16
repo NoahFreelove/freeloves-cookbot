@@ -74,7 +74,17 @@ public static class DatabaseSeeder
         // All rows have CanonicalDocumentJson populated from Phase 1's milestone backfill.
         // The null-canonical guard above (D-33) catches any future regression.
 
-        // 365-day AiUsageLog cleanup will be inserted here by Plan 09-05
+        // D-41 (Phase 9 / Plan 09-05) — hardcoded 365-day rolling cleanup of AiUsageLog rows.
+        // Runs BEFORE the sentinel-prefix re-encryption pass per 09-CONTEXT "Established Patterns":
+        // the cleanup eliminates the edge case of re-encrypting a row that's about to be deleted
+        // (note: AiUsageLog has no AiApiKey field — the two passes target different tables — but
+        // the documented order is cleanup-then-reencrypt for consistency).
+        var aiUsageLogCutoff = DateTime.UtcNow.AddDays(-365);
+        var deletedCount = await context.AiUsageLogs
+            .Where(r => r.Timestamp < aiUsageLogCutoff)
+            .ExecuteDeleteAsync();
+        if (deletedCount > 0)
+            logger.LogInformation("Pruned {Count} AiUsageLog row(s) older than 365 days.", deletedCount);
 
         // PROD-09 / PITFALL C3 (Phase 9 / Plan 09-04) — sentinel-prefix re-encryption pass.
         // Idempotent: any UserProfile row whose AiApiKey is non-empty and does NOT already

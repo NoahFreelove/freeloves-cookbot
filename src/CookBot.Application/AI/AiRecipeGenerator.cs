@@ -1,7 +1,9 @@
+using CookBot.Application.DTOs;
 using CookBot.Application.Recipes;
 using CookBot.Domain.Interfaces;
 using CookBot.Domain.Recipes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CookBot.Application.AI;
 
@@ -21,6 +23,8 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
     private readonly RecipeJsonSchemaProvider _schemaProvider;
     private readonly RecipeValidator _validator;
     private readonly IRecipeSchemaDocumentationProvider _docProvider;
+    private readonly IAiUsageLogWriter _usageLogWriter;
+    private readonly CookBotSettings _settings;
     private readonly ILogger<AiRecipeGenerator> _logger;
 
     public AiRecipeGenerator(
@@ -28,12 +32,16 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
         RecipeJsonSchemaProvider schemaProvider,
         RecipeValidator validator,
         IRecipeSchemaDocumentationProvider docProvider,
+        IAiUsageLogWriter usageLogWriter,
+        IOptions<CookBotSettings> settings,
         ILogger<AiRecipeGenerator> logger)
     {
         _ai = ai;
         _schemaProvider = schemaProvider;
         _validator = validator;
         _docProvider = docProvider;
+        _usageLogWriter = usageLogWriter;
+        _settings = settings.Value;
         _logger = logger;
     }
 
@@ -41,6 +49,8 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
         string userPrompt,
         string? apiKey = null,
         string? modelId = null,
+        int? userId = null,
+        int? keyOwnerId = null,
         CancellationToken ct = default)
     {
         var schema = _schemaProvider.GetSchema();
@@ -53,12 +63,20 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
 
         _logger.LogInformation("AI recipe generation: initial call (model={Model})", modelId ?? "default");
 
+        // PROD-15 + PITFALL H9 — accumulate per-attempt (result, IsRetryAttempt) tuples through
+        // the function. We flush them all to the telemetry log at the END (one helper call per
+        // return site). The write site appears exactly ONCE structurally so a future refactor
+        // can't accidentally double-write inside the loop body.
+        var attempts = new List<(StructuredResult<RecipeDocument> Result, bool IsRetryAttempt)>();
+
         var result = await _ai.SendStructuredAsync<RecipeDocument>(
             systemPrompt, messages, schema, apiKey, modelId, ct: ct);
+        attempts.Add((result, IsRetryAttempt: false));
 
         if (result.Ok)
         {
             _logger.LogInformation("AI recipe generation: succeeded on first attempt.");
+            await WriteTelemetryAsync(attempts, userId, keyOwnerId, modelId, ct);
             return result;
         }
 
@@ -70,6 +88,7 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
         {
             _logger.LogInformation(
                 "AI recipe generation: non-recoverable failure on first attempt; skipping repair loop.");
+            await WriteTelemetryAsync(attempts, userId, keyOwnerId, modelId, ct);
             return result;
         }
 
@@ -90,10 +109,12 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
 
             result = await _ai.SendStructuredAsync<RecipeDocument>(
                 systemPrompt, repairMessages, schema, apiKey, modelId, ct: ct);
+            attempts.Add((result, IsRetryAttempt: true));
 
             if (result.Ok)
             {
                 _logger.LogInformation("AI recipe generation: repair attempt {Attempt} succeeded.", attempt);
+                await WriteTelemetryAsync(attempts, userId, keyOwnerId, modelId, ct);
                 return result;
             }
 
@@ -104,6 +125,7 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
                 _logger.LogInformation(
                     "AI recipe generation: non-recoverable failure during repair attempt {Attempt}; aborting loop.",
                     attempt);
+                await WriteTelemetryAsync(attempts, userId, keyOwnerId, modelId, ct);
                 return result;
             }
         }
@@ -112,7 +134,57 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
             "AI recipe generation: repair budget exhausted after {Max} attempts.",
             MaxRepairAttempts);
 
+        await WriteTelemetryAsync(attempts, userId, keyOwnerId, modelId, ct);
         return result; // Ok=false; RawResponse + Validation populated.
+    }
+
+    /// <summary>
+    /// Phase 9 / Plan 09-05 / PROD-15 — flushes per-attempt telemetry rows to the
+    /// usage-log writer. Defensive: when userId or keyOwnerId is null the entire write is
+    /// skipped (the v1.2 AI-off contract is preserved — the caller already gated on
+    /// CookBotSettings.AiFeaturesEnabled + UserProfile.AiEnabled before invoking this
+    /// orchestrator, but defense-in-depth never hurts).
+    ///
+    /// Pricing falls back to <c>0m</c> when the model id is not present in the configured
+    /// AiPricing map — the row still lands so the caller has a record, just at zero cost.
+    /// </summary>
+    private async Task WriteTelemetryAsync(
+        List<(StructuredResult<RecipeDocument> Result, bool IsRetryAttempt)> attempts,
+        int? userId,
+        int? keyOwnerId,
+        string? modelId,
+        CancellationToken ct)
+    {
+        if (userId is null || keyOwnerId is null) return;
+        if (attempts.Count == 0) return;
+
+        var resolvedModel = modelId ?? "claude-sonnet-4-6"; // matches AnthropicAiService.DefaultModelId
+        var pricing = _settings.AiPricing;
+        AiPricingEntry? entry = null;
+        if (pricing is not null && pricing.TryGetValue(resolvedModel, out var found))
+            entry = found;
+
+        var inputPerMillion = entry?.InputTokensPerMillionUsd ?? 0m;
+        var outputPerMillion = entry?.OutputTokensPerMillionUsd ?? 0m;
+
+        foreach (var (res, isRetryAttempt) in attempts)
+        {
+            // 09-RESEARCH Item 1 — decimal currency math; never float/double.
+            // (InputTokens * Input$/1M + OutputTokens * Output$/1M) / 1_000_000m.
+            var cost = (res.InputTokens * inputPerMillion
+                        + res.OutputTokens * outputPerMillion)
+                       / 1_000_000m;
+
+            await _usageLogWriter.WriteAsync(
+                userId.Value,
+                keyOwnerId.Value,
+                resolvedModel,
+                res.InputTokens,
+                res.OutputTokens,
+                cost,
+                isRetryAttempt,
+                ct);
+        }
     }
 
     /// <summary>
