@@ -89,10 +89,17 @@ using (var scope = app.Services.CreateScope())
     var context = scope.ServiceProvider.GetRequiredService<CookBotDbContext>();
     var backupService = scope.ServiceProvider.GetRequiredService<IDatabaseBackupService>();
     var canonicalSerializer = scope.ServiceProvider.GetRequiredService<JsonRecipeSerializer>();
+    // Phase 9 / Plan 09-04 — supply Data Protection provider + logger so the seeder
+    // can run the idempotent sentinel-prefix re-encryption pass on legacy plaintext keys.
+    var dataProtectionProvider = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>();
+    var seederLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("DatabaseSeeder");
     await DatabaseSeeder.SeedAsync(
         context,
         backupService,
         canonicalSerializer,
+        dataProtectionProvider,
+        seederLogger,
         app.Environment.ContentRootPath);
 }
 

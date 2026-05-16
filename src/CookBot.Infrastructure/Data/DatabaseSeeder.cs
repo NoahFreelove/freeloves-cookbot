@@ -3,7 +3,9 @@ using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Enums;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CookBot.Infrastructure.Data;
 
@@ -16,10 +18,29 @@ public static class DatabaseSeeder
         public List<string> PreferredUnits { get; set; } = [];
     }
 
+    /// <summary>
+    /// PROD-09 / PITFALL C3 (Phase 9 / Plan 09-04) — sentinel-prefix detection for
+    /// the AI-key migration pass. Returns true iff <paramref name="value"/> looks
+    /// like an ASP.NET Core Data Protection ciphertext blob (starts with "CfDJ8" and
+    /// is at least 44 characters long). The threshold is the empirical minimum size
+    /// of a protected blob; legacy plaintext Anthropic keys are ~108 chars but never
+    /// start with "CfDJ8", so this discriminator is safe.
+    /// </summary>
+    /// <remarks>
+    /// Shared between <see cref="SeedAsync"/> (write-path migration) and
+    /// <c>AiApiKeyResolutionService</c> (read-path gating). Single source of truth.
+    /// </remarks>
+    public static bool LooksLikeDataProtectionCiphertext(string? value) =>
+        !string.IsNullOrEmpty(value)
+        && value.Length >= 44
+        && value.StartsWith("CfDJ8", StringComparison.Ordinal);
+
     public static async Task SeedAsync(
         CookBotDbContext context,
         IDatabaseBackupService backupService,
         JsonRecipeSerializer serializer,
+        IDataProtectionProvider dataProtectionProvider,
+        ILogger logger,
         string contentRootPath)
     {
         // Step 1: backup before migrate (D-15 / MIGRATION-02 / Pitfall C4).
@@ -52,6 +73,38 @@ public static class DatabaseSeeder
         // Step 3 (legacy backfill removed): CLEAN-01 (Plan 10 / D-32 steps b-e).
         // All rows have CanonicalDocumentJson populated from Phase 1's milestone backfill.
         // The null-canonical guard above (D-33) catches any future regression.
+
+        // 365-day AiUsageLog cleanup will be inserted here by Plan 09-05
+
+        // PROD-09 / PITFALL C3 (Phase 9 / Plan 09-04) — sentinel-prefix re-encryption pass.
+        // Idempotent: any UserProfile row whose AiApiKey is non-empty and does NOT already
+        // look like a Data Protection ciphertext (CfDJ8…) is treated as legacy plaintext
+        // and rewritten in place. Second boot detects the ciphertext sentinel and short-circuits.
+        // Note: we intentionally avoid an EF ValueConverter — that approach forces every read
+        // through Unprotect, which throws on legacy plaintext during the very migration that's
+        // supposed to fix it (09-RESEARCH Item 2 correction).
+        var protector = dataProtectionProvider.CreateProtector("AiApiKey.v1");
+        var legacyRows = await context.UserProfiles.AsNoTracking()
+            .Where(p => p.AiApiKey != null && p.AiApiKey != "")
+            .Select(p => new { p.UserId, p.AiApiKey })
+            .ToListAsync();
+        var reencrypted = 0;
+        foreach (var row in legacyRows)
+        {
+            if (LooksLikeDataProtectionCiphertext(row.AiApiKey))
+                continue;
+            var encrypted = protector.Protect(row.AiApiKey!);
+            await context.UserProfiles
+                .Where(p => p.UserId == row.UserId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.AiApiKey, encrypted));
+            reencrypted++;
+        }
+        if (reencrypted > 0)
+        {
+            // Log only the COUNT — never the values. The redactor cannot rescue a log line
+            // that captures the plaintext directly here.
+            logger.LogInformation("Re-encrypted {Count} legacy plaintext AI API key(s) at startup.", reencrypted);
+        }
 
         // Step 4: existing seed logic — unchanged.
         if (await context.Users.AnyAsync())

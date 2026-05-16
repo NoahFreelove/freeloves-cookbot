@@ -38,7 +38,11 @@ public class SentinelPrefixMigrationTests : IDisposable
             .UseSqlite($"DataSource={_dbPath}")
             .Options;
         _db = new CookBotDbContext(options);
-        _db.Database.EnsureCreated();
+        // Run migrations the same way production does. SeedAsync below also calls MigrateAsync —
+        // EF treats that as a no-op once everything is current, so the test fixture matches the
+        // production boot path exactly. EnsureCreated() would clash because it bypasses the
+        // migration history table that MigrateAsync() expects.
+        _db.Database.Migrate();
 
         var services = new ServiceCollection();
         services.AddDataProtection().SetApplicationName("FreelovesCookBot");

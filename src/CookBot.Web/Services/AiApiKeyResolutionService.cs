@@ -1,5 +1,9 @@
+using System.Security.Cryptography;
+using CookBot.Infrastructure.AI;
 using CookBot.Infrastructure.Data;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CookBot.Web.Services;
 
@@ -12,10 +16,20 @@ public sealed record EffectiveAiCredentials(
 public class AiApiKeyResolutionService
 {
     private readonly CookBotDbContext _db;
+    private readonly IDataProtector _protector;
+    private readonly ILogger<AiApiKeyResolutionService> _logger;
 
-    public AiApiKeyResolutionService(CookBotDbContext db)
+    public AiApiKeyResolutionService(
+        CookBotDbContext db,
+        IDataProtectionProvider dataProtectionProvider,
+        ILogger<AiApiKeyResolutionService> logger)
     {
         _db = db;
+        // PROD-08 / PITFALL C2 (Phase 9 / Plan 09-04) — single shared scope. Owner.Protect(scope)
+        // ↔ Recipient.Unprotect(scope) only succeeds when both sites use the same purpose
+        // string. Per-user scopes would silently regress the share semantic.
+        _protector = dataProtectionProvider.CreateProtector("AiApiKey.v1");
+        _logger = logger;
     }
 
     /// <summary>
@@ -33,7 +47,7 @@ public class AiApiKeyResolutionService
         if (!string.IsNullOrWhiteSpace(profile.AiApiKey))
         {
             return new EffectiveAiCredentials(
-                profile.AiApiKey.Trim(),
+                DecryptIfNeeded(profile.AiApiKey).Trim(),
                 profile.AiModel,
                 SharedFromUserId: null,
                 SharedFromDisplayName: null);
@@ -60,10 +74,32 @@ public class AiApiKeyResolutionService
         if (chosen == null) return null;
 
         return new EffectiveAiCredentials(
-            chosen.AiApiKey!.Trim(),
+            DecryptIfNeeded(chosen.AiApiKey!).Trim(),
             chosen.AiModel,
             chosen.OwnerUserId,
             chosen.DisplayName);
+    }
+
+    /// <summary>
+    /// PROD-08 + PITFALL C3/C4 — read-path decryption gate. Legacy plaintext rows fall through
+    /// unchanged so the DatabaseSeeder migration pass can re-encrypt them on next boot; only
+    /// values that already look like Data Protection ciphertext are Unprotect'd. On failure,
+    /// the message is scrubbed via <see cref="SecretRedactor"/> before logging so neither the
+    /// plaintext nor the ciphertext leaks to log sinks.
+    /// </summary>
+    private string DecryptIfNeeded(string stored)
+    {
+        if (!DatabaseSeeder.LooksLikeDataProtectionCiphertext(stored))
+            return stored;
+        try
+        {
+            return _protector.Unprotect(stored);
+        }
+        catch (CryptographicException ex)
+        {
+            _logger.LogError(SecretRedactor.Redact($"Failed to decrypt AI API key: {ex.Message}", stored));
+            throw;
+        }
     }
 
     /// <summary>

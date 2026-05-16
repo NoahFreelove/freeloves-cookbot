@@ -38,7 +38,8 @@ public class KeyShareEncryptionRoundTripTests : IDisposable
             .UseSqlite($"DataSource={_dbPath}")
             .Options;
         _db = new CookBotDbContext(options);
-        _db.Database.EnsureCreated();
+        // Migrate to match the production boot path; SeedAsync's MigrateAsync becomes a no-op.
+        _db.Database.Migrate();
 
         var services = new ServiceCollection();
         services.AddDataProtection().SetApplicationName("FreelovesCookBot");
