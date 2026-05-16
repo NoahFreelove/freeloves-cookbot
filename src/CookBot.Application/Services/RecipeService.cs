@@ -11,6 +11,7 @@ public class RecipeService
     private readonly IRepository<Recipe> _recipeRepo;
     private readonly IRepository<Ingredient> _ingredientRepo;
     private readonly IRepository<Cookbook> _cookbookRepo;
+    private readonly IRepository<RecipeTag> _recipeTagRepo;
     private readonly IRecipeProjector _projector;
     private readonly JsonRecipeSerializer _canonicalSerializer;
 
@@ -19,6 +20,7 @@ public class RecipeService
         IRepository<Recipe> recipeRepo,
         IRepository<Ingredient> ingredientRepo,
         IRepository<Cookbook> cookbookRepo,
+        IRepository<RecipeTag> recipeTagRepo,
         IRecipeProjector projector,
         JsonRecipeSerializer canonicalSerializer)
     {
@@ -26,6 +28,7 @@ public class RecipeService
         _recipeRepo = recipeRepo;
         _ingredientRepo = ingredientRepo;
         _cookbookRepo = cookbookRepo;
+        _recipeTagRepo = recipeTagRepo;
         _projector = projector;
         _canonicalSerializer = canonicalSerializer;
     }
@@ -45,8 +48,17 @@ public class RecipeService
             Servings = parsed.Servings,
             PrepTimeMinutes = parsed.PrepTimeMinutes,
             CookTimeMinutes = parsed.CookTimeMinutes,
-            TagsJson = JsonSerializer.Serialize(parsed.Tags),
+            TagsJson = JsonSerializer.Serialize(parsed.Tags), // D-26 safety net: Plan 11 removes this line after DropTagsJsonColumn
         };
+
+        // CLEAN-02 (Plan 08): dual-write relational RecipeTag rows alongside TagsJson safety net (D-26).
+        // D-34: trim whitespace, preserve case ("Vegan"/"vegan" are distinct tags).
+        // NOTE: Callers that READ tags via Recipe.Tags must .Include(r => r.Tags) on the Recipe query.
+        // CreateAsync: new entity — Tags collection starts empty, Add works directly without Include.
+        foreach (var name in parsed.Tags.Select(t => t.Trim()).Where(t => t.Length > 0))
+        {
+            recipe.Tags.Add(new RecipeTag { Name = name });
+        }
 
         foreach (var pi in parsed.Ingredients)
         {
@@ -114,8 +126,22 @@ public class RecipeService
         recipe.Servings = parsed.Servings;
         recipe.PrepTimeMinutes = parsed.PrepTimeMinutes;
         recipe.CookTimeMinutes = parsed.CookTimeMinutes;
-        recipe.TagsJson = JsonSerializer.Serialize(parsed.Tags);
+        recipe.TagsJson = JsonSerializer.Serialize(parsed.Tags); // D-26 safety net: Plan 11 removes this line after DropTagsJsonColumn
         recipe.UpdatedAt = DateTime.UtcNow;
+
+        // CLEAN-02 (Plan 08): dual-write relational RecipeTag rows alongside TagsJson safety net (D-26).
+        // D-34: trim whitespace, preserve case. Clear existing tags first.
+        // If Tags nav is loaded (via change tracker from caller's .Include(r => r.Tags)), Clear() issues
+        // EF DELETE commands. For robustness, also explicitly delete via _recipeTagRepo.
+        var existingTags = await _recipeTagRepo.FindAsync(t => t.RecipeId == recipe.Id);
+        foreach (var tag in existingTags)
+            await _recipeTagRepo.DeleteAsync(tag);
+
+        recipe.Tags.Clear();
+        foreach (var name in parsed.Tags.Select(t => t.Trim()).Where(t => t.Length > 0))
+        {
+            recipe.Tags.Add(new RecipeTag { Name = name });
+        }
 
         recipe.RecipeIngredients.Clear();
         foreach (var pi in parsed.Ingredients)

@@ -39,11 +39,12 @@ public class OwnershipTests : IDisposable
         var recipeRepo = new Repository<Recipe>(_db);
         var ingredientRepo = new Repository<Ingredient>(_db);
         var cookbookRepo = new Repository<Cookbook>(_db);
+        var recipeTagRepo = new Repository<RecipeTag>(_db);
         var parser = new StubRecipeFormatParser();
 
         var projector = new LegacyRecipeProjector();
         var canonicalSerializer = new JsonRecipeSerializer();
-        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, projector, canonicalSerializer);
+        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, projector, canonicalSerializer);
 
         var parsed = new ParsedRecipe
         {
@@ -99,11 +100,12 @@ public class OwnershipTests : IDisposable
         var recipeRepo = new Repository<Recipe>(_db);
         var ingredientRepo = new Repository<Ingredient>(_db);
         var cookbookRepo = new Repository<Cookbook>(_db);
+        var recipeTagRepo = new Repository<RecipeTag>(_db);
         var parser = new StubRecipeFormatParser();
 
         var projector = new LegacyRecipeProjector();
         var canonicalSerializer = new JsonRecipeSerializer();
-        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, projector, canonicalSerializer);
+        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, projector, canonicalSerializer);
 
         // Act & Assert: user2 tries to delete recipe in user1's cookbook
         await Assert.ThrowsAsync<UnauthorizedAccessException>(

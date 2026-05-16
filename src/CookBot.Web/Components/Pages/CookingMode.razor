@@ -665,6 +665,7 @@ else if (_loaded)
             _recipe = await DbContext.Recipes
                 .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.Cookbook).ThenInclude(c => c.Shares)
+                .Include(r => r.Tags) // CLEAN-02: RecipeCookingAiContext.ToParsedRecipe reads recipe.Tags
                 .FirstOrDefaultAsync(r => r.Id == RecipeId);
 
             if (_recipe == null)
