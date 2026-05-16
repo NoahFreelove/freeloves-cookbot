@@ -1,0 +1,154 @@
+@*  StepTemperaturePicker — Phase 9 / Plan 09-02 / PHOTO-09 sibling.
+
+    Surfaces the Phase 8 SCHEMA-03 record StepTemperature in the editor. A step
+    can carry an optional oven/hob temperature with one of three units:
+      - TemperatureUnit.F  (e.g. 350)
+      - TemperatureUnit.C  (e.g. 180)
+      - TemperatureUnit.Gas (gas mark, e.g. 4.5)
+
+    Picker shape:
+      eyebrow "Temperature" → numeric input (64px) → three pill buttons (°F / °C / Gas).
+
+    UX rules:
+      - Empty value OR no unit selected ⇒ emits null (no temperature on this step).
+      - Selecting a unit that is already active toggles it OFF (clears the value).
+      - Numeric parsing uses InvariantCulture so a non-EN locale typing "350"
+        still parses to 350m (decimal-comma locales otherwise break this).
+
+    Validator alignment (RecipeValidator):
+      - F/C require whole-degree values.
+      - Gas must be a 0.5-step in [1.0, 9.5].
+    The picker's step/min/max attributes nudge users toward valid values but
+    does NOT enforce them — the editor's overall save flow catches violations
+    through RecipeService → JsonRecipeSerializer → RecipeValidator.
+
+    Zero Mud*. No external state — fully driven by Temperature parameter. *@
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using System.Globalization
+@using CookBot.Domain.Recipes
+@using CookBot.Web.Components.Atoms
+
+<span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap;">
+    <span style="color:var(--ink-3);font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">
+        Temperature
+    </span>
+
+    <input type="number"
+           value="@_value"
+           step="@NumericStep"
+           min="@NumericMin"
+           max="@NumericMax"
+           placeholder="—"
+           aria-label="Temperature value"
+           style="width:64px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:13px;text-align:right;background:var(--paper);font-family:inherit;outline:none;"
+           @oninput="OnValueInput" />
+
+    @foreach (var u in Units)
+    {
+        var unit = u;
+        var selected = IsSelected(unit);
+        <button type="button"
+                class="cb-pill@(selected ? " active" : "")"
+                aria-pressed="@selected"
+                aria-label="@($"Temperature unit {FormatUnit(unit)}")"
+                style="padding:3px 10px;border-radius:12px;border:1px solid var(--line);background:@(selected ? "var(--accent)" : "transparent");color:@(selected ? "white" : "var(--ink-2)");font-size:12px;cursor:pointer;font-family:inherit;line-height:1.2;"
+                @onclick="() => SelectUnit(unit)">
+            @FormatUnit(unit)
+        </button>
+    }
+</span>
+
+@code {
+    [Parameter] public StepTemperature? Temperature { get; set; }
+    [Parameter] public EventCallback<StepTemperature?> TemperatureChanged { get; set; }
+
+    // The fixed canonical ordering of the three units in the UI.
+    private static readonly TemperatureUnit[] Units =
+    {
+        TemperatureUnit.F,
+        TemperatureUnit.C,
+        TemperatureUnit.Gas,
+    };
+
+    // The text shown in the numeric input. We hold it as a string (not decimal?)
+    // so the user can clear the field while still seeing an empty box — null on
+    // a decimal? wouldn't survive the Blazor value/binding round-trip cleanly.
+    private string _value = string.Empty;
+
+    private TemperatureUnit? _unit;
+
+    // Remember the previous Temperature instance reference so we only re-sync the
+    // local fields when the parent genuinely re-binds (avoids clobbering user
+    // typing on every OnParametersSet).
+    private StepTemperature? _lastSyncedTemperature;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(Temperature, _lastSyncedTemperature))
+        {
+            if (Temperature is null)
+            {
+                _value = string.Empty;
+                _unit = null;
+            }
+            else
+            {
+                _value = Temperature.Value.ToString(CultureInfo.InvariantCulture);
+                _unit = Temperature.Unit;
+            }
+            _lastSyncedTemperature = Temperature;
+        }
+    }
+
+    private bool IsSelected(TemperatureUnit u) => _unit == u;
+
+    private static string FormatUnit(TemperatureUnit u) => u switch
+    {
+        TemperatureUnit.F => "°F",
+        TemperatureUnit.C => "°C",
+        TemperatureUnit.Gas => "Gas",
+        _ => u.ToString(),
+    };
+
+    // Dynamic numeric-input attributes nudge the user toward validator-compatible
+    // values. F/C: whole-degree step; Gas: 0.5 step within [1.0, 9.5].
+    private string NumericStep => _unit == TemperatureUnit.Gas ? "0.5" : "1";
+    private string NumericMin => _unit == TemperatureUnit.Gas ? "1" : "0";
+    private string NumericMax => _unit == TemperatureUnit.Gas ? "9.5" : "1000";
+
+    private async Task OnValueInput(ChangeEventArgs e)
+    {
+        _value = e.Value as string ?? string.Empty;
+        await EmitAsync();
+    }
+
+    private async Task SelectUnit(TemperatureUnit u)
+    {
+        // Toggle: re-clicking the active unit clears the temperature entirely.
+        _unit = _unit == u ? null : (TemperatureUnit?)u;
+        await EmitAsync();
+    }
+
+    private async Task EmitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_value) || _unit is null)
+        {
+            await TemperatureChanged.InvokeAsync(null);
+            return;
+        }
+
+        if (!decimal.TryParse(_value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < 0m)
+        {
+            // Don't emit on unparseable / negative input — the user is mid-typing
+            // a value. The next valid keystroke will emit.
+            return;
+        }
+
+        await TemperatureChanged.InvokeAsync(new StepTemperature
+        {
+            Value = parsed,
+            Unit = _unit.Value,
+        });
+    }
+}

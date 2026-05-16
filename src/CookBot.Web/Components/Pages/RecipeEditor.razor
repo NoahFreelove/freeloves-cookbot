@@ -77,6 +77,19 @@
 <div style="max-width:1180px;margin:0 auto;padding:32px 32px 80px;display:grid;grid-template-columns:1fr 320px;gap:32px;">
     @* === Main column === *@
     <div>
+        @* Phase 9 / Plan 09-02 / D-38 — Photo composite at TOP of the editor.
+           Both inputs (paste-URL + upload) always visible inside the composite.
+           Wraps the cb-card in drag-cancel handlers so a stray drag-and-drop
+           on the surrounding margin cannot navigate the page away (legacy
+           PITFALL: dropping a URL on the editor used to wipe unsaved state). *@
+        <div @ondragover:preventDefault
+             @ondragover:stopPropagation
+             @ondrop:preventDefault
+             @ondrop:stopPropagation>
+            <RecipePhotoComposite PhotoUrl="@_photoUrl"
+                                  PhotoUrlChanged="OnPhotoUrlChanged" />
+        </div>
+
         @* Title (ED-01) — borderless, design tokens *@
         <input type="text"
                value="@_name"
@@ -85,27 +98,16 @@
                style="font-size:38px;font-weight:600;letter-spacing:-0.025em;width:100%;border:0;outline:none;background:transparent;font-family:inherit;color:var(--ink);margin-bottom:6px;"
                @oninput="OnNameInput" />
 
-        @* Subtitle / description (ED-01) — borderless *@
-        <input type="text"
-               value="@_description"
-               placeholder="A short description of this recipe…"
-               aria-label="Recipe description"
-               style="font-size:15px;color:var(--ink-2);width:100%;border:0;outline:none;background:transparent;font-family:inherit;margin-bottom:24px;"
-               @oninput="OnDescriptionInput" />
-
-        @* Photo placeholder.
-           v1.2 has no recipe photo column on the entity yet — we keep the
-           StripedPlaceholder visible (matches the design's "missing imagery" tile)
-           and explicitly cancel browser-default drag-and-drop so dropping a file
-           on the placeholder does NOT navigate the page to the dropped URL
-           (which previously wiped any unsaved recipe data). The photo URL field
-           is reserved for a future schema slot. *@
-        <div style="margin-bottom:32px;"
-             @ondragover:preventDefault
-             @ondragover:stopPropagation
-             @ondrop:preventDefault
-             @ondrop:stopPropagation>
-            <StripedPlaceholder Width="100%" Height="180" Label="photo · 4:3 (coming soon)" />
+        @* Phase 9 / Plan 09-02 / D-39 — Description directly BELOW the title,
+           ABOVE the ingredients section. CbTextarea (3 rows) replaces the
+           previous borderless single-line input. Reading order: photo
+           composite → name → description → ingredients → steps. *@
+        <div style="margin-bottom:24px;">
+            <CbTextarea Value="@_description"
+                        ValueChanged="OnDescriptionChanged"
+                        Rows="3"
+                        Placeholder="A short description of this recipe — what it is, not the first step"
+                        AriaLabel="Recipe description" />
         </div>
 
         @* === Ingredients (ED-02 / ED-06) === *@
@@ -333,6 +335,11 @@
 
     private string _name = string.Empty;
     private string _description = string.Empty;
+    // Phase 9 / Plan 09-02 / PHOTO-09 — paste-URL or upload-derived URL bound
+    // to RecipePhotoComposite via @bind-style PhotoUrl/PhotoUrlChanged. Null
+    // means "no photo" — empty strings are normalized to null in
+    // OnPhotoUrlChanged (matches D-38: empty strings are not persisted).
+    private string? _photoUrl;
     private int _servings = 4;
     private int? _prepTimeMinutes;
     private int? _cookTimeMinutes;
@@ -412,8 +419,12 @@
     private void PopulateFromRecipe(Recipe recipe)
     {
         _name = recipe.Name;
-        // Recipe entity has no description column today (FUTURE-V1.1-*).
-        _description = string.Empty;
+        // Phase 8 / SCHEMA-06 added Recipe.Description; Phase 9 / Plan 09-02
+        // surfaces it in the editor (D-39).
+        _description = recipe.Description ?? string.Empty;
+        // Phase 8 / SCHEMA-05 added Recipe.PhotoUrl; Phase 9 / Plan 09-02
+        // surfaces it via the photo composite at the top of the editor (D-38).
+        _photoUrl = recipe.PhotoUrl;
         _servings = recipe.Servings;
         _prepTimeMinutes = recipe.PrepTimeMinutes;
         _cookTimeMinutes = recipe.CookTimeMinutes;
@@ -457,6 +468,14 @@
             _servings = parsed.Servings;
         _prepTimeMinutes = parsed.PrepTimeMinutes;
         _cookTimeMinutes = parsed.CookTimeMinutes;
+        // Phase 9 / Plan 09-02 — paste-raw-text dialog may surface PhotoUrl /
+        // Description if the source already carried them through the canonical
+        // parser. Only overwrite when the parser actually produced a value so
+        // existing editor state isn't clobbered by a paste that omitted them.
+        if (!string.IsNullOrWhiteSpace(parsed.PhotoUrl))
+            _photoUrl = parsed.PhotoUrl;
+        if (!string.IsNullOrWhiteSpace(parsed.Description))
+            _description = parsed.Description!;
 
         if (parsed.Tags.Any())
             _tags = parsed.Tags.ToList();
@@ -497,7 +516,18 @@
     // ------------------------------------------------------------------------
 
     private void OnNameInput(ChangeEventArgs e) => _name = e.Value as string ?? string.Empty;
-    private void OnDescriptionInput(ChangeEventArgs e) => _description = e.Value as string ?? string.Empty;
+
+    // Phase 9 / Plan 09-02 — Description is now a CbTextarea (D-39), which exposes
+    // a string?-typed ValueChanged callback instead of the raw ChangeEventArgs the
+    // previous borderless input used.
+    private void OnDescriptionChanged(string? newValue) => _description = newValue ?? string.Empty;
+
+    // Phase 9 / Plan 09-02 — Photo URL flows from RecipePhotoComposite as either
+    // a validated http/https URL, an uploaded file URL (/uploads/{guid}.ext), or
+    // null on clear / whitespace-only paste (D-38: empty strings are not
+    // persisted, normalized to null here as a belt-and-braces guard).
+    private void OnPhotoUrlChanged(string? newUrl)
+        => _photoUrl = string.IsNullOrWhiteSpace(newUrl) ? null : newUrl;
 
     private void OnPrepTimeInput(ChangeEventArgs e)
     {
@@ -745,6 +775,16 @@
                 Servings = _servings,
                 PrepTimeMinutes = _prepTimeMinutes,
                 CookTimeMinutes = _cookTimeMinutes,
+                // Phase 9 / Plan 09-02 — propagate the new v3 editor fields
+                // through ParsedRecipe; RecipeService canonicalizes them into
+                // both the entity columns AND Recipe.CanonicalDocumentJson via
+                // JsonRecipeSerializer round-trip on every save.
+                // D-38 / D-39: empty strings are not persisted — normalize
+                // empty description to null so we don't write empty strings to
+                // Recipe.Description (Recipe.PhotoUrl is already null-safe
+                // from OnPhotoUrlChanged).
+                PhotoUrl = _photoUrl,
+                Description = string.IsNullOrWhiteSpace(_description) ? null : _description,
                 Tags = _tags.ToList(),
                 Ingredients = _ingredients.ToList(),
                 Steps = _steps.ToList(),

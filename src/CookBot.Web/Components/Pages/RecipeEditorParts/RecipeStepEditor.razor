@@ -20,6 +20,7 @@
 @using CookBot.Application.Services
 @using CookBot.Domain.Entities
 @using CookBot.Domain.Interfaces
+@using CookBot.Domain.Recipes
 @using System.Text.RegularExpressions
 @using CookBot.Web.Components.Atoms
 @using CookBot.Web.Services
@@ -116,6 +117,19 @@
                                OnRemove="@(() => RemoveTimer(captured))"
                                OnChanged="@(updated => UpdateTimer(captured, updated))" />
                 }
+            </div>
+        }
+
+        @* Phase 9 / Plan 09-02 — per-step Temperature picker (Phase 8 SCHEMA-03
+           deferred UI surface). Only visible for content steps. Uses pattern (a)
+           per Plan 09-02 Task 2: ParsedStep is a mutable class so we mutate
+           Step.Temperature in place inside the local OnTemperatureChanged handler,
+           matching the existing kind/text/timer mutation pattern in this file. *@
+        @if (_kind == StepKind.Step)
+        {
+            <div style="margin-top:2px;">
+                <StepTemperaturePicker Temperature="@Step.Temperature"
+                                       TemperatureChanged="OnTemperatureChanged" />
             </div>
         }
     </div>
@@ -245,6 +259,16 @@
     {
         // Mutated in place via TimerChip → original IS updated.
         StateHasChanged();
+    }
+
+    private Task OnTemperatureChanged(StepTemperature? newTemperature)
+    {
+        // Phase 9 / Plan 09-02 — mutate-in-place pattern (a). ParsedStep is a class
+        // with a mutable Temperature property; the parent's _steps list holds the
+        // same reference, so the save path picks up the new value when SaveRecipe
+        // copies _steps into the ParsedRecipe DTO.
+        Step.Temperature = newTemperature;
+        return Task.CompletedTask;
     }
 
     private void RefreshSuggestion()
