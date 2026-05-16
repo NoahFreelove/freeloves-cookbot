@@ -50,8 +50,22 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
   3. `RecipeFormatParserTests` cover all three new fields — round-trip fixtures for null value, valid value, and all three temperature units (F/C/gas) all pass; no existing test is deleted (SCHEMA-12, H11: parser tests audited before any schema code merges)
   4. `LegacyRecipeProjector` and `IRecipeProjector` files are deleted; `grep -r "LegacyRecipeProjector\|IRecipeProjector" src/` returns zero hits; startup null-canonical guard in `DatabaseSeeder.SeedAsync` fails loud if any row has null `CanonicalDocumentJson` (CLEAN-01)
   5. Home pantry-match dietary filtering can use a SQL JOIN against `RecipeTag` rows — `TagsJson` is superseded (CLEAN-02); prompt-snapshot test asserts `PromptBuilderService.BuildSystemPrompt` output is byte-stable (CLEAN-03); README "Recipe Format" section documents v3 YAML/JSON with worked example (CLEAN-04)
-**Plans**: TBD
+**Plans**: 13 plans in 7 waves
+- [ ] 08-01-PLAN.md — Wave 1: Schema-assertion test FIRST (RED gate) + RecipeFormatParserTests audit (SCHEMA-11, SCHEMA-12)
+- [ ] 08-02-PLAN.md — Wave 1: StepTemperature record + enum + round-trip tests (SCHEMA-03)
+- [ ] 08-03-PLAN.md — Wave 2: RecipeDocument + ContentStep v3 fields + RecipeValidator per-unit rules (SCHEMA-01/02/06/07; turns Plan 01 GREEN)
+- [ ] 08-04-PLAN.md — Wave 3: Migration_V2_To_V3 upcaster + CurrentVersion bump + DI registration + per-field fixture matrix (SCHEMA-04, SCHEMA-05)
+- [ ] 08-05-PLAN.md — Wave 3: RecipeFormatParser + JsonRecipeSerializer round-trip + StepTemperatureJsonConverter + v3 fixtures (SCHEMA-08, SCHEMA-09, SCHEMA-12)
+- [ ] 08-06-PLAN.md — Wave 3: SCHEMA-10 denylist extension + RecipeSchemaDocumentationProvider v3 example + self-checking negative-path test (SCHEMA-10)
+- [ ] 08-07-PLAN.md — Wave 3: AddRecipePhotoUrlAndDescription EF migration + entity columns + dynamic backup-label fix in DatabaseSeeder (SCHEMA-01/02/05/06)
+- [ ] 08-08-PLAN.md — Wave 4: AddRecipeTagTable migration with embedded backfill + entity + configuration + four callsite switchovers + RecipeTagBackfillTests (CLEAN-02)
+- [ ] 08-09-PLAN.md — Wave 4: Verify.Xunit 31.12.5 + ModuleInitializer + REPLACE PromptSnapshotTests + delete legacy fixture (CLEAN-03)
+- [ ] 08-12-PLAN.md — Wave 4: AddPantryMatchIndexes migration (Phase 10 perf readiness; D-31 #4)
+- [ ] 08-10-PLAN.md — Wave 5: D-32 5-step LegacyRecipeProjector deletion (permanent guard FIRST, then file deletion) (CLEAN-01)
+- [ ] 08-11-PLAN.md — Wave 6: DropTagsJsonColumn migration + entity/configuration/RecipeService cleanup (CLEAN-02 finalization)
+- [ ] 08-13-PLAN.md — Wave 7: README "Recipe Format" inline section with v3 YAML/JSON examples + V1->V2->V3 lineage (CLEAN-04)
 **UI hint**: no
+
 
 ### Phase 9: Photos + Prod-Ready Infrastructure
 **Goal**: Users can attach a hero photo to any recipe (file upload or paste-URL); the app is shippable to other self-hosters via Docker with persistent volumes; AI API keys are encrypted at rest with a migration path for existing plaintext keys; token-cost telemetry is written per-call; and the README has complete install/config/backup/upgrade documentation.
@@ -89,7 +103,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 5. Foundation — Design tokens, atoms, shell, dialogs | v1.2 | 5/5 | Complete | 2026-04-27 |
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
-| 8. Format Foundation | v1.3 | 0/TBD | Not started | — |
+| 8. Format Foundation | v1.3 | 0/13 | Not started | — |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 0/TBD | Not started | — |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 

@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Production-Ready & Format Maturity
-status: planning
-stopped_at: null
-paused_at: null
-last_updated: "2026-05-15T21:40:00.000Z"
-last_activity: "2026-05-15 — Phase 8 context gathered (4 gray areas resolved: TagsJson drop same-phase via follow-up migration; ContentStep.Temperature.Value: decimal for gas half-stops; four granular EF migrations; Verify.Xunit replaces hand-rolled prompt snapshot; RecipeTag.Name trim + preserve case). Next: /gsd:plan-phase 8"
+status: executing
+stopped_at: Phase 8 context gathered.
+last_updated: "2026-05-16T02:59:41.330Z"
+last_activity: 2026-05-16 -- Phase 8 planning complete
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 13
   completed_plans: 0
   percent: 0
 ---
@@ -29,8 +28,8 @@ See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 Phase: Phase 8 — Format Foundation (context gathered, not yet planned)
 Plan: —
-Status: Ready to plan
-Last activity: 2026-05-15 — `/gsd-discuss-phase 8` completed; `.planning/phases/08-format-foundation/08-CONTEXT.md` + `08-DISCUSSION-LOG.md` written; 4 gray areas resolved (D-26, D-27, D-31, D-34, D-35).
+Status: Ready to execute
+Last activity: 2026-05-16 -- Phase 8 planning complete
 
 **Next step:** `/gsd:plan-phase 8`
 
@@ -48,7 +47,7 @@ Last activity: 2026-05-15 — `/gsd-discuss-phase 8` completed; `.planning/phase
 
 ### v1.1 Canonical Format & AI Conformance
 
-**Status:** PARTIAL — Phases 1+2 shipped under v1.1, Phase 3 absorbed into v1.2 Phase 6, Phase 4 deferred to v1.3 (now in scope as SCHEMA + CLEAN buckets).
+**Status:** Ready to execute
 
 | Phase | Status | Disposition |
 |-------|--------|-------------|
@@ -64,6 +63,7 @@ Last activity: 2026-05-15 — `/gsd-discuss-phase 8` completed; `.planning/phase
 Decisions log lives in `.planning/PROJECT.md` Key Decisions table. Per-phase decision logs preserved in `.planning/phases/*/PHASE-SUMMARY.md` files and the milestone archive at `.planning/milestones/v1.2-ROADMAP.md`.
 
 Hard invariants carried into v1.3:
+
 - **Canonical-first reads:** UI surfaces consume `RecipeDocument` directly via `Recipe.CanonicalDocumentJson` + `JsonRecipeSerializer`. Never read `Recipe.IngredientsJson` / `StepsJson` / `IngredientRefs` / `TagsJson` from new code.
 - **No auto-rewrite on save:** Step text is never modified by the save path. Explicit chips are the only persisted source of timers and ingredient links.
 - **AI structured-output orchestrator:** `IAiRecipeGenerator` + `SecretRedactor` + `PromptInjectionGuard` are preserved verbatim — UI consumes them; do not bypass.
