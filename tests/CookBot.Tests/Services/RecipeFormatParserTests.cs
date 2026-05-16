@@ -1,6 +1,7 @@
 using CookBot.Application.Recipes;
 using CookBot.Application.Services;
 using CookBot.Domain.Interfaces;
+using CookBot.Domain.Recipes;
 
 namespace CookBot.Tests.Services;
 
@@ -153,4 +154,78 @@ public class RecipeFormatParserTests
         Assert.Equal(7, result.PrepTimeMinutes);
         Assert.Equal(42, result.CookTimeMinutes);
     }
+
+    // SCHEMA-08 / SCHEMA-12: Temperature field round-trips through the parser pipeline.
+    // Tests cover null, valid F, valid C, and Gas half-step (D-27 all-units matrix).
+
+    [Fact]
+    public void TryParse_WithoutTemperature_StepTemperatureIsNull()
+    {
+        // Null temperature — recipe with no temperature on any step (backward-compat).
+        var input = "{\"version\":2,\"name\":\"No Temp\",\"servings\":1,\"ingredients\":[],\"steps\":[{\"kind\":\"content\",\"text\":\"Do something.\"}]}";
+
+        var ok = _parser.TryParse(input, out var recipe, out var errors);
+        Assert.True(ok, $"Expected parse to succeed; errors: {string.Join("; ", errors)}");
+        Assert.NotNull(recipe);
+        Assert.Single(recipe!.Steps);
+        Assert.Null(recipe.Steps[0].Temperature);
+    }
+
+    [Theory]
+    [InlineData(350, "F", TemperatureUnit.F)]
+    [InlineData(180, "C", TemperatureUnit.C)]
+    [InlineData(4, "gas", TemperatureUnit.Gas)]
+    public void TryParse_WithTemperature_RoundTripsCorrectly(int value, string unitStr, TemperatureUnit expectedUnit)
+    {
+        // Parse canonical JSON with a step carrying { "value": N, "unit": "X" } temperature.
+        var input = $"{{\"version\":2,\"name\":\"Temp Test\",\"servings\":1,\"ingredients\":[],\"steps\":[{{\"kind\":\"content\",\"text\":\"Bake.\",\"temperature\":{{\"value\":{value},\"unit\":\"{unitStr}\"}}}}]}}";
+
+        var ok = _parser.TryParse(input, out var recipe, out var errors);
+        Assert.True(ok, $"Expected parse to succeed for unit={unitStr}; errors: {string.Join("; ", errors)}");
+        Assert.NotNull(recipe);
+        var step = recipe!.Steps[0];
+        Assert.NotNull(step.Temperature);
+        Assert.Equal((decimal)value, step.Temperature!.Value);
+        Assert.Equal(expectedUnit, step.Temperature.Unit);
+    }
+
+    [Fact]
+    public void TryParse_WithGasHalfStep_RoundTripsCorrectly()
+    {
+        // Gas half-step (4.5) — load-bearing D-27 case. Wire form: { "value": 4.5, "unit": "gas" }.
+        var input = "{\"version\":2,\"name\":\"Gas Half\",\"servings\":1,\"ingredients\":[],\"steps\":[{\"kind\":\"content\",\"text\":\"Bake.\",\"temperature\":{\"value\":4.5,\"unit\":\"gas\"}}]}";
+
+        var ok = _parser.TryParse(input, out var recipe, out var errors);
+        Assert.True(ok, $"Expected parse to succeed; errors: {string.Join("; ", errors)}");
+        Assert.NotNull(recipe);
+        var step = recipe!.Steps[0];
+        Assert.NotNull(step.Temperature);
+        Assert.Equal(4.5m, step.Temperature!.Value);
+        Assert.Equal(TemperatureUnit.Gas, step.Temperature.Unit);
+    }
+
+    [Fact]
+    public void SerializeIndented_GasHalfStep_RendersHumanReadableGlyph()
+    {
+        // D-27: SerializeIndented must render gas half-stops as "4½" via StepTemperatureJsonConverter.
+        var doc = new RecipeDocument
+        {
+            Version = 3,
+            Name = "Gas Glyph Test",
+            Servings = 1,
+            Steps = new[]
+            {
+                new ContentStep
+                {
+                    Text = "Bake on gas mark 4½.",
+                    Temperature = new StepTemperature { Value = 4.5m, Unit = TemperatureUnit.Gas },
+                },
+            },
+        };
+
+        var serializer = new JsonRecipeSerializer();
+        var result = serializer.SerializeIndented(doc);
+        Assert.Contains("4½", result);
+    }
+
 }

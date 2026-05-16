@@ -1,5 +1,7 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CookBot.Application.Recipes.Converters;
 using CookBot.Domain.Recipes;
 
 namespace CookBot.Application.Recipes;
@@ -29,7 +31,11 @@ public sealed class JsonRecipeSerializer
         _indented = new JsonSerializerOptions(_compact)
         {
             WriteIndented = true,
+            // Allow literal Unicode glyphs (e.g. "4½") in human-readable export output.
+            // The compact DB column retains the safe default (ASCII-only escaping).
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
+        _indented.Converters.Add(new StepTemperatureJsonConverter());
     }
 
     /// <summary>Compact JSON, suitable for the DB column.</summary>

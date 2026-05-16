@@ -138,6 +138,8 @@ public class RecipeFormatParser : IRecipeFormatParser
             Servings = recipe.Servings,
             PrepTime = recipe.PrepTimeMinutes,
             CookTime = recipe.CookTimeMinutes,
+            PhotoUrl = recipe.PhotoUrl,
+            Description = recipe.Description,
             Tags = recipe.Tags.Any() ? recipe.Tags : null,
             Ingredients = recipe.Ingredients.Select(i => new IngredientFrontmatter
             {
@@ -160,6 +162,11 @@ public class RecipeFormatParser : IRecipeFormatParser
                             Label = t.Label,
                         }).ToList()
                         : null,
+                    Temperature = s.Temperature is null ? null : new TemperatureFrontmatter
+                    {
+                        Value = s.Temperature.Value,
+                        Unit = s.Temperature.Unit.ToString().ToLowerInvariant(),
+                    },
                 }
             ).ToList(),
         };
@@ -255,6 +262,8 @@ public class RecipeFormatParser : IRecipeFormatParser
         Servings = doc.Servings,
         PrepTimeMinutes = doc.PrepTimeMinutes,
         CookTimeMinutes = doc.CookTimeMinutes,
+        PhotoUrl = doc.PhotoUrl,
+        Description = doc.Description,
         Tags = doc.Tags.ToList(),
         Ingredients = doc.Ingredients.Select(i => new ParsedIngredient
         {
@@ -276,6 +285,7 @@ public class RecipeFormatParser : IRecipeFormatParser
                     Unit = t.Unit,
                     Label = t.Label,
                 }).ToList(),
+                Temperature = c.Temperature,
             },
             SectionStep sec => new ParsedStep
             {
@@ -295,6 +305,8 @@ public class RecipeFormatParser : IRecipeFormatParser
         public int Servings { get; set; } = 1;
         public int? PrepTime { get; set; }
         public int? CookTime { get; set; }
+        public string? PhotoUrl { get; set; }
+        public string? Description { get; set; }
         public List<string>? Tags { get; set; }
         public List<IngredientFrontmatter>? Ingredients { get; set; }
         public List<StepFrontmatter>? Steps { get; set; }
@@ -314,6 +326,7 @@ public class RecipeFormatParser : IRecipeFormatParser
         public string? Text { get; set; }
         public string? Section { get; set; }
         public List<TimerFrontmatter>? Timers { get; set; }
+        public TemperatureFrontmatter? Temperature { get; set; }
     }
 
     private class TimerFrontmatter
@@ -321,5 +334,11 @@ public class RecipeFormatParser : IRecipeFormatParser
         public int Duration { get; set; }
         public string? Unit { get; set; }
         public string? Label { get; set; }
+    }
+
+    private class TemperatureFrontmatter
+    {
+        public decimal Value { get; set; }
+        public string? Unit { get; set; }
     }
 }

@@ -1,3 +1,5 @@
+using CookBot.Domain.Recipes;
+
 namespace CookBot.Domain.Interfaces;
 
 public class ParsedRecipe
@@ -6,6 +8,8 @@ public class ParsedRecipe
     public int Servings { get; set; } = 1;
     public int? PrepTimeMinutes { get; set; }
     public int? CookTimeMinutes { get; set; }
+    public string? PhotoUrl { get; set; }
+    public string? Description { get; set; }
     public List<string> Tags { get; set; } = new();
     public List<ParsedIngredient> Ingredients { get; set; } = new();
     public List<ParsedStep> Steps { get; set; } = new();
@@ -16,6 +20,7 @@ public class ParsedStep
     public string Text { get; set; } = string.Empty;
     public bool IsSection { get; set; }
     public List<ParsedTimer>? Timers { get; set; }
+    public StepTemperature? Temperature { get; set; }
 }
 
 public class ParsedTimer

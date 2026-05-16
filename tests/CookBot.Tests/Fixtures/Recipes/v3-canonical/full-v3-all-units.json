@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "name": "Full V3 All Units",
+  "servings": 2,
+  "prepTimeMinutes": 10,
+  "cookTimeMinutes": 45,
+  "photoUrl": "https://example.com/full-recipe.jpg",
+  "description": "A recipe that exercises all three temperature units and every v3 field.",
+  "tags": ["test", "v3"],
+  "ingredients": [
+    { "id": 1, "name": "Flour", "amount": 200, "unit": "g" },
+    { "id": 2, "name": "Butter", "amount": 100, "unit": "g" },
+    { "id": 3, "name": "Sugar", "amount": 50, "unit": "g" }
+  ],
+  "steps": [
+    { "kind": "content", "text": "Preheat oven and mix [flour](#1).", "temperature": { "value": 350, "unit": "F" } },
+    { "kind": "content", "text": "Melt [butter](#2) in a saucepan.", "temperature": { "value": 180, "unit": "C" } },
+    { "kind": "content", "text": "Fold in [sugar](#3) and bake.", "temperature": { "value": 4.5, "unit": "gas" } }
+  ]
+}

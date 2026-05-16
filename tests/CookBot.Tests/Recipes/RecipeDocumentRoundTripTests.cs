@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using CookBot.Application.Recipes;
+using CookBot.Domain.Recipes;
 
 namespace CookBot.Tests.Recipes;
 
@@ -35,6 +36,15 @@ public class RecipeDocumentRoundTripTests
     public static IEnumerable<object[]> V2CanonicalFixtures()
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Recipes", "v2-canonical");
+        foreach (var path in Directory.GetFiles(dir, "*.json"))
+        {
+            yield return new object[] { Path.GetFileName(path), File.ReadAllText(path) };
+        }
+    }
+
+    public static IEnumerable<object[]> V3CanonicalFixtures()
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Recipes", "v3-canonical");
         foreach (var path in Directory.GetFiles(dir, "*.json"))
         {
             yield return new object[] { Path.GetFileName(path), File.ReadAllText(path) };
@@ -87,5 +97,40 @@ public class RecipeDocumentRoundTripTests
         Assert.Equal(doc.CookTimeMinutes, roundTripped.CookTimeMinutes);
         Assert.Equal(doc.Ingredients.Count, roundTripped.Ingredients.Count);
         Assert.Equal(doc.Steps.Count, roundTripped.Steps.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(V3CanonicalFixtures))]
+    public void V3Canonical_RoundTripIsIdempotent(string fixtureName, string jsonText)
+    {
+        var serializer = new JsonRecipeSerializer();
+        var validator = new RecipeValidator();
+
+        var doc = serializer.Deserialize(jsonText);
+        var roundTripped = serializer.Deserialize(serializer.Serialize(doc));
+
+        Assert.True(
+            validator.Validate(roundTripped).IsValid,
+            $"{fixtureName} did not validate after round-trip.");
+        Assert.Equal(3, doc.Version);
+        Assert.Equal(doc.Version, roundTripped.Version);
+        Assert.Equal(doc.Name, roundTripped.Name);
+        Assert.Equal(doc.Servings, roundTripped.Servings);
+        Assert.Equal(doc.PrepTimeMinutes, roundTripped.PrepTimeMinutes);
+        Assert.Equal(doc.CookTimeMinutes, roundTripped.CookTimeMinutes);
+        // v3 fields: PhotoUrl, Description
+        Assert.Equal(doc.PhotoUrl, roundTripped.PhotoUrl);
+        Assert.Equal(doc.Description, roundTripped.Description);
+        Assert.Equal(doc.Ingredients.Count, roundTripped.Ingredients.Count);
+        Assert.Equal(doc.Steps.Count, roundTripped.Steps.Count);
+        // Per-step temperature equality
+        for (int i = 0; i < doc.Steps.Count; i++)
+        {
+            if (doc.Steps[i] is ContentStep origContent && roundTripped.Steps[i] is ContentStep rtContent)
+            {
+                Assert.Equal(origContent.Temperature?.Value, rtContent.Temperature?.Value);
+                Assert.Equal(origContent.Temperature?.Unit, rtContent.Temperature?.Unit);
+            }
+        }
     }
 }
