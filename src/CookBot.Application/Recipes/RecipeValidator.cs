@@ -63,6 +63,23 @@ public sealed class RecipeValidator
                                 $"Step references ingredient #{idText} which is not in ingredients."));
                         }
                     }
+                    if (content.Temperature is { } temp)
+                    {
+                        switch (temp.Unit)
+                        {
+                            case TemperatureUnit.F:
+                            case TemperatureUnit.C:
+                                if (temp.Value != Math.Truncate(temp.Value))
+                                    errors.Add(new ValidationError($"/steps/{i}/temperature/value",
+                                        "INVALID_TEMPERATURE", $"{temp.Unit} temperature must be whole-degree."));
+                                break;
+                            case TemperatureUnit.Gas:
+                                if (temp.Value % 0.5m != 0m || temp.Value < 1.0m || temp.Value > 9.5m)
+                                    errors.Add(new ValidationError($"/steps/{i}/temperature/value",
+                                        "INVALID_TEMPERATURE", "Gas mark must be a 0.5-step value in [1.0, 9.5]."));
+                                break;
+                        }
+                    }
                     break;
 
                 case SectionStep section:
