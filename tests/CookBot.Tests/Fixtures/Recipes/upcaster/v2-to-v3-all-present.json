@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "name": "Pizza Margherita",
+  "servings": 2,
+  "prepTimeMinutes": 20,
+  "cookTimeMinutes": 15,
+  "photoUrl": "https://example.com/pizza.jpg",
+  "description": "Classic Neapolitan pizza with tomato sauce, fresh mozzarella, and basil.",
+  "tags": ["italian", "dinner"],
+  "ingredients": [
+    { "id": 1, "name": "Pizza dough", "amount": 1, "unit": "ball" },
+    { "id": 2, "name": "Tomato sauce", "amount": 100, "unit": "ml" },
+    { "id": 3, "name": "Mozzarella", "amount": 125, "unit": "g" }
+  ],
+  "steps": [
+    { "kind": "content", "text": "Stretch [pizza dough](#1) into a round." },
+    { "kind": "content", "text": "Spread [tomato sauce](#2) and top with [mozzarella](#3)." },
+    {
+      "kind": "content",
+      "text": "Bake in the hottest oven setting until crust is charred.",
+      "temperature": { "value": 250, "unit": "C" }
+    }
+  ]
+}

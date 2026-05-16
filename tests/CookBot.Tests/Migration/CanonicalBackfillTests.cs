@@ -106,7 +106,7 @@ public class CanonicalBackfillTests : IDisposable
             // Assert
             Assert.True(result.IsValid,
                 $"Recipe '{original.Name}' validation failed: {string.Join("; ", result.Errors.Select(e => e.Message))}");
-            Assert.Equal(2, roundTripped.Version);
+            Assert.Equal(RecipeUpcasterChain.CurrentVersion, roundTripped.Version);
             Assert.Equal(original.Name, roundTripped.Name);
             Assert.Equal(original.Servings, roundTripped.Servings);
             Assert.Equal(original.PrepTimeMinutes, roundTripped.PrepTimeMinutes);

@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "name": "Roast Chicken",
+  "servings": 4,
+  "prepTimeMinutes": 15,
+  "cookTimeMinutes": 90,
+  "tags": ["dinner"],
+  "ingredients": [
+    { "id": 1, "name": "Whole chicken", "amount": 1, "unit": "whole" }
+  ],
+  "steps": [
+    {
+      "kind": "content",
+      "text": "Place [chicken](#1) in oven and roast until golden.",
+      "temperature": { "value": 200, "unit": "C" }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "name": "Chocolate Cake",
+  "servings": 8,
+  "photoUrl": "https://example.com/chocolate-cake.jpg",
+  "tags": ["dessert"],
+  "ingredients": [
+    { "id": 1, "name": "Chocolate", "amount": 200, "unit": "g" }
+  ],
+  "steps": [
+    { "kind": "content", "text": "Melt [chocolate](#1) in a double boiler." }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "name": "Lemon Tart",
+  "servings": 6,
+  "description": "A classic French-style lemon tart with a buttery shortcrust pastry.",
+  "tags": ["dessert", "french"],
+  "ingredients": [
+    { "id": 1, "name": "Lemon juice", "amount": 120, "unit": "ml" },
+    { "id": 2, "name": "Butter", "amount": 100, "unit": "g" }
+  ],
+  "steps": [
+    { "kind": "content", "text": "Whisk [lemon juice](#1) with eggs until smooth." },
+    { "kind": "content", "text": "Stir in [butter](#2) and cook until thickened." }
+  ]
+}
