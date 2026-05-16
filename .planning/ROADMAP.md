@@ -86,7 +86,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 **Plans**: 7 plans in 5 waves
 
-- [ ] 09-01-PLAN.md — Wave 1: PHOTO-01 .gitignore FIRST commit + LocalRecipePhotoStorage + ImageMagicBytes + RecipePhotoUrlValidator + three 12 MB size limits + /uploads UseStaticFiles + nosniff (PHOTO-01..07)
+- [x] 09-01-PLAN.md — Wave 1: PHOTO-01 .gitignore FIRST commit + LocalRecipePhotoStorage + ImageMagicBytes + RecipePhotoUrlValidator + three 12 MB size limits + /uploads UseStaticFiles + nosniff (PHOTO-01..07)
 - [ ] 09-02-PLAN.md — Wave 2: RecipePhotoComposite (D-38) + StepTemperaturePicker + RecipeEditor wiring + Description CbTextarea (D-39) + RecipeService persistence (PHOTO-08, PHOTO-09)
 - [ ] 09-03-PLAN.md — Wave 2: RecipeView hero + Description lede + Home tonight/recently-cooked tiles + AiChat canvas + CookbookList collage real-photo sampler (PHOTO-08, PHOTO-10..13)
 - [ ] 09-04-PLAN.md — Wave 3: DataProtection.EntityFrameworkCore 10.0.8 + CookBotDbContext IDataProtectionKeyContext + AddDataProtectionKeysTable migration + sentinel-prefix re-encryption in DatabaseSeeder + AiApiKeyResolutionService read path + EditProfile write path + SecretRedactor extension + 3 integration tests (PROD-06..11)
@@ -123,7 +123,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
-| 9. Photos + Prod-Ready Infrastructure | v1.3 | 0/7 | Not started | — |
+| 9. Photos + Prod-Ready Infrastructure | v1.3 | 1/7 | In Progress|  |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 
 ---
