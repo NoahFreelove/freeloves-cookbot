@@ -29,7 +29,7 @@ public class RecipeAccessExtensionsTests : IDisposable
         _db.Cookbooks.Add(cookbook);
         await _db.SaveChangesAsync();
 
-        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Secret", Servings = 2, TagsJson = "[]" };
+        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Secret", Servings = 2 };
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync();
 
@@ -56,7 +56,7 @@ public class RecipeAccessExtensionsTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Shared", Servings = 2, TagsJson = "[]" };
+        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Shared", Servings = 2 };
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync();
 
@@ -76,7 +76,7 @@ public class RecipeAccessExtensionsTests : IDisposable
         _db.Cookbooks.Add(cookbook);
         await _db.SaveChangesAsync();
 
-        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Private", Servings = 2, TagsJson = "[]" };
+        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Private", Servings = 2 };
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync();
 

@@ -91,7 +91,7 @@ public class OwnershipTests : IDisposable
         _db.Cookbooks.Add(cookbook);
         await _db.SaveChangesAsync();
 
-        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Test Recipe", Servings = 4, TagsJson = "[]" };
+        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Test Recipe", Servings = 4 };
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync();
 
