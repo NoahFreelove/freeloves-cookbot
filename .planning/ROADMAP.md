@@ -65,7 +65,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 - [x] 08-08-PLAN.md — Wave 4: AddRecipeTagTable migration with embedded backfill + entity + configuration + four callsite switchovers + RecipeTagBackfillTests (CLEAN-02)
 - [x] 08-09-PLAN.md — Wave 4: Verify.Xunit 31.12.5 + ModuleInitializer + REPLACE PromptSnapshotTests + delete legacy fixture (CLEAN-03)
 - [x] 08-12-PLAN.md — Wave 4: AddPantryMatchIndexes migration (Phase 10 perf readiness; D-31 #4)
-- [ ] 08-10-PLAN.md — Wave 5: D-32 5-step LegacyRecipeProjector deletion (permanent guard FIRST, then file deletion) (CLEAN-01)
+- [x] 08-10-PLAN.md — Wave 5: D-32 5-step LegacyRecipeProjector deletion (permanent guard FIRST, then file deletion) (CLEAN-01)
 - [ ] 08-11-PLAN.md — Wave 6: DropTagsJsonColumn migration + entity/configuration/RecipeService cleanup (CLEAN-02 finalization)
 - [ ] 08-13-PLAN.md — Wave 7: README "Recipe Format" inline section with v3 YAML/JSON examples + V1->V2->V3 lineage (CLEAN-04)
 
@@ -113,7 +113,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 5. Foundation — Design tokens, atoms, shell, dialogs | v1.2 | 5/5 | Complete | 2026-04-27 |
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
-| 8. Format Foundation | v1.3 | 10/13 | In Progress|  |
+| 8. Format Foundation | v1.3 | 11/13 | In Progress|  |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 0/TBD | Not started | — |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 
