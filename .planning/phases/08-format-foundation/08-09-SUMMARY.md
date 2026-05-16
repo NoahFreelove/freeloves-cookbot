@@ -126,6 +126,17 @@ None — the snapshot is wired to the actual `PromptBuilderService.ResolveTempla
 
 None — no new network endpoints, auth paths, file access patterns, or schema trust boundary changes introduced.
 
+## Self-Check: PASSED
+
+- FOUND: tests/CookBot.Tests/CookBot.Tests.csproj
+- FOUND: tests/CookBot.Tests/ModuleInitializer.cs
+- FOUND: tests/CookBot.Tests/Prompts/PromptSnapshotTests.cs
+- FOUND: tests/CookBot.Tests/Snapshots/PromptSnapshotTests.BuildSystemPrompt.verified.txt
+- CONFIRMED: tests/CookBot.Tests/Fixtures/Prompts/expected-system-prompt.txt DELETED
+- FOUND: .planning/phases/08-format-foundation/08-09-SUMMARY.md
+- FOUND commits: 973898b, f834b56, 7f0ed14
+- No .received.txt left in Snapshots/
+
 ---
 *Phase: 08-format-foundation*
 *Completed: 2026-05-16*
