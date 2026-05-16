@@ -5,10 +5,10 @@ milestone_name: Production-Ready & Format Maturity
 status: planning
 stopped_at: null
 paused_at: null
-last_updated: "2026-05-15T20:30:00.000Z"
-last_activity: "2026-05-15 — v1.3 milestone scaffolding started via `/gsd-new-milestone v1.3`. PROJECT.md updated (Current Milestone section + Active scope + Carry-forward pruned + Containerization OOS flipped). Next: research decision → REQUIREMENTS.md → ROADMAP.md."
+last_updated: "2026-05-15T21:00:00.000Z"
+last_activity: "2026-05-15 — v1.3 ROADMAP.md created (3 phases: 8 Format Foundation, 9 Photos + Prod-Ready Infrastructure, 10 QOL + Polish + Consumer Surfaces; 63 requirements mapped; traceability table filled in REQUIREMENTS.md). Next: /gsd:plan-phase 8"
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -23,18 +23,18 @@ See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-**Current focus:** v1.3 Production-Ready & Format Maturity — scaffolding (PROJECT.md updated; REQUIREMENTS.md + ROADMAP.md pending).
+**Current focus:** v1.3 Production-Ready & Format Maturity — roadmap created; ready to plan Phase 8.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 8 — Format Foundation (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-15 — Milestone v1.3 started
+Status: Ready to plan
+Last activity: 2026-05-15 — ROADMAP.md written; REQUIREMENTS.md traceability table filled
 
-**Next step:** REQUIREMENTS.md draft (with optional research first) → ROADMAP.md spawn → first phase planning.
+**Next step:** `/gsd:plan-phase 8` (or `/gsd-discuss-phase 8` first if open questions need resolution before planning)
 
-**Phase numbering:** Continues from v1.2 — v1.3 starts at **Phase 8**.
+**Phase numbering:** Continues from v1.2 — v1.3 phases are 8, 9, 10.
 
 ## Shipped milestones
 
@@ -48,14 +48,14 @@ Last activity: 2026-05-15 — Milestone v1.3 started
 
 ### v1.1 Canonical Format & AI Conformance
 
-**Status:** PARTIAL — Phases 1+2 shipped under v1.1, Phase 3 absorbed into v1.2 Phase 6, Phase 4 deferred to v1.3 (now in scope).
+**Status:** PARTIAL — Phases 1+2 shipped under v1.1, Phase 3 absorbed into v1.2 Phase 6, Phase 4 deferred to v1.3 (now in scope as SCHEMA + CLEAN buckets).
 
 | Phase | Status | Disposition |
 |-------|--------|-------------|
 | 1. Canonical Format Foundation | ✅ Shipped 2026-04-25 | Validated; load-bearing for v1.2 + v1.3 |
 | 2. AI Structured Output & Conformance | ✅ Shipped 2026-04-26 | Validated; load-bearing for v1.2 AI Chat canvas + v1.3 AI schema update |
 | 3. Editor UX Without Special Syntax | 🔁 Absorbed into v1.2 | Built as v1.2 ED-03..09 (chip composer in custom Razor) |
-| 4. Format-Driven New Field & Cleanup | 🔄 Now in v1.3 | FEATURE-V2-* → v1.3 schema bucket; FUTURE-V1.1-01..05 → v1.3 schema + cleanup buckets |
+| 4. Format-Driven New Field & Cleanup | 🔄 Now in v1.3 | FUTURE-V1.1-01..05 → v1.3 SCHEMA + CLEAN buckets |
 
 ## Accumulated Context
 
@@ -67,32 +67,34 @@ Hard invariants carried into v1.3:
 - **Canonical-first reads:** UI surfaces consume `RecipeDocument` directly via `Recipe.CanonicalDocumentJson` + `JsonRecipeSerializer`. Never read `Recipe.IngredientsJson` / `StepsJson` / `IngredientRefs` / `TagsJson` from new code.
 - **No auto-rewrite on save:** Step text is never modified by the save path. Explicit chips are the only persisted source of timers and ingredient links.
 - **AI structured-output orchestrator:** `IAiRecipeGenerator` + `SecretRedactor` + `PromptInjectionGuard` are preserved verbatim — UI consumes them; do not bypass.
-- **Three-tier extractor stays deleted:** POLISH-01 invariant — `AiChat.ExtractRecipeContent` is permanently gone.
-- **AI-off contract:** Host kill switch `CookBotSettings.AiFeaturesEnabled` AND per-user `UserProfile.AiEnabled` must both be true; gating enforced inside application/data services, not by middleware.
+- **Three-tier extractor stays deleted:** POLISH-01 invariant — `AiChat.ExtractRecipeContent` is permanently gone. PHOTO-12 surfaces `_lastStructuredRecipe.Value.PhotoUrl` directly — no extractor revival.
+- **AI-off contract:** Host kill switch `CookBotSettings.AiFeaturesEnabled` AND per-user `UserProfile.AiEnabled` must both be true; gating enforced inside application/data services, not by middleware. PROD-12..17 telemetry writes ONLY when both gates are open.
 - **MudBlazor stays out:** v1.3 work must not reintroduce MudBlazor or `Microsoft.Extensions.AI`; no `Newtonsoft.Json`; no `NJsonSchema` (use `JsonSchema.Net` if schema validation is needed).
 - **Trusted-LAN auth posture stays:** "Self-hostable" in v1.3 means *runnable by others*, NOT *internet-exposed*. `CookBotSettings.AuthMode` reserved for future use; no Identity middleware yet.
 
+### v1.3 phase summary
+
+| Phase | Goal | Requirements | Status |
+|-------|------|--------------|--------|
+| 8. Format Foundation | V2→V3 schema bump + format cleanup | SCHEMA-01..12, CLEAN-01..04 (16 reqs) | Not started |
+| 9. Photos + Prod-Ready Infrastructure | File upload + Docker + encrypt-at-rest + telemetry write + README | PHOTO-01..14, PROD-01..21 (35 reqs) | Not started |
+| 10. QOL, Polish & Consumer Surfaces | Smart pantry-match + AI Chat hardening + QOL + polish | QOL-01..07, POLISH-01..05 (12 reqs) | Not started |
+
+### Open questions (for /gsd-discuss-phase, not blockers)
+
+- **Phase 8 — TagsJson column drop timing:** Same phase as `AddRecipeTagTable` migration or a separate follow-up migration? SUMMARY.md notes drop within Phase 8 is cleanest.
+- **Phase 9 — Sentinel-prefix detection heuristic:** `CfDJ8...` prefix identifies Data Protection ciphertext; `sk-ant-` prefix identifies Anthropic plaintext keys. Confirm exact detection logic at discuss/plan time.
+- **Phase 9 — Token pricing table values:** Verify current Anthropic per-million-token prices for Haiku 4.5, Sonnet 4.6, Opus 4.7 at Phase 9 plan time; embed with verification date.
+- **Phase 10 — Pantry-match scoring weights:** Proposed formula `coverageScore - 0.3 * recentlyMadePenalty` is an engineering estimate; make configurable in `appsettings.json`, not hardcoded.
+
 ### Blockers / concerns
 
-None — milestone just started, no active phase. Two open questions captured for the requirements-drafting step:
-
-1. **File-upload storage:** `wwwroot/uploads/` is the obvious default but bypasses the user-isolation that other persistence already has. Decide at requirements time: flat `uploads/{recipe-guid}.{ext}` vs per-user subdirectories. Affects backup/restore story.
-2. **Encrypt-at-rest key derivation:** Where does the encryption key live? Env var only? Derived from a config file? This determines what "lose your key and the AI keys are gone" means for self-hosters.
-
-### v1.3 scope buckets
-
-| Bucket | Source items |
-|--------|-------------|
-| Schema v3 + Photos | IMG-01..13 (refined), FUTURE-V1.1-01 (per-step temp), D-25 (description column) — one V2→V3 upcaster bundles all three |
-| Format cleanup | FUTURE-V1.1-02 (tags relational), FUTURE-V1.1-03 (projector deletion), FUTURE-V1.1-04 (prompt snapshot), FUTURE-V1.1-05 (README format) |
-| QOL | FUTURE-13 (smart pantry-match), FUTURE-15 (AiChat edit-anyway), FUTURE-14 (accent picker), DEFERRED-PROF-AIPROMPT (Profile AI editor) |
-| Small-stuff polish | D-26 (cookbook reparenting), D-37 (pantry quick-add), D-15 (moon glyph), D-16 (TopBar RightSlot), live JS tick |
-| Prod-ready | Dockerfile + compose, FUTURE-01 (encrypt API key), FUTURE-02 (token-cost telemetry), README install/config/backup/upgrade |
+None — ready to begin Phase 8 planning.
 
 ## Session Continuity
 
-Last session: 2026-05-15T20:30:00Z
-Stopped at: v1.3 milestone scaffolding — PROJECT.md updated; STATE.md reset; REQUIREMENTS.md + ROADMAP.md pending.
+Last session: 2026-05-15T21:00:00Z
+Stopped at: ROADMAP.md + STATE.md + REQUIREMENTS.md traceability written; all 63 requirements mapped to phases 8/9/10.
 Resume file: None
 
-**Next:** Workflow continues inside `/gsd-new-milestone v1.3` — research decision → REQUIREMENTS.md → ROADMAP.md spawn → phase numbering verification.
+**Next:** `/gsd:plan-phase 8` — Format Foundation (16 requirements: SCHEMA-01..12 + CLEAN-01..04).

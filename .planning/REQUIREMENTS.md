@@ -4,7 +4,7 @@ milestone_name: Production-Ready & Format Maturity
 authored: 2026-05-15
 buckets: 6
 categories: 6
-requirements: 56
+requirements: 63
 status: drafted
 ---
 
@@ -180,12 +180,73 @@ Explicit boundaries with reasoning. Some are absolute project-level OOS (carried
 
 ## Traceability
 
-Filled by the roadmapper after `/gsd-new-milestone` completes. Format:
+Filled by the roadmapper after `/gsd-new-milestone` completes — updated 2026-05-15 by roadmapper.
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| SCHEMA-01 | TBD | TBD | Pending |
-| ... | ... | ... | ... |
+| SCHEMA-01 | Phase 8 | TBD | Pending |
+| SCHEMA-02 | Phase 8 | TBD | Pending |
+| SCHEMA-03 | Phase 8 | TBD | Pending |
+| SCHEMA-04 | Phase 8 | TBD | Pending |
+| SCHEMA-05 | Phase 8 | TBD | Pending |
+| SCHEMA-06 | Phase 8 | TBD | Pending |
+| SCHEMA-07 | Phase 8 | TBD | Pending |
+| SCHEMA-08 | Phase 8 | TBD | Pending |
+| SCHEMA-09 | Phase 8 | TBD | Pending |
+| SCHEMA-10 | Phase 8 | TBD | Pending |
+| SCHEMA-11 | Phase 8 | TBD | Pending |
+| SCHEMA-12 | Phase 8 | TBD | Pending |
+| CLEAN-01 | Phase 8 | TBD | Pending |
+| CLEAN-02 | Phase 8 | TBD | Pending |
+| CLEAN-03 | Phase 8 | TBD | Pending |
+| CLEAN-04 | Phase 8 | TBD | Pending |
+| PHOTO-01 | Phase 9 | TBD | Pending |
+| PHOTO-02 | Phase 9 | TBD | Pending |
+| PHOTO-03 | Phase 9 | TBD | Pending |
+| PHOTO-04 | Phase 9 | TBD | Pending |
+| PHOTO-05 | Phase 9 | TBD | Pending |
+| PHOTO-06 | Phase 9 | TBD | Pending |
+| PHOTO-07 | Phase 9 | TBD | Pending |
+| PHOTO-08 | Phase 9 | TBD | Pending |
+| PHOTO-09 | Phase 9 | TBD | Pending |
+| PHOTO-10 | Phase 9 | TBD | Pending |
+| PHOTO-11 | Phase 9 | TBD | Pending |
+| PHOTO-12 | Phase 9 | TBD | Pending |
+| PHOTO-13 | Phase 9 | TBD | Pending |
+| PHOTO-14 | Phase 9 | TBD | Pending |
+| PROD-01 | Phase 9 | TBD | Pending |
+| PROD-02 | Phase 9 | TBD | Pending |
+| PROD-03 | Phase 9 | TBD | Pending |
+| PROD-04 | Phase 9 | TBD | Pending |
+| PROD-05 | Phase 9 | TBD | Pending |
+| PROD-06 | Phase 9 | TBD | Pending |
+| PROD-07 | Phase 9 | TBD | Pending |
+| PROD-08 | Phase 9 | TBD | Pending |
+| PROD-09 | Phase 9 | TBD | Pending |
+| PROD-10 | Phase 9 | TBD | Pending |
+| PROD-11 | Phase 9 | TBD | Pending |
+| PROD-12 | Phase 9 | TBD | Pending |
+| PROD-13 | Phase 9 | TBD | Pending |
+| PROD-14 | Phase 9 | TBD | Pending |
+| PROD-15 | Phase 9 | TBD | Pending |
+| PROD-16 | Phase 9 | TBD | Pending |
+| PROD-17 | Phase 9 | TBD | Pending |
+| PROD-18 | Phase 9 | TBD | Pending |
+| PROD-19 | Phase 9 | TBD | Pending |
+| PROD-20 | Phase 9 | TBD | Pending |
+| PROD-21 | Phase 9 | TBD | Pending |
+| QOL-01 | Phase 10 | TBD | Pending |
+| QOL-02 | Phase 10 | TBD | Pending |
+| QOL-03 | Phase 10 | TBD | Pending |
+| QOL-04 | Phase 10 | TBD | Pending |
+| QOL-05 | Phase 10 | TBD | Pending |
+| QOL-06 | Phase 10 | TBD | Pending |
+| QOL-07 | Phase 10 | TBD | Pending |
+| POLISH-01 | Phase 10 | TBD | Pending |
+| POLISH-02 | Phase 10 | TBD | Pending |
+| POLISH-03 | Phase 10 | TBD | Pending |
+| POLISH-04 | Phase 10 | TBD | Pending |
+| POLISH-05 | Phase 10 | TBD | Pending |
 
 ---
 
