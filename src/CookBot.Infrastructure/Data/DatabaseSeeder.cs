@@ -40,6 +40,17 @@ public static class DatabaseSeeder
         // Step 2: apply migrations.
         await context.Database.MigrateAsync();
 
+        // D-32 step a / CLEAN-01 / D-33: permanent structural invariant.
+        // Any code path that creates a Recipe without writing CanonicalDocumentJson is a bug
+        // and the guard is the load-bearing detection mechanism going forward.
+        var nullCanonicalCount = await context.Recipes.CountAsync(r => r.CanonicalDocumentJson == null);
+        if (nullCanonicalCount > 0)
+        {
+            throw new InvalidOperationException(
+                $"{nullCanonicalCount} recipe(s) have null CanonicalDocumentJson after migrate. " +
+                "This indicates an incomplete v1.1 backfill — restore from cookbot.db.pre-* backup and re-run.");
+        }
+
         // Step 3: idempotent backfill (D-16 / MIGRATION-01 / MIGRATION-07).
         await BackfillCanonicalDocumentAsync(context, projector, serializer);
 
