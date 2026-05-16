@@ -17,7 +17,7 @@
     Editorial rewrite against Phase 5 atoms per design handoff
     `screens/recipe-view.jsx`. Consumes the canonical RecipeDocument
     directly (Recipe.CanonicalDocumentJson) — NEVER reads
-    Recipe.IngredientsJson / StepsJson / IngredientRefs / TagsJson.
+    Recipe.IngredientsJson / StepsJson / IngredientRefs (legacy columns — see CLEAN-02).
     Phase 6 SC#3 gate.
 
     PRAGMATIC notes:
@@ -267,7 +267,7 @@ else if (_loaded)
             else
             {
                 // Load the entity so we can resolve canonical doc + cookbook id for share/cook nav.
-                // Note: we DO NOT read Recipe.IngredientsJson / Recipe.StepsJson / Recipe.TagsJson /
+                // Note: we DO NOT read legacy columns (IngredientsJson / StepsJson / TagsJson dropped) /
                 // RecipeIngredients / Steps for rendering — only Recipe.CanonicalDocumentJson is consumed.
                 _recipe = await DbContext.Recipes
                     .Include(r => r.Cookbook)

@@ -10,7 +10,6 @@ public class RecipeConfiguration : IEntityTypeConfiguration<Recipe>
     {
         builder.HasKey(r => r.Id);
         builder.Property(r => r.Name).HasMaxLength(300).IsRequired();
-        builder.Property(r => r.TagsJson).HasDefaultValue("[]");
 
         // Phase 1 / D-12: canonical RecipeDocument JSON snapshot. TEXT, nullable.
         builder.Property(r => r.CanonicalDocumentJson)

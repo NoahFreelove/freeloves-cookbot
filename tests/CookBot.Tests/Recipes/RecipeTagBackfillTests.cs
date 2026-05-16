@@ -8,7 +8,14 @@ namespace CookBot.Tests.Recipes;
 /// CLEAN-02 / D-34 backfill SQL semantics verification.
 /// Validates: trim whitespace, preserve case (Vegan/vegan coexist per D-34), skip empty/whitespace,
 /// idempotency via ON CONFLICT DO NOTHING.
-/// Uses a SQLite file context (not in-memory) because json_each is a SQLite extension.
+///
+/// Plan 11 (CLEAN-02 finalization): Recipe.TagsJson was removed from the EF model and the Recipes table
+/// was dropped via the DropTagsJsonColumn migration. To preserve regression value for the backfill SQL
+/// (which runs in AddRecipeTagTable migration history and cannot be changed), tests now seed the
+/// legacy TagsJson column via raw SQL ALTER TABLE / INSERT after EnsureCreated() re-adds the column to
+/// a temp database, simulating the pre-drop DB state that existed when the backfill migration ran.
+/// This approach matches the plan's "option (a)" decision — the SQL is still tested, just using raw
+/// DDL seeding instead of C# property assignment.
 /// </summary>
 public class RecipeTagBackfillTests : IDisposable
 {
@@ -22,6 +29,13 @@ public class RecipeTagBackfillTests : IDisposable
         ON CONFLICT DO NOTHING;
     ";
 
+    // DDL to re-add the TagsJson column to a freshly created test DB that no longer has it.
+    // The column was dropped in production by the DropTagsJsonColumn migration (Plan 11),
+    // but these tests simulate the state BEFORE that drop to validate the backfill SQL.
+    private const string AddTagsJsonColumnSql = @"
+        ALTER TABLE Recipes ADD COLUMN TagsJson TEXT NOT NULL DEFAULT '[]';
+    ";
+
     private readonly CookBotDbContext _db;
     private readonly string _dbPath;
 
@@ -33,12 +47,17 @@ public class RecipeTagBackfillTests : IDisposable
             .Options;
         _db = new CookBotDbContext(options);
         _db.Database.EnsureCreated();
+
+        // Re-add the TagsJson column that was dropped in production (Plan 11 / DropTagsJsonColumn).
+        // This simulates the pre-drop DB state so the backfill SQL can be tested.
+        _db.Database.ExecuteSqlRaw(AddTagsJsonColumnSql);
     }
 
     [Fact]
     public async Task Backfill_TrimAndCasePreservation_WorksCorrectly()
     {
-        // Arrange: seed User + Cookbook + Recipes with TagsJson
+        // Arrange: seed User + Cookbook + Recipes via EF (relational columns),
+        // then UPDATE TagsJson via raw SQL to simulate pre-drop DB state.
         var user = new User { DisplayName = "Test" };
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
@@ -47,31 +66,21 @@ public class RecipeTagBackfillTests : IDisposable
         await _db.SaveChangesAsync();
 
         // Recipe A: Vegan / vegan (case-coexistence per D-34) + " gluten-free " (trim)
-        var recipeA = new Recipe
-        {
-            CookbookId = cookbook.Id,
-            Name = "Recipe A",
-            Servings = 4,
-            TagsJson = """["Vegan","vegan"," gluten-free "]""",
-        };
+        var recipeA = new Recipe { CookbookId = cookbook.Id, Name = "Recipe A", Servings = 4 };
         // Recipe B: dairy-free + Vegan
-        var recipeB = new Recipe
-        {
-            CookbookId = cookbook.Id,
-            Name = "Recipe B",
-            Servings = 2,
-            TagsJson = """["dairy-free","Vegan"]""",
-        };
-        // Recipe C: edge cases — empty string, whitespace-only, null in array
-        var recipeC = new Recipe
-        {
-            CookbookId = cookbook.Id,
-            Name = "Recipe C",
-            Servings = 1,
-            TagsJson = """[""," "]""",
-        };
+        var recipeB = new Recipe { CookbookId = cookbook.Id, Name = "Recipe B", Servings = 2 };
+        // Recipe C: edge cases — empty string, whitespace-only
+        var recipeC = new Recipe { CookbookId = cookbook.Id, Name = "Recipe C", Servings = 1 };
         _db.Recipes.AddRange(recipeA, recipeB, recipeC);
         await _db.SaveChangesAsync();
+
+        // Seed TagsJson via raw SQL (simulates pre-drop DB state)
+        await _db.Database.ExecuteSqlRawAsync(
+            $"UPDATE Recipes SET TagsJson = '[\"Vegan\",\"vegan\",\" gluten-free \"]' WHERE Id = {recipeA.Id}");
+        await _db.Database.ExecuteSqlRawAsync(
+            $"UPDATE Recipes SET TagsJson = '[\"dairy-free\",\"Vegan\"]' WHERE Id = {recipeB.Id}");
+        await _db.Database.ExecuteSqlRawAsync(
+            $"UPDATE Recipes SET TagsJson = '[\"\",\" \"]' WHERE Id = {recipeC.Id}");
 
         // Act: execute the backfill SQL (same SQL embedded in AddRecipeTagTable migration)
         await _db.Database.ExecuteSqlRawAsync(BackfillSql);
@@ -109,15 +118,13 @@ public class RecipeTagBackfillTests : IDisposable
         _db.Cookbooks.Add(cookbook);
         await _db.SaveChangesAsync();
 
-        var recipe = new Recipe
-        {
-            CookbookId = cookbook.Id,
-            Name = "Idempotent Recipe",
-            Servings = 1,
-            TagsJson = """["Vegan","vegan"]""",
-        };
+        var recipe = new Recipe { CookbookId = cookbook.Id, Name = "Idempotent Recipe", Servings = 1 };
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync();
+
+        // Seed TagsJson via raw SQL (simulates pre-drop DB state)
+        await _db.Database.ExecuteSqlRawAsync(
+            $"UPDATE Recipes SET TagsJson = '[\"Vegan\",\"vegan\"]' WHERE Id = {recipe.Id}");
 
         // Act: run backfill twice — idempotency assertion
         await _db.Database.ExecuteSqlRawAsync(BackfillSql);

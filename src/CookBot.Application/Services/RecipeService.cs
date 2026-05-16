@@ -1,4 +1,3 @@
-using System.Text.Json;
 using CookBot.Application.Recipes;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
@@ -46,10 +45,9 @@ public class RecipeService
             Servings = parsed.Servings,
             PrepTimeMinutes = parsed.PrepTimeMinutes,
             CookTimeMinutes = parsed.CookTimeMinutes,
-            TagsJson = JsonSerializer.Serialize(parsed.Tags), // D-26 safety net: Plan 11 removes this line after DropTagsJsonColumn
         };
 
-        // CLEAN-02 (Plan 08): dual-write relational RecipeTag rows alongside TagsJson safety net (D-26).
+        // CLEAN-02 (Plan 11): relational RecipeTag rows are the sole tag persistence path (D-26 finalized).
         // D-34: trim whitespace, preserve case ("Vegan"/"vegan" are distinct tags).
         // NOTE: Callers that READ tags via Recipe.Tags must .Include(r => r.Tags) on the Recipe query.
         // CreateAsync: new entity — Tags collection starts empty, Add works directly without Include.
@@ -145,10 +143,9 @@ public class RecipeService
         recipe.Servings = parsed.Servings;
         recipe.PrepTimeMinutes = parsed.PrepTimeMinutes;
         recipe.CookTimeMinutes = parsed.CookTimeMinutes;
-        recipe.TagsJson = JsonSerializer.Serialize(parsed.Tags); // D-26 safety net: Plan 11 removes this line after DropTagsJsonColumn
         recipe.UpdatedAt = DateTime.UtcNow;
 
-        // CLEAN-02 (Plan 08): dual-write relational RecipeTag rows alongside TagsJson safety net (D-26).
+        // CLEAN-02 (Plan 11): relational RecipeTag rows are the sole tag persistence path (D-26 finalized).
         // D-34: trim whitespace, preserve case. Clear existing tags first.
         // If Tags nav is loaded (via change tracker from caller's .Include(r => r.Tags)), Clear() issues
         // EF DELETE commands. For robustness, also explicitly delete via _recipeTagRepo.
