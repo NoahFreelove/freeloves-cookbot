@@ -4,6 +4,7 @@ using CookBot.Infrastructure;
 using CookBot.Infrastructure.Data;
 using CookBot.Web.Components;
 using CookBot.Web.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.FileProviders;
@@ -34,6 +35,13 @@ builder.Services.AddRazorComponents()
 builder.Services.AddScoped<ICbDialogService, CbDialogService>();
 builder.Services.AddSingleton<ICbToastService, CbToastService>();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Phase 9 / Plan 09-04 / PROD-07: ApplicationName is load-bearing — changing it
+// invalidates every encrypted AI key (09-RESEARCH pitfall #6). Keep this literal.
+builder.Services.AddDataProtection()
+    .SetApplicationName("FreelovesCookBot")
+    .PersistKeysToDbContext<CookBotDbContext>();
+
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<AiApiKeyResolutionService>();
 builder.Services.AddScoped<AiApiKeyShareService>();
@@ -81,10 +89,17 @@ using (var scope = app.Services.CreateScope())
     var context = scope.ServiceProvider.GetRequiredService<CookBotDbContext>();
     var backupService = scope.ServiceProvider.GetRequiredService<IDatabaseBackupService>();
     var canonicalSerializer = scope.ServiceProvider.GetRequiredService<JsonRecipeSerializer>();
+    // Phase 9 / Plan 09-04 — supply Data Protection provider + logger so the seeder
+    // can run the idempotent sentinel-prefix re-encryption pass on legacy plaintext keys.
+    var dataProtectionProvider = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>();
+    var seederLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("DatabaseSeeder");
     await DatabaseSeeder.SeedAsync(
         context,
         backupService,
         canonicalSerializer,
+        dataProtectionProvider,
+        seederLogger,
         app.Environment.ContentRootPath);
 }
 

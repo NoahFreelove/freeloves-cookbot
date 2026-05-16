@@ -19,9 +19,20 @@ public static class SecretRedactor
         new(@"(?i)(x-api-key|authorization)\s*[:=]\s*\S+",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // PROD-10 / PITFALL C4 (Phase 9 / Plan 09-04) — ASP.NET Core Data Protection
+    // ciphertext blobs start with the literal "CfDJ8" magic, followed by ≥40 base64url
+    // characters. CryptographicException messages thrown by IDataProtector.Unprotect
+    // can echo the ciphertext back; without this scrub, an attacker with log access
+    // could pivot to a known-ciphertext attack. Pattern is bounded at the lower end
+    // (40 chars) so short tokens that happen to start with CfDJ8 don't get scrubbed.
+    private static readonly Regex CipherTextPattern =
+        new(@"CfDJ8[A-Za-z0-9_\-]{40,}",
+            RegexOptions.Compiled);
+
     /// <summary>
-    /// Strips sk-ant-* substrings, configured-key verbatim matches, and
-    /// x-api-key / authorization header values from <paramref name="raw"/>.
+    /// Strips sk-ant-* substrings, configured-key verbatim matches,
+    /// x-api-key / authorization header values, and Data Protection CfDJ8 ciphertext
+    /// blobs from <paramref name="raw"/>.
     /// </summary>
     /// <param name="raw">The error / log / response text to scrub.</param>
     /// <param name="resolvedKey">
@@ -41,6 +52,7 @@ public static class SecretRedactor
 
         result = ApiKeyPattern.Replace(result, "[REDACTED]");
         result = HeaderPattern.Replace(result, "$1: [REDACTED]");
+        result = CipherTextPattern.Replace(result, "[REDACTED-CIPHERTEXT]");
         return result;
     }
 }

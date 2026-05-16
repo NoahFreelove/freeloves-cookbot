@@ -1,9 +1,15 @@
 using CookBot.Domain.Entities;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace CookBot.Infrastructure.Data;
 
-public class CookBotDbContext : DbContext
+// PROD-06 / Phase 9 / Plan 09-04: implements IDataProtectionKeyContext so the
+// Data Protection key ring persists into cookbot.db alongside the rest of the schema.
+// Without this interface, AddDataProtection().PersistKeysToDbContext<CookBotDbContext>()
+// in Program.cs has nowhere to store its keys and the migration AddDataProtectionKeysTable
+// has no DbSet to model.
+public class CookBotDbContext : DbContext, IDataProtectionKeyContext
 {
     public CookBotDbContext(DbContextOptions<CookBotDbContext> options) : base(options) { }
 
@@ -24,6 +30,9 @@ public class CookBotDbContext : DbContext
     public DbSet<ScheduledRecipe> ScheduledRecipes => Set<ScheduledRecipe>();
     public DbSet<RecipeMade> RecipeMades => Set<RecipeMade>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
+    // PROD-06: Data Protection key ring storage (Microsoft.AspNetCore.DataProtection.EntityFrameworkCore).
+    public DbSet<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey> DataProtectionKeys =>
+        Set<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

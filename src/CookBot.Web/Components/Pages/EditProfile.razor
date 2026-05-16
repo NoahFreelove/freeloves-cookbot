@@ -3,6 +3,7 @@
 @using CookBot.Domain.Interfaces
 @using CookBot.Infrastructure.AI
 @using CookBot.Application.DTOs
+@using Microsoft.AspNetCore.DataProtection
 @implements IDisposable
 @inject CurrentUserService UserService
 @inject Microsoft.Extensions.Options.IOptions<CookBotSettings> CookBotSettingsOptions
@@ -14,6 +15,7 @@
 @inject ICbDialogService CbDialogService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject Microsoft.AspNetCore.DataProtection.IDataProtectionProvider DataProtectionProvider
 @rendermode InteractiveServer
 
 @* EditProfile — Phase 7 / Plan 07-05 / PROF-01 + PROF-02.
@@ -378,6 +380,31 @@
     private bool _isLoadingProfile;
     private CancellationTokenSource? _prefsDebounceCts;
 
+    // PROD-08 (Phase 9 / Plan 09-04) — encrypt the key before it lands in cookbot.db.
+    // Single shared scope "AiApiKey.v1"; the matching Unprotect call lives in
+    // AiApiKeyResolutionService and DatabaseSeeder, so all three sites round-trip.
+    private Microsoft.AspNetCore.DataProtection.IDataProtector? _protector;
+
+    protected override void OnInitialized()
+    {
+        _protector = DataProtectionProvider.CreateProtector("AiApiKey.v1");
+        base.OnInitialized();
+    }
+
+    /// <summary>
+    /// Phase 9 / Plan 09-04 — bridge stored ciphertext → editor plaintext. Legacy
+    /// plaintext rows (pre-encryption) flow through unchanged; the DatabaseSeeder
+    /// will re-encrypt them on next boot. Mirrors the gating logic in
+    /// AiApiKeyResolutionService.DecryptIfNeeded so all three sites agree.
+    /// </summary>
+    private string DecryptForEditor(string? stored)
+    {
+        if (string.IsNullOrEmpty(stored)) return "";
+        if (!CookBot.Infrastructure.Data.DatabaseSeeder.LooksLikeDataProtectionCiphertext(stored)) return stored;
+        try { return _protector!.Unprotect(stored); }
+        catch { return ""; }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
@@ -392,7 +419,10 @@
                 _kitchenTools = JsonSerializer.Deserialize<HashSet<string>>(_profile.KitchenToolsJson) ?? new();
                 _dietaryPrefs = JsonSerializer.Deserialize<HashSet<string>>(_profile.DietaryPreferencesJson) ?? new();
                 _selectedModelId = _profile.AiModel ?? AnthropicAiService.DefaultModelId;
-                _aiApiKeyEdit = _profile.AiApiKey ?? "";
+                // Phase 9 / Plan 09-04 / PROD-08 — the row may now be ciphertext-on-disk.
+                // Decrypt for the editor so the user sees what they typed last (the password-masked
+                // field still hides it visually), and so a no-op Save round-trips cleanly via Protect.
+                _aiApiKeyEdit = DecryptForEditor(_profile.AiApiKey);
                 _displayNameEdit = _user.DisplayName;
                 _forceShowOwnKeyFields = false;
                 _effectiveAi = await AiKeyResolver.ResolveAsync(_loadedUserId!.Value);
@@ -578,7 +608,12 @@
     private async Task SaveAiSettings()
     {
         if (_profile == null || _user == null) return;
-        _profile.AiApiKey = string.IsNullOrWhiteSpace(_aiApiKeyEdit) ? null : _aiApiKeyEdit.Trim();
+        // Phase 9 / Plan 09-04 / PROD-08 — encrypt the plaintext key before it lands in the DB.
+        // _aiApiKeyEdit is decrypted on load (DecryptForEditor) and re-encrypted here on save so
+        // a no-op Save round-trips through Protect/Unprotect without double-encryption.
+        _profile.AiApiKey = string.IsNullOrWhiteSpace(_aiApiKeyEdit)
+            ? null
+            : _protector!.Protect(_aiApiKeyEdit.Trim());
         _profile.AiModel = _selectedModelId;
         if (!string.IsNullOrWhiteSpace(_profile.AiApiKey))
             _profile.AiSharedKeyOwnerUserId = null;
