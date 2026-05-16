@@ -30,6 +30,8 @@ public class CookBotDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<ScheduledRecipe> ScheduledRecipes => Set<ScheduledRecipe>();
     public DbSet<RecipeMade> RecipeMades => Set<RecipeMade>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
+    // PROD-14 / Phase 9 / Plan 09-05 — token-cost telemetry log row written by AiRecipeGenerator.
+    public DbSet<AiUsageLog> AiUsageLogs => Set<AiUsageLog>();
     // PROD-06: Data Protection key ring storage (Microsoft.AspNetCore.DataProtection.EntityFrameworkCore).
     public DbSet<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey> DataProtectionKeys =>
         Set<Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey>();
