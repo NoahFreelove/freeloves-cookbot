@@ -1,349 +1,294 @@
-# Research Synthesis — FreelovesCookBot Subsequent Milestone
+# Research Summary — v1.3 Production-Ready & Format Maturity
 
-**Project:** FreelovesCookBot (brownfield, .NET 10 Blazor Server, MudBlazor 8.15, SQLite, Anthropic-only AI)
-**Milestone goals:** (1) recipe-mode UX without special syntax · (2) single canonical/versioned recipe format · (3) AI chat reliably emits the format · (4) one format-driven new field exercised end-to-end
-**Synthesized:** 2026-04-25
-**Source files:** `STACK.md` (295 lines) · `FEATURES.md` (193 lines) · `ARCHITECTURE.md` (661 lines) · `PITFALLS.md` (505 lines)
-**Confidence:** HIGH on stack, architecture, anti-features; HIGH on pitfalls; MEDIUM on which exact new field to ship.
-
----
-
-## 1. Headline Insight
-
-**Anthropic Structured Outputs collapses the AI-conformance problem into a single API parameter, and that decision in turn forces JSON (not YAML) as the canonical wire format — which simultaneously settles the "three competing serializations" debt the codebase has been carrying.**
-
-Anthropic Structured Outputs is GA on all three curated models in this app (Haiku 4.5 / Sonnet 4.6 / Opus 4.7). Sending `output_config.format = { type: "json_schema", schema: <recipe schema> }` constrains the model at the token level — it literally cannot emit non-conforming output. Once the AI must emit JSON-against-a-schema, every other format decision falls in line:
-
-- **YAML demotes** from "wire format" to "human-paste / human-display layer" (still parseable for back-compat, no longer canonical) — see `STACK.md:158-174`.
-- **JSON Schema** becomes the single source of truth, generated from one C# DTO via `System.Text.Json.Schema.JsonSchemaExporter` (BCL, zero new deps) — see `STACK.md:63-78`.
-- **The opt-out clause in the system prompt** (`PromptBuilderService.cs:201`) and the **three-tier extractor in `AiChat.ExtractRecipeContent`** are deletable, not patchable — see `ARCHITECTURE.md:111` and `PITFALLS.md:H6`.
-- **Schema versioning** (`int Version` on every recipe document) becomes the migration spine for the format-driven new field and any future evolution.
-
-The single highest-leverage change in the entire milestone is wiring `output_config.format` into `AnthropicAiService` — it's a JSON-body change, not a client-library change, and it removes more code than it adds.
+**Project:** FreelovesCookBot
+**Domain:** Self-hosted Blazor Server recipe tracker — v1.3 delta over shipped v1.2 codebase
+**Researched:** 2026-05-15
+**Confidence:** HIGH (all four research dimensions grounded in live codebase inspection + official ASP.NET Core 10 / Anthropic / NuGet docs)
 
 ---
 
-## 2. Recommended Stack Additions
+## Executive Summary
 
-Additive only — the existing baseline (.NET 10 / Blazor Server / SQLite + EF Core 10 / MudBlazor 8.15 / Anthropic via raw `HttpClient` / YamlDotNet 16.3.0 / Markdig 0.45.0 / QuestPDF / xUnit) stays untouched. See `STACK.md:8-25` for the full table.
+FreelovesCookBot v1.3 adds five capability buckets to an already-solid v1.2 codebase: a schema v3 canonical bump (photos + description + per-step temperature), format cleanup (projector deletion + relational tags + snapshot tests), QOL (smart pantry-match + AI chat hardening + accent picker + prompt editor), small-stuff polish (cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick), and a prod-ready track that makes the app shippable for other self-hosters (Dockerfile, encrypt-at-rest API keys, token-cost telemetry, deploy docs). The stack delta is intentionally small: two new NuGet packages (`Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8` for EF-backed key ring persistence, `Verify.Xunit 31.12.5` for prompt snapshot regression tests) cover everything; all other new capabilities are code-only changes against existing services. The existing Clean/Onion architecture (Domain → Application → Infrastructure → Web) comfortably absorbs all five buckets without introducing new layers or abstractions.
 
-| Addition | Version | Why for THIS milestone |
-|---|---|---|
-| **Anthropic Structured Outputs** | GA (no version) | The single feature that makes "AI reliably emits canonical format" achievable without prompt-engineering brittleness. Token-level constrained decoding, supported on all curated models, works with existing SSE streaming. **No SDK change** — body shape change in `AnthropicAiService.SendMessageAsync` / `StreamMessageAsync`. See `STACK.md:27-46`. |
-| **`System.Text.Json.Schema.JsonSchemaExporter`** | BCL (.NET 10) | Generates the JSON Schema for `output_config.format` from the canonical C# DTO. Zero new package; already on the codebase's path via STJ. Configure with `TreatNullObliviousAsNonNullable = true` and post-process to inject `additionalProperties: false` (Anthropic strict mode requirement). See `STACK.md:63-78`. |
-| **`JsonSchema.Net`** | 9.2.x | The single new NuGet package. Used at runtime to validate inbound recipes (AI responses, paste-in JSON, `.cookbook.json` import). STJ-native (no `JObject` round-trips), supports JSON Schema 2020-12 (which `JsonSchemaExporter` emits), MIT-licensed (GPL-3 compatible). Picked over `NJsonSchema` (Newtonsoft-rooted) and `Newtonsoft.Json.Schema` (commercial license). See `STACK.md:80-99`. |
+The single highest-risk decision in v1.3 is the combination of `IDataProtector` encrypt-at-rest and Docker containerization. These two features co-depend in a way that is not obvious at development time: the Data Protection key ring must be on a named Docker volume, or every container restart silently destroys all users' encrypted API keys. This risk is well-mitigated by the research (sentinel-prefix pattern for backward-compatible key migration, `PersistKeysToDbContext` via the new NuGet package, three explicit volume mounts in docker-compose), but the mitigation must be built into the foundation phases, not retrofitted. The second load-bearing decision is ImageSharp rejection: the GPL-3.0 license incompatibility (confirmed via Six Labors Split License text) means photo validation uses magic-byte BCL sniffing instead — approximately 30 lines of pure .NET that carries no license risk.
 
-**Single install command:** `dotnet add src/CookBot.Application package JsonSchema.Net --version 9.2.*`
-
-**Patterns added (no packages):**
-
-- **Schema-versioning pattern** — `int Version` field at the top of each canonical recipe + ordered `IRecipeUpcaster` chain in C# (`Migration_V1_To_V2`, etc.). At ~one or two version transitions, ordered C# functions are simpler than any library. See `STACK.md:101-131`, `ARCHITECTURE.md:Pattern 2`.
-- **Token/chip composer** — built on existing `MudAutocomplete<T>` + `MudChipSet<T>` (already in MudBlazor 8.15). Step text stays a string at the model layer; chips are a view-layer tokenization of the existing `[name](#id)` markdown. See `STACK.md:133-156`, `ARCHITECTURE.md:Flow B`.
+The four researchers converge on all key technical facts. One divergence required reconciliation: STACK.md leaned toward `ContentRootPath/uploads/` (Microsoft's general recommendation for runtime-uploaded files), while ARCHITECTURE.md landed on `wwwroot/uploads/` + `UseStaticFiles(PhysicalFileProvider, RequestPath="/uploads")`. The ARCHITECTURE decision stands for v1.3: `wwwroot/uploads/` keeps the upload directory co-located with the web root, which simplifies the Docker single-volume story (the existing web root path is already the container's `ContentRootPath/wwwroot`), and the `UseStaticFiles` middleware approach correctly handles runtime-written files that `MapStaticAssets()` (build-time fingerprinting only) cannot serve. The key fact is that `MapStaticAssets()` and `UseStaticFiles()` must coexist — they serve different content.
 
 ---
 
-## 3. Build Order
+## Key Findings
 
-The order is not negotiable for steps 1-7. Decisions land in step 1 and must not churn afterwards. Mapping below is the recommended phase grouping; the roadmapper can collapse adjacent steps but must respect the dependency arrows.
+### Recommended Stack
 
-```
-[1] Canonical schema (RecipeDocument record + StepNode discriminated union + Version field)
-        │  Decisions: prepTimeMinutes (not prepTime), kind discriminator (not IsSection bool),
-        │             id immutable & not user-visible, additionalProperties: false everywhere
-        ▼
-[2] Serializers + JSON schema provider (YamlRecipeSerializer, JsonExportRecipeSerializer,
-    RecipeJsonSchemaProvider via JsonSchemaExporter, RecipeSchemaDocumentationProvider)
-        │
-        ▼
-[3] Versioning scaffold + validator (IRecipeUpcaster, RecipeUpcasterChain, RecipeValidator
-    with semantic checks: ref-id matching, ingredient-id uniqueness, section-step purity)
-        │
-        ├──────────────────────────┬────────────────────────────┐
-        ▼                          ▼                            ▼
-[4] Persistence change      [5] IRecipeFormatParser       [6] PromptBuilderService
-    (Recipe.CanonicalDocumentJson  rewrite (delegates to        consolidation (single
-     column + back-fill in         the new schema stack)        format-spec source,
-     DatabaseSeeder + DB                                        opt-out clause REMOVED)
-     backup before migration)
-        │                          │                            │
-        └──────────────────────────┼────────────────────────────┘
-                                   ▼
-[7] AI structured output (IAiService.SendStructuredAsync overload + IAiRecipeGenerator
-    orchestrator + max-2 repair pass + key-redaction chokepoint + XML-tagged user content)
-                                   │
-                                   ├────────────────────────────┐
-                                   ▼                            ▼
-[8] Cookbook transfer integration              [9] Chip step composer (StepComposer.razor
-    (CookbookTransferService routes through        + js/step-composer.js, parallel-safe
-     upcaster; envelope SchemaVersion → 2)         with [7]/[8])
-                                   │
-                                   ▼
-[10] Format-driven new field (V1→V2 upcaster + UI surface + AI prompt update flows from
-     RecipeSchemaDocumentationProvider; locks in the versioning pattern end-to-end)
-                                   │
-                                   ▼
-[11] Cleanup (delete AiChat.ExtractRecipeContent ladder, delete duplicated format strings,
-     delete LegacyRecipeProjector single-cycle helper)
-```
+The v1.3 NuGet additions are exactly two packages. `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8` persists the Data Protection key ring into the existing SQLite DB via `CookBotDbContext`, which eliminates the documented Docker-volume failure mode of `PersistKeysToFileSystem` on Linux overlay/NFS filesystems (confirmed via dotnet/aspnetcore#2941). `Verify.Xunit 31.12.5` is compatible with the project's `xunit 2.9.2` and enables prompt-snapshot regression tests; `Verify.XunitV3` would require migrating all 196 tests to xUnit v3 — out of scope. All other v1.3 capabilities (image validation, URL scheme allowlist, token telemetry, tag migration, projector deletion, Dockerfile) are code-only.
 
-**Critical-path reasoning:**
-- The schema record (1) is read by the schema exporter (2), which is required for AI structured output (7).
-- Versioning (3) must exist before any new field (10), or the v1→v2 transition has no migration spine.
-- The persistence change (4) is independent of (5)(6) but depends on (3).
-- The chip composer (9) only depends on (1) + (5) — it can run in parallel with (7)/(8). This is the only safely-parallelizable work.
+**Core technologies (NEW for v1.3):**
+- `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8`: DB-backed key ring persistence — avoids Linux Docker volume reliability issues with `PersistKeysToFileSystem`; colocates key ring with `cookbot.db` for a clean one-volume backup story
+- `Verify.Xunit 31.12.5`: prompt-snapshot regression tests — compatible with xUnit 2.9.2; `Verify.XunitV3` would force a full xUnit v3 migration
+- BCL magic-byte sniffing (no NuGet): JPEG `FF D8 FF`, PNG `89 50 4E 47`, WebP at offset 8, GIF `47 49 46` — replaces `SixLabors.ImageSharp` (REJECTED: GPL-3.0 incompatible with the project's GPL-3.0-only license due to Apache 2.0 patent-termination clause conflict per FSF guidance)
+- Anthropic SSE body `usage.input_tokens`/`usage.output_tokens` (no NuGet): token-cost telemetry extracted from `message_start.message.usage` and `message_delta.usage` in the existing SSE parse loop — the Anthropic Admin API (`sk-ant-admin...`) requires an organization-level key unavailable to individual self-hosters
 
-**Suggested phase mapping (4 phases, see `ARCHITECTURE.md:619-629`):**
+**Confirmed anti-patterns (do not use):**
+- `SixLabors.ImageSharp` — GPL-3.0 incompatible (hard block)
+- `Magick.NET` — license complexity + 50 MB native binaries; overkill for "is this an image" validation
+- `Microsoft.Extensions.AI` / official `Anthropic` NuGet — conflicts with `AnthropicAiService` direct-HttpClient design and structured-output transport
+- `Newtonsoft.Json`, `NJsonSchema` — enforced anti-patterns since v1.1
+- `Verify.XunitV3` — incompatible with xUnit 2.9.2; migration is a separate milestone concern
+- Per-user `IDataProtector` scope for API key encryption — breaks the key-sharing flow where a recipient reads the owner's row
 
-| Phase | Steps | Output |
-|---|---|---|
-| **A — Canonical Format** | 1-6 | One source of truth across YAML/JSON/DB/prompt; opt-out clause removed |
-| **B — AI Conformance** | 7-8 | Reliable AI emission + import round-trip + repair-loop budget cap |
-| **C — Chip Editor** | 9 | Manual authoring without `[name](#id)` syntax (parallel-safe with B) |
-| **D — Format-driven feature** | 10-11 | Exercises versioning end-to-end; cleanup |
+### Expected Features
 
----
+The feature prioritization matrix from FEATURES.md distinguishes P1 (must-close carry-forwards or core milestone goals) from P2/P3 (meaningful additions and nice-to-haves). The roadmapper should use this to decide which features enter each phase versus which ride as stretch goals.
 
-## 4. Table-Stakes Features (grouped by milestone goal)
+**Must have (P1 — closes named items or is core to the milestone):**
+- Single hero photo: file upload (`<InputFile>` -> `wwwroot/uploads/`) + paste-URL coexist; onerror fallback to `<StripedPlaceholder>`; scheme allowlist (`http`/`https` only)
+- `Recipe.Description` — closes D-25 (editor field persisted nowhere in v1.2, a trust-breaking bug)
+- Per-step temperature as structured `int? Temperature` on `ContentStep` — first-class field, ahead of Cooklang/Mealie/Tandoor which all use plain text only
+- V2->V3 upcaster bundling all three additions (one AI-prompt regression pass amortizes across all three)
+- `LegacyRecipeProjector` deletion — closes FUTURE-V1.1-03
+- `TagsJson` -> relational `RecipeTag` — closes FUTURE-V1.1-02; unlocks dietary filtering in pantry-match
+- Dockerfile + docker-compose with three named volumes (`cookbot_db`, `cookbot_uploads`, `cookbot_keys`)
+- README install/config/backup/upgrade sections
+- Smart pantry-match: ingredient-coverage % scoring + recency debounce via `IRecipeMadeService` — closes FUTURE-13 (replaces deterministic stub)
+- AiChat "Edit anyway" hardening via `RawRecipeEditorDialog` — closes FUTURE-15/WARN-AICHAT-RAW-EDIT-EDGE
+- Encrypt-at-rest for `UserProfile.AiApiKey` via `IDataProtector` EF value converter — closes FUTURE-01
+- Cookbook reparenting on edit — closes D-26
+- Pantry per-row grocery quick-add — closes D-37
+- Moon glyph for dark-mode toggle — closes D-15
+- Home active-timer live JS tick (closes punch-list item from v1.2 audit)
 
-The minimum to credibly hit each goal. None are deferrable. Sourced from `FEATURES.md:12-29`, `ARCHITECTURE.md:90-117`, `STACK.md:101-156`.
+**Should have (P2 — adds meaningful value within scope):**
+- Accent variant picker (terracotta/sage) in `localStorage` — closes FUTURE-14; DS-02 token structure already wired
+- Profile-side AI prompt editor for `UserProfile.AiSystemPromptTemplate` — closes DEFERRED-PROF-AIPROMPT
+- Token-cost telemetry: `AiUsageLog` table + Profile 30-day rolling widget + key-owner breakdown — closes FUTURE-02
+- Prompt-snapshot regression test for `PromptBuilderService` — closes FUTURE-V1.1-04
+- README "Recipe Format" section — closes FUTURE-V1.1-05
+- Recency debounce in pantry-match (7-day penalty via `IRecipeMadeService.GetLastCookAsync`)
+- Dietary pre-filter in pantry-match (depends on `RecipeTag` relational migration)
+- TopBar RightSlot passthrough via `ICbTopBarService` — closes D-16
 
-### Goal 1 — Recipe-mode UX without special syntax
+**Defer to v1.4+ (anti-features for v1.3):**
+- Multiple photos / photo gallery (requires carousel, lightbox, ordering controls)
+- Thumbnail generation / server-side image resizing (requires ImageSharp or SkiaSharp, both GPL-problematic)
+- Expiration-weighted pantry-match scoring (requires `PantryItem.ExpiresOn` + per-item date picker UI; no mainstream recipe app implements this; unlikely to see consistent manual entry on a trusted-LAN cooking app)
+- AI call per pantry refresh for suggestions (expensive, slow, non-deterministic)
+- CDN / image proxy integration (public CDN is cloud, not trusted-LAN)
+- UI backup download button (README backup docs + volume guidance is sufficient for v1.3)
+- SQLCipher full-DB encryption (disproportionate complexity; breaks EF migrations and DB inspection tools)
+- CI/CD pipelines (not in PROJECT.md scope)
 
-- **Ingredient-chip insertion in step editor** — clicking an ingredient or typing `@` inserts a chip; the `[name](#id)` markdown is generated under the hood. Built on `MudAutocomplete<Ingredient>` + `MudChipSet<T>`. Replaces the raw `MudTextField Lines="3"` textarea in `RecipeEditor.razor`.
-- **Section vs. step disambiguation** — explicit toggle/radio per step (Step | Section header). Closes the `text:`/`section:` mutual-exclusivity footgun (CONCERNS §6).
-- **Timer detection becomes suggestion-only** — "Detected 25 min — convert to a timer? [yes/no]" instead of silent regex auto-rewrite. Closes CONCERNS §7.
+### Architecture Approach
 
-### Goal 2 — Single canonical, versioned recipe format
+All five buckets integrate cleanly into the existing Clean/Onion layer boundaries. The ARCHITECTURE researcher verified each integration point against the live codebase and found no new layers or abstractions are needed. The key structural decisions are: (1) `IRecipePhotoStorage` interface belongs in `CookBot.Domain/Interfaces/` with `LocalRecipePhotoStorage` implementation in `CookBot.Web/Services/` (file write is a Web-layer concern; `IBrowserFile` is a Blazor type unavailable in Application/Domain); (2) `IPantryMatchService` is a new Application-layer service replacing the 40-line inline `BuildPantryMatchesAsync` in `Home.razor.cs`; (3) schema v3 adds three nullable properties to the existing `RecipeDocument` record (not a new versioned type) because the upcaster chain operates at the JSON-node level before typed deserialization; (4) token telemetry surfaces via `StructuredResult<T>` field extensions bubbled from `AnthropicAiService` through `AiRecipeGenerator` to `AiChat.razor`, which writes the `AiUsageLog` row.
 
-- **One `RecipeDocument` POCO record** in `CookBot.Domain/Recipes/` as the single source of truth — YAML, JSON export, DB JSON column, AI schema all *project from* this one record.
-- **`int Version` field** at the top of every canonical document (separate from `CookbookTransferDocument.SchemaVersion` envelope version — see Pitfall H3 / `PITFALLS.md:163-175`).
-- **`IRecipeUpcaster` chain** — JSON-level (`JsonNode`) upcasters, not typed-CLR transforms (so old V1 records don't have to live forever in code). `Migration_V1_To_V2` handles `prepTimeMinutes`/`cookTimeMinutes`/`IsSection`/`localId` reconciliation.
-- **`RecipeValidator`** — semantic post-parse validation: ingredient-id uniqueness within recipe, every step's `[name](#id)` link must resolve, section steps have no timers/refs, returns errors as data (never throws).
-- **Field names include units** — `prepTimeMinutes`, `cookTimeMinutes`, `ovenTempFahrenheit`. Closes Pitfall C2.
+**Major new components:**
+1. `Migration_V2_To_V3` (Application) — trivial stamp-version upcaster; null-fills all three new fields; registered in `DependencyInjection.cs`
+2. `IRecipePhotoStorage` / `LocalRecipePhotoStorage` (Domain interface, Web implementation) — writes to `wwwroot/uploads/`, enforces magic-byte validation + size cap, returns `/uploads/{guid}.{ext}` URL
+3. `RecipePhotoUrlValidator` (Application, static) — `Uri.TryCreate` + scheme allowlist; called in editor, `RecipeService`, and AI orchestrator post-process
+4. `IPantryMatchService` / `PantryMatchService` (Application) — coverage-ratio scoring + dietary pre-filter + recency debounce; replaces inline stub
+5. `AiUsageLog` entity (Domain) + `AiUsageLogConfiguration` (Infrastructure) — keyed `(UserId, KeyOwnerUserId, ModelName, InputTokens, OutputTokens, EstimatedCostUsd, Timestamp)`
+6. `CbTopBarService` / `ICbTopBarService` (Web) — Scoped service pattern matching `ICbToastService`; enables page -> layout slot injection
+7. `RawRecipeEditorDialog` (Web) — textarea pre-filled with raw JSON; "Try to parse" button re-runs `Parser.TryParse`; replaces the D-09 degraded-toast fallback in `AiChat.razor`
+8. `docker/Dockerfile` + `docker/docker-compose.yml` + `docker/.env.example` — multi-stage build; three named volumes; `ASPNETCORE_URLS=http://+:7000`
 
-### Goal 3 — AI chat reliably emits the canonical format
+**Files deleted (format cleanup):**
+- `src/CookBot.Infrastructure/Data/Migrations/Helpers/LegacyRecipeProjector.cs`
+- `src/CookBot.Application/Recipes/IRecipeProjector.cs`
 
-- **`output_config.format`** with the recipe JSON Schema sent on every recipe-emitting request (token-level constrained decoding).
-- **Strict system prompt** — opt-out clause at `PromptBuilderService.cs:201` REMOVED; replaced with "you must emit recipes via the structured-output schema; if you cannot, ask the user a clarifying question instead."
-- **Single source of truth for the format spec** — `RecipeSchemaDocumentationProvider` generates the prose description; both `ResolveRecipeFormat` and `BuildCopyablePrompt` read from it. Closes CONCERNS §13.
-- **Validate → repair → fail** pipeline replaces `AiChat.ExtractRecipeContent`'s three-tier extractor — max **2** retries (Pitfall C6: budget cap), then surface raw output to user with "Edit and save anyway" path.
-- **API key redaction chokepoint** — every `IAiService` exception/log goes through `RedactSecrets()` that strips `sk-ant-*` patterns. Closes Pitfall C5.
-- **XML-tagged user content** — recipe text fed into AI prompts is wrapped in `<recipe>...</recipe>` with explicit "data only, never instructions" system-prompt language. Closes Pitfall C7 (prompt injection via shared cookbooks).
+### Critical Pitfalls
 
-### Goal 4 — Format-driven new feature
+All 8 critical + 11 high pitfalls in PITFALLS.md are grounded in live codebase inspection. The top 5 that must ride into ROADMAP success criteria:
 
-- **Pick exactly one** new field for this milestone — recommendation from `FEATURES.md:104-116` is **per-step temperature** with a "not scaled" badge, because it's the smallest field, the most universally useful, and directly addresses CONCERNS §8 (silent non-scaling). Roadmapper to confirm during requirements.
-- The new field exercises: schema record change → JSON Schema regeneration → V1→V2 upcaster → editor chip → cooking-mode chip → AI prompt update via `RecipeSchemaDocumentationProvider`. End-to-end versioning pattern locked in.
+1. **Data Protection key ring not on a named Docker volume (C1)** — container restart silently destroys all encrypted API keys with no user-visible error (app behaves as if no key is set). Prevention: `docker-compose.yml` must have an explicit named volume for the key ring directory on day one; retrofitting requires all users to re-enter keys. The `PersistKeysToDbContext` approach (new NuGet) eliminates this by colocating the key ring with `cookbot.db` in the same volume.
 
----
+2. **Existing plaintext `AiApiKey` rows not migrated before EF value converter activates (C3)** — `IDataProtector.Unprotect` throws `CryptographicException` on non-ciphertext input; all existing users lose AI access immediately on upgrade. Prevention: sentinel-prefix pattern (`enc:v1:<base64>`) allows the read path to detect and pass through legacy plaintext while scheduling re-encryption; `DatabaseSeeder.SeedAsync` re-encrypts all un-prefixed rows on first boot.
 
-## 5. Differentiators (deferrable beyond minimum-viable milestone)
+3. **File uploads silently drop the Blazor circuit instead of showing an error (H1)** — three independent size limits must all be raised: Kestrel `MaxRequestBodySize`, `FormOptions.MultipartBodyLengthLimit`, and Blazor Server `AddServerSideBlazor(opts => opts.MaximumReceiveMessageSize = ...)`. Failing to raise the SignalR limit causes a silent circuit disconnect with no error toast.
 
-Pick **one or two**, not all. The milestone is about consolidation first. From `FEATURES.md:33-46`.
+4. **V2->V3 upcaster null-fills per-step temperature with `{ value: 0, unit: "F" }` instead of `null` (M2 / C7)** — cooking mode shows "Bake at 0 degrees F" on every step of every legacy recipe. Prevention: `ContentStep.Temperature` must be declared `int?` (nullable); the upcaster must leave the field absent.
 
-| Feature | Why differentiating | Cost |
-|---|---|---|
-| **Per-step temperature with "do not scale" UI** | Cooklang treats temps as first-class; Paprika auto-detects; none of the surveyed apps surface "temperature shouldn't scale linearly" honestly. **Strongest candidate for Goal 4.** | M |
-| **Ingredient substitutions as a structured field** | Most apps (KitchenPal, Mr. Cook) bolt this on as external lookup. Embedding it in the canonical format means it round-trips through export/import and the AI can author/respect it. | M |
-| **Equipment list as first-class field** | Plays into the existing `UserProfile.Equipment` token. Lets the AI say "you don't have a stand mixer; here's a hand-mixer version." Genuine gap vs. surveyed apps. | M |
-| **Structured doneness cues per step** (`internalTempF`, `visual`, `touch`) | Aligns with smart-thermometer trend; surfaces what professional kitchens already know. No consumer app surveyed makes this structured. | M |
-| **`source: { url, importedAt, originalText }` provenance block** | Cheap (one optional sub-object); useful for "why does this taste different from the original" debugging. | S |
-| **Schema.org/Recipe one-way export** | Power-user differentiator; lets users publish to a static site with Google rich-results. Most self-hosted apps don't do export cleanly. | S-M |
-| **Computed nutrition from USDA FDC** | Nice to have; needs public ingredient DB plumbing; fully derivable from existing fields, no new schema field needed. **Defer to a future milestone.** | L |
+5. **Smart pantry-match materializes all recipes before filtering — O(recipes x ingredients) on every Home load (H7)** — Home page load time grows linearly with recipe count. Prevention: push ingredient-intersection filter to EF Core before `ToListAsync`; add composite index on `RecipeIngredient(IngredientId, RecipeId)`.
+
+**Additional pitfalls that must appear in success criteria:**
+- `wwwroot/uploads/` not in `.gitignore` before any upload code ships (C5) — add entry as the first task of the photos plan
+- Single-purpose `IDataProtector` scope for all API key encryption (C2) — never use per-user scope; key-sharing reads owner's row with the same protector
+- `onerror` fallback loop without `this.onerror=null` (H4) — Blazor state-flag approach preferred over inline JS
+- Path-traversal via `IBrowserFile.Name` (H2) — always generate server-side GUID filename; never use client-supplied name
+- `MapStaticAssets()` does not serve runtime-uploaded files (Architecture anti-pattern) — must add `UseStaticFiles` with `PhysicalFileProvider` separately
 
 ---
 
-## 6. Anti-Features (deliberately NOT building)
+## Implications for Roadmap
 
-From `FEATURES.md:51-63`, `STACK.md:188-203`, `PROJECT.md:50-59`. Roadmapper should treat these as bright lines.
+### Two Competing Phase Framings
 
-| Anti-feature | Reason |
-|---|---|
-| **Adopting Cooklang `@ingredient{500%g}` / `#cookware` / `~timer` syntax as canonical** | Direct conflict with "users shouldn't have to know special syntax" goal. Cooklang is a special syntax. The whole milestone is about *removing* syntax burden, not adopting someone else's. May expose Cooklang as an export target later; not now. |
-| **Rich-text editors (Tiptap, Quill, TinyMCE, Syncfusion, Blazored.TextEditor)** | All store HTML/Delta JSON; both leak presentation into the canonical format and fight schema validation. All require JS interop wrappers. Licensing varies (TinyMCE/Syncfusion commercial). The composer's actual surface is small (text + ingredient chips + timer chips) — `MudAutocomplete` + `MudChipSet` is enough. |
-| **MudBlazor 9.x upgrade (current 9.4.0)** | Major version with breaking changes; not required to deliver this milestone. The chip/autocomplete primitives we need are stable in 8.15. Treat as a separate maintenance milestone. |
-| **Official Anthropic NuGet SDK / `Microsoft.Extensions.AI` `IChatClient`** | Existing `HttpClient`-based service is one file and works. Structured outputs is an HTTP body change, not a client change. Re-evaluate when a second AI provider is added. |
-| **OpenAI / Gemini / second AI provider abstraction** | `PROJECT.md` Out of Scope. `IAiService` already covers the abstraction need; no driver for a second implementation in this milestone. |
-| **Containerization (Dockerfile, compose) and CI/CD (`.github/` workflows)** | `PROJECT.md` Out of Scope. `run.sh` + `dotnet run` is the deploy story. |
-| **`Newtonsoft.Json` / `Newtonsoft.Json.Schema` / `NJsonSchema`** | App is 100% `System.Text.Json`. Adding Newtonsoft pulls ~400KB and a parallel JSON model. `Newtonsoft.Json.Schema` license is commercial above small-project caps. |
-| **A schema migration framework (Liquibase-style for documents)** | At ~one or two version transitions, ordered C# functions are simpler than any library. EF Core migrations cover *DB* schema; this is *document* schema. |
-| **A "schemaless" / "free-form text" recipe escape hatch** | This is the opt-out clause the milestone is trying to delete. Re-introducing it under any name defeats the goal. If a user pastes free-form text, parse best-effort and route to the structured editor for confirmation. Never persist non-conforming. |
-| **Identity middleware / OAuth / multi-tenant SaaS** | `PROJECT.md` Out of Scope. Trusted-LAN posture unchanged. |
-| **Web API / REST endpoints / SPA / WASM client** | `PROJECT.md` Out of Scope. The canonical format is a *file* interchange contract, not a public API. |
-| **A separate `CookBot.Schemas` project** | Anti-pattern from `ARCHITECTURE.md:464-470`. Records are pure POCOs; they belong in `CookBot.Domain/Recipes/`. A fifth project adds solution complexity for no isolation benefit. |
-| **Storing the canonical document as the *only* source (dropping relational columns)** | Anti-pattern from `ARCHITECTURE.md:480-487`. Loses indexed query support; `CookbookList.razor` filters/sorts by `Servings`, scaling hits `RecipeIngredient`. Hybrid only. |
-| **Auto-detecting timers without user confirmation (CONCERNS §7 status quo)** | Detection becomes suggestion-only in the chip composer. Explicit chips win. |
+The user confirmed five feature buckets. The ARCHITECTURE researcher proposed a 3-phase shape (foundation / prod-ready / QOL+polish). Both framings are valid; the roadmapper should choose. This section presents both and then gives a clear recommendation.
 
----
+**Framing A — User's 5 Buckets (as-stated):**
+1. Schema v3 + Photos
+2. Format cleanup
+3. QOL
+4. Small-stuff polish
+5. Prod-ready (self-hosters)
 
-## 7. Critical Pitfalls (top 7)
+**Framing B — ARCHITECTURE's 3-Phase Build Order:**
+1. Foundation (schema v3 + all EF migrations + format cleanup + file storage + URL safety)
+2. Prod-ready infra (encrypt-at-rest + Docker + token telemetry)
+3. Consumer features (smart pantry-match + AiChat hardening + QOL + polish)
 
-Each anchored to a phase letter (A-G from `PITFALLS.md:466-473`) and a prevention test.
+**Recommendation: a modified 3-phase shape (Phases 8, 9, 10) aligned with the ARCHITECTURE build-order rationale.** The bucket framing groups by feature type; the phase framing groups by dependency order. Phase dependencies in v1.3 run strictly foundation -> infra -> consumers: the V2->V3 upcaster must exist before consuming surfaces; `RecipeTag` must exist before dietary pantry-match filtering; the `AiUsageLog` migration must exist before the telemetry widget; Docker + key ring volumes must be co-designed with encrypt-at-rest. Shipping in bucket order (photos first, then format, then QOL, then prod-ready) would require re-touching schema-related files across phases and risk shipping a partially-complete Docker story.
 
-| # | Pitfall | Phase | Prevention |
-|---|---|---|---|
-| **C1** | **`IngredientRefs` is dropped during migration and silently re-derived from heuristic substring matching, changing which ingredients each step highlights** (`PITFALLS.md:13-26`) | **A** | Make `[name](#id)` the only source of truth; remove `IngredientRefs` derivation entirely; detector becomes editor-time helper, not save-time mutator. Round-trip test: `Parse(Serialize(canonical)) == canonical` for every existing fixture. |
-| **C2** | **Field-rename ambiguity (`prepTime` vs `prepTimeMinutes`) silently zeroes-out v1 imports** (`PITFALLS.md:28-42`) | **A** | Canonicalize on `prepTimeMinutes: int` (units in the field name). V1→V2 upcaster handles both keys. Fixture-driven test: each historical export must round-trip with non-zero values. **Universal rule: any quantity field must include the unit in the name** — `cookTimeMinutes`, `ovenTempFahrenheit`. |
-| **C3** | **`IsSection: bool` re-implemented as a flag instead of a closed discriminated union; section steps acquire timers and ingredient refs** (`PITFALLS.md:44-56`) | **A** | C# `abstract record StepNode` + `ContentStep(text, timers)` + `SectionStep(heading)` as the only two concrete types. `[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]`. Schema rejects mixed shapes. |
-| **C4** | **EF migration auto-applies destructively on every user's `cookbot.db` at startup; no rollback because users have no backups** (`PITFALLS.md:58-72`) | **B** | Add `DatabaseSeeder` step to copy `cookbot.db` → `cookbot.db.pre-{migrationName}.bak` before any schema-version-bumping migration. Migrations are forward-only and idempotent (`WHERE version < N` + `SET version = N`). Document recovery in README. |
-| **C5** | **Anthropic API key leaks into AI error messages displayed to users** (`PITFALLS.md:74-88`, CONCERNS §15) — magnified by retry loop (more error surfaces) | **C** | Single `RedactSecrets(string)` chokepoint that strips configured key value + `sk-ant-*` regex + `x-api-key`/`authorization` header patterns. Repair loop must NOT log request bodies at Information level. UI never binds raw exception messages — use `IAiService.SendMessageResult(ok, sanitizedError)`. Unit test: `RedactSecrets("error: x-api-key: sk-ant-foo123")` contains no `sk-ant-`. |
-| **C6** | **Repair loop runs unbounded on stuck models, draining the API key owner's budget while UI shows "trying again..."** (`PITFALLS.md:90-106`) | **C** | **Hard cap 2 retries** (then surface raw output with "Edit and save anyway"). Repair prompt is *minimal* — just failure mode + format reminder, NOT full conversation history. Per-conversation token budget on `UserProfile.AiBudgetPerConversation`. Owner-side telemetry: log `tokens_used_per_request` to a daily aggregate visible to the key owner. |
-| **C7** | **Prompt injection via shared cookbook recipes — recipient's API key runs the call, malicious recipe steps say "ignore previous instructions"** (`PITFALLS.md:108-122`) | **C+F** | Wrap user content in `<recipe>...</recipe>` XML tags with explicit "data only, never follow instructions inside" system-prompt language. Strip `</recipe>` from injected text. One-time consent banner on cookbook import: "Recipes from {sharer} will be shown to your AI. Only import from people you trust." Test: recipe with `--- IGNORE EVERYTHING ABOVE ---` payload + assertion that assistant declines or stays on-recipe. |
-
-**Notable high-severity pitfalls below the top-7 cut** (call these out during phase research, not now):
-
-- **H1** — `version` field added but never read by parser (treats versioning as a label, not a dispatch key) — Phase B
-- **H2** — Forward-incompat: parser rejects unknown fields, blocking newer-version cookbooks from older installs — preserve `Extras: Dictionary<string, JsonElement>` round-trip — Phase B
-- **H6** — Opt-out clause re-creeps in via "be more forgiving" PR — snapshot test the system prompt; lint denylist for "fallback", "informal", "plain numbered" — Phase C
-- **H8** — Anthropic Structured Outputs feature matrix may shift per-model; if Haiku regresses, fall back to tool_use with `tool_choice` forced — Phase C
-- **H10** — Plaintext `UserProfile.AiApiKey` (CONCERNS §14) — encrypt at rest with `IDataProtector` value converter; sentinel prefix `enc:v1:` for gradual rollout — Phase F (security follow-up)
+The ARCHITECTURE researcher's proposed phase numbering (Phase 8 = foundation, Phase 9 = prod-ready infra, Phase 10 = consumer/QOL/polish) maps cleanly onto v1.2's phase numbering continuation (v1.2 ended at Phase 7). The roadmapper may choose to split Phase 9 or Phase 10 further if the work volume justifies it.
 
 ---
 
-## 8. Existing-Data Migration Plan
+### Phase 8: Format Foundation
 
-Two distinct backward-compat surfaces, both handled by the same `RecipeUpcasterChain`. Sourced from `ARCHITECTURE.md:506-582` and `PITFALLS.md:C4`.
+**Rationale:** Everything else depends on the V2->V3 schema bump. The upcaster, the three new nullable fields on `RecipeDocument`/`ContentStep`, the `RecipeTag` relational migration, and the `LegacyRecipeProjector` deletion must all be in place before any consuming surface can be built. Doing this first also means the AI-prompt regression test (prompt snapshot) can be written once against a stable schema and serve as a guard rail for all subsequent phases.
 
-### Surface 1 — Existing recipes in `cookbot.db` (every self-host's primary data)
+**Delivers:**
+- `RecipeDocument` v3 with `PhotoUrl string?`, `Description string?`, `ContentStep.Temperature int?`
+- `Migration_V2_To_V3` upcaster (pure stamp — null-fills all three new fields)
+- `RecipePhotoUrlValidator` static helper with full unit-test coverage of rejected URL schemes
+- `RecipeJsonSchemaProvider` updated to v3 shape with schema-output assertion test
+- EF migrations: `AddRecipePhotoUrl`, `AddRecipeDescription` (or combined), `AddRecipeTagTable`, `AddAiUsageLog` (entity shell only)
+- `RecipeTag` entity + configuration + data migration from `TagsJson`
+- `LegacyRecipeProjector` deleted; `RecipeService.CreateAsync`/`UpdateAsync` rebuilt without it
+- `PromptBuilderService` lint denylist updated: add `image`, `imageUrl`, `picture`, `thumbnail`
+- Prompt-snapshot regression test for `PromptBuilderService.BuildSystemPrompt`
+- `RecipeFormatParserTests` audited and converted to structural assertions before any schema changes merge (H11 prevention)
 
-EF migration `<timestamp>_RecipeCanonicalDocument`:
+**Features from FEATURES.md:** Bucket 1 (schema layer), Bucket 2 (full format cleanup)
+**Pitfalls to avoid:** C7, C8, M1, M2, M3, M10, H11
 
-1. Add `Recipe.CanonicalDocumentJson` column (`TEXT`, nullable initially).
-2. **Before** `MigrateAsync()`, `DatabaseSeeder` copies `cookbot.db` → `cookbot.db.pre-{migrationName}.bak` (keep last 3 backups). Pitfall C4 mitigation.
-3. Back-fill in `DatabaseSeeder.SeedAsync`: for each recipe with `CanonicalDocumentJson IS NULL`, run `LegacyRecipeProjector.Project(recipe)` (throwaway helper, deleted after one release cycle) which reads relational columns and emits a `RecipeDocument` at `Version = CurrentVersion`. No upcaster runs — the source is the live DB schema, project directly to current.
-4. Migration is **idempotent** (`WHERE CanonicalDocumentJson IS NULL`) — re-running is a no-op, including on fresh installs (Pitfall L5).
-5. **Hybrid persistence**: relational columns stay (indexed queries in `CookbookList.razor` keep working). `CanonicalDocumentJson` is the export/AI/import authority and is recomputed on every save. Anti-pattern 3 from `ARCHITECTURE.md:480-487` explicitly forbids dropping relational columns.
-
-**EF Core 10 caveat (`ARCHITECTURE.md:546`):** EF 10 changes JSON column behavior with `UseCompatibilityLevel(170)`, but this is moot for SQLite (no native JSON column type — stored as `TEXT`). Existing `OwnsMany(...).ToJson()` configurations should be unaffected. **MEDIUM confidence** — recommend a smoke test on a copy of `cookbot.db` after the migration runs.
-
-### Surface 2 — Existing `.cookbook.json` exports in the wild
-
-These have envelope `SchemaVersion = 1` but no per-recipe version field. CONCERNS §2 documents the per-recipe shape divergence (`prepTimeMinutes`/`cookTimeMinutes`, `IsSection: bool` + `Text`, `localId`). Fix in `CookbookTransferService.Deserialize`:
-
-```csharp
-var asNode = JsonSerializer.SerializeToNode(rawRecipe)!.AsObject();
-asNode["version"] ??= envelope.SchemaVersion;     // stamp v1 on legacy
-var current = upcasterChain.UpcastToCurrent(asNode);
-var doc = current.Deserialize<RecipeDocument>(Options)!;
-var validation = validator.Validate(doc);
-```
-
-The `V1ToV2` upcaster handles every CONCERNS §2 divergence at the JSON level (`prepTimeMinutes`/`cookTimeMinutes` → unified, `{ isSection: true, text: "Bake" }` → `{ kind: "section", heading: "Bake" }`, `localId` → `id`).
-
-### Surface 3 — Old YAML pastes from earlier AI sessions
-
-YAML deserializer stamps `version: 1` when absent and routes through the same upcaster chain. One pipeline, three input surfaces.
-
-### Two-axis versioning (Pitfall H3 mitigation)
-
-- `CookbookTransferDocument.SchemaVersion` — envelope shape only (changes when `Cookbook.Tags` etc. are added).
-- `RecipeDocument.Version` — per-recipe (changes when recipe shape evolves).
-- Mixed-version cookbook (some recipes v1, some v2) is supported — importer migrates per-recipe to current; exporter writes everything at current. Test: cookbook with `[recipe v1, recipe v2, recipe v3]` → import succeeds, all become current in memory.
-
-**Forward-compat tolerance** (Pitfall H2): YAML uses `DeserializerBuilder().IgnoreUnmatchedProperties()`; JSON deserializer captures unknown fields into `Extras: Dictionary<string, JsonElement>` propagated through edit→save (Pitfall H4). A v1 user can be a transit hub for v2 cookbooks without data loss.
+**Research flag:** SKIP — all patterns directly observed in live codebase; ARCHITECTURE.md covers every file touch.
 
 ---
 
-## 9. Open Questions / Decisions for Requirements Step
+### Phase 9: Photos + Prod-Ready Infrastructure
 
-The roadmapper should NOT assume answers to these. Each is a deliberate decision point for the requirements phase.
+**Rationale:** File upload, encrypt-at-rest, and Docker must ship together because they share three co-dependent design decisions: (1) `wwwroot/uploads/` is a Docker volume mount; (2) the Data Protection key ring must be on a named volume beside `cookbot.db`; (3) the `DatabaseSeeder` one-time key-re-encryption pass must run after the `DataProtectionKeys` table migration is applied. Shipping Docker without the key ring volume would be a latent data-loss bug.
 
-### Q1 — Which exact new field(s) for Goal 4?
+**Delivers:**
+- `IRecipePhotoStorage` / `LocalRecipePhotoStorage`: magic-byte validation, GUID filename generation, size cap, `X-Content-Type-Options: nosniff`
+- `UseStaticFiles(PhysicalFileProvider, RequestPath="/uploads")` in `Program.cs`
+- `wwwroot/uploads/` in `.gitignore` + `.gitkeep`
+- Kestrel + `FormOptions` + SignalR `MaximumReceiveMessageSize` all raised (H1 prevention)
+- `RecipeEditor.razor`: photo input with live preview, URL validation, clear button
+- `RecipeView.razor` + Home cards + AiChat canvas: photo rendering with Blazor-state-flag onerror fallback
+- `IDataProtector` encrypt-at-rest: sentinel-prefix migration in `DatabaseSeeder`, single shared protector scope (`"CookBot.AiApiKey"`), `Unprotect` in `AiApiKeyResolutionService`, `Protect` in `EditProfile.razor` save path
+- `Program.cs` `AddDataProtection().PersistKeysToDbContext<CookBotDbContext>()`
+- `CookBotDbContext` implements `IDataProtectionKeyContext`; migration `AddDataProtectionKeysTable`
+- Owner-sets-key + recipient-uses-key integration test (C2 prevention)
+- `docker/Dockerfile`, `docker/docker-compose.yml` (three named volumes), `docker/.env.example`
+- `ASPNETCORE_URLS=http://+:7000` in Dockerfile ENV (M4 prevention)
+- SQLite directory mount not file mount (M5 prevention); `healthcheck` + `restart: on-failure` (M6); `TZ=UTC` (M7)
+- README install/config/backup/upgrade sections
+- `AiUsageLog` write path: SSE parsing extended in `AnthropicAiService`; `StructuredResult<T>` extended; `AiChat.razor` writes one row per `GenerateAsync` call (H9 prevention)
+- Pricing in `appsettings.json` under `CookBot.AiPricing` (H10 prevention)
+- Composite index `IX_AiUsageLogs_UserId_CreatedAt` in migration (M8 prevention)
+- `CookBotSettings.TelemetryEnabled` killswitch + UI disclosure note (M9 prevention)
+- `QuestPDF` PDF export: photo omitted or pre-fetched bytes passed asynchronously (H6 prevention)
 
-`PROJECT.md:45` lists candidates: per-step temperature, ingredient substitutions, expiration dates, nutrition, equipment requirements. **Research recommendation: per-step temperature** (smallest, most universal, directly addresses CONCERNS §8 scaling silence) — see `FEATURES.md:97-98`. Roadmapper to confirm with user. If multiple are picked, Pitfall M6 (prompt bloat) becomes relevant.
+**Features from FEATURES.md:** Bucket 1 (editor + consuming surfaces), Bucket 5 (Dockerfile, encrypt-at-rest, telemetry, README)
+**Pitfalls to avoid:** C1, C2, C3, C4, C5, C6, H1, H2, H3, H4, H5, H6, M4, M5, M6, M7, M8, M9, H9, H10
 
-### Q2 — Backward-compat for `[name](#id)` markdown reading
-
-Once chips are the editor surface, the on-disk representation could either keep `[name](#id)` markdown in step `Text` (text-backed model from `ARCHITECTURE.md:Flow B`) or move to a structured `StepDocument` tree. **Research recommendation: text-backed** (zero migration, AI-prompt parity, existing tests keep passing). Roadmapper to confirm — the alternative is a large structural change.
-
-### Q3 — How aggressive should the AI repair loop be?
-
-`PITFALLS.md:C6` recommends max 2 retries with minimal repair prompts (just failure mode + format reminder, not full conversation history). After 2 failures, surface raw output with "Edit and save anyway" path. **Roadmapper to confirm:** acceptable to fall back to a free-text save? Or strict-only ("AI couldn't produce a valid recipe — try again or rephrase")?
-
-### Q4 — Lenient vs. strict validation on AI output
-
-`PITFALLS.md:H9` recommends two-tier validation: schema-strict for storage, lenient for parsing (coerce `"30"` → `30`, `"vegetarian"` → `["vegetarian"]`, `4.0` → `4`). Coercion is logged as a warning, not an error; repair loop only triggers on unrecoverable errors. Roadmapper to confirm coercion policy.
-
-### Q5 — Tool-use vs. native `output_config.format` as the structured-output mechanism
-
-`STACK.md:39-41` and `FEATURES.md:131-133` recommend native `output_config.format` (newer, GA, simpler control flow, supports streaming, no fake "tool" semantics). Pitfall H8 notes a fallback to tool-use with forced `tool_choice` if any curated model lacks support. Roadmapper to confirm; this affects the `IAiService` overload shape.
-
-### Q6 — How to handle existing AI conversation history after a v2 ship
-
-`PITFALLS.md:L2` — `AiConversation.MessagesJson` (CONCERNS §32) stores past assistant outputs in v1 format. After v2 ships, a resumed conversation re-loads v1 examples and the model anchors on those. Options: (a) stamp conversations with `FormatVersion`, prepend system note on resume; (b) offer "Continue with new format" / "Archive" choice on resume. Roadmapper to pick.
-
-### Q7 — Encrypt-at-rest for `UserProfile.AiApiKey` — in this milestone or follow-up?
-
-`PITFALLS.md:H10` flags that adding new fields touches `UserProfile`, making this a natural moment to fix CONCERNS §14 (plaintext API keys in DB). Roadmapper to confirm: in scope (Phase F security follow-up) or deferred to a separate milestone?
-
-### Q8 — Tags: relational table vs. canonical-document field?
-
-`ARCHITECTURE.md:115` flags `Recipe.TagsJson` (CONCERNS §3 — deserialized at every read site) as "the milestone is the right time to fix." Two options: relational `Tags` table (filterable in queries) or move into the canonical document only (loses query filterability). Roadmapper to pick based on whether tag-based filtering is a UX driver.
-
-### Q9 — Per-step temperature scaling boundary
-
-`PITFALLS.md:M8` warns that adding per-step temperature creates a refactor temptation: "fix scaling to apply to all numeric fields." Catastrophic — doubling servings → 700°F oven. Confirm scaling stays explicitly per-field-typed: only `RecipeIngredient.Amount` scales.
+**Research flag:** SKIP — all implementation decisions resolved; open questions reconciled in this SUMMARY.
 
 ---
 
-## 10. Confidence Assessment
+### Phase 10: QOL, Polish, and Consumer Features
+
+**Rationale:** All consumer features depend on Phase 8 foundations: smart pantry-match dietary filtering requires `RecipeTag`; Profile telemetry widget requires `AiUsageLog` rows from Phase 9. Polish items (moon glyph, TopBar slot, timer tick) have no dependencies but benefit from a stable base. This phase can be executed as one wave or split if scope is tight.
+
+**Delivers:**
+- `IPantryMatchService` / `PantryMatchService`: coverage % scoring, dietary pre-filter (from `RecipeTag`), recency debounce, EF-side pre-filter before `ToListAsync`, composite index on `RecipeIngredient(IngredientId, RecipeId)` (H7, H8 prevention)
+- `RawRecipeEditorDialog.razor`: textarea + "Try to parse" + "Copy" buttons; replaces D-09 toast
+- Accent variant picker in `EditProfile.razor`: three named accents, `localStorage` persistence (no `UserProfile` column)
+- Profile AI prompt editor: `<CbTextarea>` bound to `UserProfile.AiSystemPromptTemplate`, variable reference panel, "Reset to default"
+- Profile telemetry widget: 30-day rolling totals + key-owner recipient breakdown (reads `AiUsageLog`)
+- Cookbook reparenting: `RecipeService.UpdateAsync` extended with optional `newCookbookId` + ownership check; `RecipeEditor.razor` cookbook picker
+- Pantry per-row grocery quick-add: `GroceryListService.AddItemAsync` + cart icon in `PantryView.razor`
+- Moon glyph: `Icon.Names.Moon` constant + crescent SVG in `Icon.razor`; `TopBar.razor` conditional
+- `ICbTopBarService` / `CbTopBarService`: Scoped service; `MainLayout.razor` subscribes; passes `RightSlot` to `TopBar`
+- Home active-timer live JS tick: `CookingTimers.startHomeTick` in `cooking-timers.js`
+- README "Recipe Format" section
+
+**Features from FEATURES.md:** Bucket 3 (QOL), Bucket 4 (small-stuff polish), P2 items from Buckets 2 and 5
+**Pitfalls to avoid:** H7, H8
+
+**Research flag:** SKIP for polish items. Consider `/gsd-discuss-phase` before Phase 10 if the roadmapper wants to validate pantry-match scoring weights against actual user data before committing to specific values.
+
+---
+
+### Phase Ordering Rationale
+
+The foundation-before-consumers dependency chain is strict in three places:
+1. `RecipeDocument` v3 properties must exist before any photo input, temperature display, or description field can be wired in any Razor component.
+2. `RecipeTag` table must exist before the pantry-match dietary pre-filter can use a JOIN instead of JSON extraction in SQL.
+3. The Data Protection key ring volume and `PersistKeysToDbContext` migration must exist before the `DatabaseSeeder` re-encryption pass runs — and both must be live in the same Docker phase to avoid shipping a half-complete self-hoster story.
+
+Within Phase 9, token telemetry write path can be parallelized with encrypt-at-rest and Docker work. The telemetry read path (Profile widget) rides into Phase 10 as part of `EditProfile.razor` additions. Within Phase 10, all items are independent and can be parallelized at the plan level.
+
+### Research Flags
+
+All three phases: SKIP research-phase. Technical patterns are either directly observed in the live codebase or verified via official ASP.NET Core 10 docs and Anthropic streaming docs. The four researchers agree on all key implementation decisions. Open questions that remained after individual research files were resolved in this synthesis.
+
+---
+
+## Confidence Assessment
 
 | Area | Confidence | Notes |
-|---|---|---|
-| Stack additions | **HIGH** | Anthropic Structured Outputs is GA on all curated models; `JsonSchemaExporter` is BCL; `JsonSchema.Net` is the de facto STJ-native choice (MIT, GPL-3 compatible). Single new package. |
-| Architecture (canonical record + projections + hybrid persistence + JSON-level upcasters) | **HIGH** | Patterns are well-established (Marten/event-sourcing for upcasters; codebase already has `CookbookTransferDocument.SchemaVersion = 1` precedent). Anti-patterns clearly identified. |
-| Anti-features | **HIGH** | All anti-features are sourced from explicit `PROJECT.md` Out of Scope, license analysis, or direct conflict with stated milestone goals. |
-| Pitfalls (especially C1-C7) | **HIGH** | Anchored to specific lines in CONCERNS / existing files; each has a testable prevention. |
-| Which exact new field for Goal 4 | **MEDIUM** | Per-step temperature is the recommended pick but the user has 5 candidates; research can't pick for them. |
-| Streaming UX with structured output | **MEDIUM** | Anthropic supports SSE streaming with structured outputs; partial JSON arrives as `content_block_delta`. Validation runs on assembled final string. UX may want "compose then reveal" mode — verify in build. |
-| EF Core 10 JSON column behavior on SQLite | **MEDIUM** | EF 10 changes are documented but moot for SQLite; recommend smoke test post-migration. |
-| Repair-prompt token budget (max 2 retries) | **MEDIUM** | One-shot is industry consensus; verify with each curated model once schema stabilizes. |
+|------|------------|-------|
+| Stack | HIGH | Two new NuGets verified against NuGet.org + official MS docs; ImageSharp GPL incompatibility confirmed from Six Labors license text; Anthropic SSE token fields confirmed from official streaming docs |
+| Features | HIGH (photo patterns, Anthropic API constraints); MEDIUM (pantry-match algorithm) | No recipe app publicly documents their pantry-match scoring algorithm; coverage % is the standard but exact weighting is inferred from SuperCook/Mealie behavior |
+| Architecture | HIGH | All integration points verified against live source files at cited paths; `MapStaticAssets` vs `UseStaticFiles` behavior for runtime-uploaded files confirmed from official docs |
+| Pitfalls | HIGH | All 8 critical + 11 high pitfalls grounded in actual source code at cited paths; Docker/Data-Protection pitfalls cross-referenced with official MS docs and dotnet/aspnetcore GitHub issues |
 
-### Identified Gaps
+**Overall confidence: HIGH**
 
-- **Token-cost telemetry** doesn't exist today. Owner-side billing visibility (Pitfall C6) requires a new aggregate table or log destination — not researched in detail.
-- **Schema complexity headroom** — Anthropic limits 24 optional parameters per request. The current recipe schema fits easily; adding all candidate Goal-4 fields (per-step temperature + substitutions + equipment + doneness + provenance) gets close. Worth a sanity-check pass once the new field set is locked.
-- **Accessibility testing** — chip composer needs axe-core / screen-reader pass (Pitfall M5). No specific tooling researched; `.NET 10` Playwright is the likely candidate.
-- **EF Core 10 JSON behavior on SQLite** — high-level read says it's moot; would benefit from a quick verification test before Phase A persistence work lands.
+### Reconciled Divergences
 
----
+1. **File upload storage path (STACK vs. ARCHITECTURE):** STACK.md cited Microsoft's general recommendation for `ContentRootPath/uploads/`. ARCHITECTURE.md landed on `wwwroot/uploads/` + `UseStaticFiles(PhysicalFileProvider)`. ARCHITECTURE wins for v1.3: `wwwroot/uploads/` simplifies the Docker volume story (one directory subtree), and `UseStaticFiles` middleware is the correct way to serve runtime-written files that `MapStaticAssets()` (build-time only) cannot see.
 
-## Sources (Aggregated)
+2. **Expiration weighting in pantry-match (FEATURES vs. general expectations):** FEATURES.md explicitly flags expiration-weighted scoring as an anti-feature at v1.3 scope. Anti-feature designation stands. Coverage % + recency debounce is the algorithm for v1.3.
 
-### Anthropic / AI
+### Gaps to Address During Planning
 
-- [Anthropic Structured Outputs (GA)](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) — HIGH; `output_config.format`, model coverage, complexity limits, streaming support
-- [Anthropic Cookbook — Tool-use structured JSON](https://github.com/anthropics/anthropic-cookbook/blob/main/tool_use/extracting_structured_json.ipynb) — HIGH; fallback pattern
-- [OWASP LLM01:2025 Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) — HIGH; XML-tag guidance for user content
-- [Snippets Ltd — Structured Outputs with Claude: Validation and Retry Loops](https://snippets.ltd/blog/structured-outputs-with-claude-json-schemas-validation-retry-loops) — MEDIUM; one-shot repair pattern
-
-### .NET / Schema / Versioning
-
-- [Microsoft Learn — JsonSchemaExporter (.NET 10)](https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/extract-schema) — HIGH
-- [JsonSchema.Net 9.2.0 (json-everything)](https://www.nuget.org/packages/JsonSchema.Net) — HIGH; MIT, draft 2020-12
-- [Marten — Events Versioning](https://martendb.io/events/versioning.html) — HIGH; canonical .NET upcaster reference
-- [event-driven.io — Simple events versioning](https://event-driven.io/en/simple_events_versioning_patterns/) — HIGH; CLR-type vs JSON-level upcasting
-- [Confluent — Schema Evolution](https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html) — HIGH; backward/forward compatibility taxonomy
-- [EF Core 10 Breaking Changes](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-10.0/breaking-changes) — HIGH
-
-### Recipe ecosystem / domain
-
-- [Cooklang Specification](https://cooklang.org/docs/spec/) — HIGH; informs anti-feature decision
-- [Schema.org Recipe](https://schema.org/Recipe) — HIGH; informs differentiator (export target)
-- [Mealie](https://docs.mealie.io/documentation/getting-started/features/), [Tandoor](https://docs.tandoor.dev/features/templating/), [Paprika](https://www.paprikaapp.com/help/) — HIGH; ecosystem comparison
-
-### MudBlazor / Blazor Server
-
-- [MudBlazor 8.15 Chips](https://mudblazor.com/components/chips), [MudBlazor #328](https://github.com/MudBlazor/MudBlazor/issues/328) — HIGH; chip+autocomplete composition pattern
-- [.NET 10 Blazor Server `[PersistentState]`](https://www.telerik.com/blogs/net-10-preview-release-6-tackles-blazor-server-lost-state-problem) — HIGH; circuit reconnect handling
-- [YamlDotNet #593 (`IgnoreUnmatchedProperties`)](https://github.com/aaubry/YamlDotNet/issues/593), [#152 (comment preservation)](https://github.com/aaubry/YamlDotNet/issues/152) — MEDIUM; informs YAML demotion
-
-### Internal
-
-- `.planning/codebase/CONCERNS.md` (sections 1-13, 14-15, 18, 20, 32) — internal source of all referenced technical debt
-- `.planning/codebase/ARCHITECTURE.md`, `STRUCTURE.md`, `STACK.md` — codebase audit
-- `.planning/PROJECT.md` — milestone scope, constraints, key decisions
+- **Pantry-match scoring weights:** The specific debounce weights and coverage threshold (proposed: `coverageScore - 0.3 * recentlyMadePenalty`, threshold >= 60%) are engineering estimates. They should be surfaced in Phase 10 plan and made configurable in `appsettings.json` rather than hardcoded.
+- **`AiApiKey` sentinel-prefix detection:** The exact heuristic (detect `CfDJ8...` Data Protection ciphertext prefix vs. plaintext `sk-ant-` key) should be pinned in the Phase 9 plan. ARCHITECTURE.md notes Data Protection ciphertext starts with `CfDJ8` — document this explicitly.
+- **Token pricing table values:** Actual per-million-token prices for Haiku 4.5, Sonnet 4.6, and Opus 4.7 should be verified at Phase 9 plan time against Anthropic's current pricing page and embedded in `appsettings.json` defaults with the verification date.
+- **`RecipeTag` migration drop timing:** The `TagsJson` column drop (after both columns coexist) should be specified in Phase 8 plan as a separate migration within the same phase, not deferred to Phase 10.
 
 ---
 
-*Synthesis: 2026-04-25. Routes the roadmapper to the four research files; full detail lives there.*
+## Sources
+
+### Primary (HIGH confidence — official docs and live codebase)
+- ASP.NET Core 10 Data Protection docs (key storage providers, key encryption at rest, configuration)
+- ASP.NET Core 10 Blazor file uploads docs — three size limits, `IBrowserFile.ContentType` untrusted warning
+- ASP.NET Core 10 Static Files docs — `MapStaticAssets` vs `UseStaticFiles` for runtime-uploaded files; `PhysicalFileProvider`
+- Anthropic Messages Streaming docs — SSE event shapes for `message_start.message.usage` and `message_delta.usage`
+- Anthropic Usage and Cost API docs — Admin API key requirement; per-request `usage` fields available to individual accounts
+- Six Labors ImageSharp LICENSE on GitHub — Split License GPL-3.0 incompatibility confirmed
+- NuGet: `Verify.Xunit 31.12.5` dependency spec; `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8`
+- Live codebase source inspection — `AiApiKeyResolutionService.cs`, `SecretRedactor.cs`, `RecipeUpcasterChain.cs`, `RecipeJsonSchemaProvider.cs`, `Home.razor.cs`, `CookbookPdfService.cs`, `.gitignore`
+- dotnet/aspnetcore#2941 + dotnet/dotnet-docker#4252 — `PersistKeysToFileSystem` Linux Docker volume failure modes
+
+### Secondary (HIGH confidence — live docs via WebFetch)
+- Paprika iOS User Guide — file upload patterns, hero photo UX
+- Mealie documentation — backup UI, docker-compose patterns, AI key handling, default credentials flow
+- Tandoor Docker setup docs — `mediafiles` volume, nginx static file serving
+- Cooklang Specification — no structured temperature field (plain text only)
+- OWASP File Upload Cheat Sheet — magic-byte validation, path-traversal prevention
+
+### Secondary (MEDIUM confidence — community consensus)
+- Cooklang Greedy Coverage Blog — ingredient-coverage scoring as the standard pantry-match axis
+- SuperCook product behavior — ingredient-unlock scoring, partial match display (algorithm not publicly documented)
+- Mealie GitHub pantry discussion threads — basic ingredient intersection; no documented weighting
+
+---
+*Research completed: 2026-05-15*
+*Ready for roadmap: yes*
+*Phases start at: Phase 8 (continuation from v1.2 Phase 7)*

@@ -1,295 +1,135 @@
-# Technology Stack — Subsequent Milestone Additions
+# Stack Research
 
-**Project:** FreelovesCookBot
-**Milestone scope:** Recipe-mode UX without special syntax · canonical/versioned recipe format · reliable AI structured output · format-driven new features
-**Researched:** 2026-04-25
-**Overall confidence:** HIGH
+**Domain:** Self-hosted Blazor Server cooking/baking tracker — v1.3 NEW capabilities only
+**Researched:** 2026-05-15
+**Confidence:** HIGH (claims verified against .NET 10 docs, NuGet package pages, GitHub issues, and the Anthropic streaming docs)
 
-This is an *additive* stack document. The existing baseline (.NET 10 / Blazor Server `InteractiveServer` / SQLite + EF Core 10 / MudBlazor 8.15 / Anthropic via raw `HttpClient` / YamlDotNet 16.3.0 / Markdig 0.45.0 / QuestPDF 2025.1.0 / xUnit 2.9.2) is documented in `.planning/codebase/STACK.md` and is **kept as-is** unless an entry below explicitly says otherwise. The intent is to add only what the milestone needs and to avoid churn.
+## Recommended Stack — v1.3 Delta
 
-## Stack Overview (additions only)
+The v1.3 stack delta is small. Two new NuGet packages cover all five buckets; everything else is code-only changes against existing services.
 
-| Area | Recommendation | Status |
-|------|---------------|--------|
-| Anthropic API client | Keep raw `HttpClient` in `AnthropicAiService.cs`; add structured-outputs request shape (`output_config.format` + `strict: true` tools) | **Add behavior, no library swap** |
-| AI structured output | Use Anthropic Structured Outputs (GA, model-side constrained decoding) — compile schema once, send with every recipe-emitting request | **Add** |
-| JSON Schema generation | `System.Text.Json.Schema.JsonSchemaExporter` (BCL, .NET 10) | **Add (already on path via STJ)** |
-| JSON Schema validation | `JsonSchema.Net` 9.x (`json-everything`) | **Add (one new package)** |
-| Schema versioning pattern | In-document `version: <int>` field + ordered C# migration steps in `Application` layer (no library) | **Add (pattern, no package)** |
-| Token/chip composer for steps | Build on existing `MudAutocomplete` + `MudChipSet<T>` from MudBlazor 8.15; do **not** introduce a rich-text editor | **Pattern only, no new package** |
-| MudBlazor upgrade to 9.x | Defer — out-of-scope churn for this milestone (see "What NOT to add") | **Skip** |
-| YamlDotNet | Keep at 16.3.0; treat YAML as a *display/paste* format, JSON as the canonical wire format | **No change** |
-| Markdig | Keep at 0.45.0 | **No change** |
-| Cooklang or third-party recipe DSL | Reject — own the canonical format | **Skip** |
+### Core Technologies (NEW)
 
-## Recommendations by Area
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore` | `10.0.8` | Persist the Data Protection key ring into the existing SQLite DB via `CookBotDbContext` (Bucket 5 — encrypt-at-rest) | `PersistKeysToFileSystem` has documented reliability issues with Docker volumes on Linux (file-move failures on certain NFS/overlay filesystems — [dotnet/aspnetcore#2941](https://github.com/dotnet/aspnetcore/issues/2941), [dotnet/dotnet-docker#4252](https://github.com/dotnet/dotnet-docker/issues/4252)). `PersistKeysToDbContext` colocates the key ring with `cookbot.db` — one persistent volume covers the encrypted AI keys + the data they protect. Cleaner backup story. |
+| `Verify.Xunit` | `31.12.5` | Prompt-snapshot regression tests (Bucket 2 — FUTURE-V1.1-04) | Dependency spec `xunit.extensibility.execution >= 2.9.3` is compatible with the project's `xunit 2.9.2`. NuGet flags it as "legacy" because `Verify.XunitV3` is the successor — but `XunitV3` requires xUnit v3, which would force migrating `bUnit` + 196 tests. Out of scope for v1.3. MIT licensed, GPL-3.0 compatible. |
 
-### 1. Anthropic structured output — the core unlock
+### Supporting Libraries
 
-**Recommendation:** Adopt Anthropic's **Structured Outputs** feature (now GA on the Claude API as of late 2025/early 2026) inside the existing `AnthropicAiService.cs`. Send `output_config.format = { type: "json_schema", schema: <recipe schema> }` on every request that should produce a recipe, and use `strict: true` on tool definitions if/when tools are used.
+No additional supporting packages are required. Specifically:
 
-**Why:** This replaces "tell the model nicely to emit our format" with **constrained decoding** at the inference layer — the model literally cannot emit tokens that violate the schema. This directly solves the milestone's "AI chat reliably emits the canonical format" goal and lets the existing opt-out clause (`PromptBuilderService.cs:201`) be removed without losing reliability.
+- **Image validation:** Magic-byte sniffing with BCL `Span<byte>` (JPEG `FF D8 FF`, PNG `89 50 4E 47`, GIF `47 49 46`, WebP at offset 8 `57 45 42 50`). ~30 lines of pure .NET, no NuGet.
+- **Scheme allowlist for paste-URLs:** `Uri.TryCreate` + `uri.Scheme` check against `["http", "https"]`. BCL only.
+- **Token-cost telemetry:** Anthropic SSE already streams `usage.input_tokens` (in `message_start.message.usage`) and `usage.output_tokens` (cumulative on each `message_delta.usage`) per the [Messages Streaming docs](https://platform.claude.com/docs/en/api/messages-streaming). `AnthropicAiService` adds two fields to `StructuredResult<T>` and writes a row to a new `AiUsageLog` table — no NuGet.
+- **Tags → relational migration (FUTURE-V1.1-02):** Pure EF Core entity + migration. No NuGet.
+- **`LegacyRecipeProjector` deletion (FUTURE-V1.1-03):** Pure code removal. No NuGet.
+- **Dockerfile + compose:** No NuGet. Multi-stage build using existing `mcr.microsoft.com/dotnet/sdk:10.0` + `aspnet:10.0` images.
+- **README format section (FUTURE-V1.1-05):** Documentation only.
 
-**Confidence:** HIGH — feature is GA, documented at `platform.claude.com/docs/en/build-with-claude/structured-outputs`, supports all three curated models in this app (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`).
+### Development Tools
 
-**Key facts to design against:**
-- Request shape: top-level `output_config.format` (current standard). The older `anthropic-beta: structured-outputs-2025-11-13` header + `output_format` parameter still works during a transition window — pin to the GA shape.
-- Strict tool use: `"strict": true` on each tool definition gives guaranteed-valid `input_schema` matching for tool calls (orthogonal to JSON output; can combine).
-- Schema complexity ceilings per request: **20 strict tools**, **24 optional parameters total**, **16 union-typed parameters**. The recipe schema must stay well under these (it will — recipes are flat-ish).
-- `additionalProperties: false` is required on every object node when used with strict mode. Bake this into the schema generator config.
-- Streaming: structured outputs work with the existing SSE streaming flow; partial JSON arrives as `content_block_delta`. Validation/repair runs on the assembled final string, not per-chunk.
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| `Verify.DiffPlex` (transitive via `Verify.Xunit`) | Inline diff display for snapshot mismatches in test output | Auto-included; no explicit dependency needed |
+| `git` | `.verified.txt` snapshot files check in as plain-text diffs | Already in use; no setup change |
 
-**Integration points in existing code:**
-- `src/CookBot.Infrastructure/AI/AnthropicAiService.cs` — extend `SendMessageAsync` / `StreamMessageAsync` to accept an optional `JsonElement schema` (or a typed `RecipeOutputContract`) and serialize it into the request body.
-- `src/CookBot.Application/Services/PromptBuilderService.cs:201` — remove the opt-out clause once structured output is on.
-- `src/CookBot.Web/Components/Pages/AiChat.razor` (`ExtractRecipeContent` ladder) — replace the three-tier fallback with a single deterministic JSON parse, then validate, then **at most one** repair re-prompt.
+## Installation
 
-### 2. Should we replace the raw `HttpClient` with the official Anthropic .NET SDK?
+```xml
+<!-- tests/CookBot.Tests/CookBot.Tests.csproj — Bucket 2 -->
+<PackageReference Include="Verify.Xunit" Version="31.12.5" />
 
-**Recommendation:** **No**, not in this milestone.
-
-The official `Anthropic` NuGet package (v12.17.0, released 2026-04-24, "official Claude SDK for C# as of v10+") exists and exposes `IChatClient` from `Microsoft.Extensions.AI.Abstractions`. It would let you pipe the app through the broader MEAI ecosystem (function invocation, telemetry, etc.).
-
-**Why defer:**
-- The current `AnthropicAiService` is ~one file, already has streaming + curated-model + extended-thinking-filter logic working, and is wired to `IAiService`.
-- The structured-outputs win is a JSON-body change, not a client change. Adding the SDK is independent churn.
-- `Microsoft.Extensions.AI` and `IChatClient` are worth a *separate* future milestone if the app gains a second provider — the existing `IAiService` abstraction already covers that need today.
-- Targets `net8.0` / `netstandard2.0`; works on .NET 10 but adds a transitive dependency (`Microsoft.Extensions.AI.Abstractions >= 10.4.0`) and a learning curve.
-
-**Confidence:** HIGH on "defer" — current code works; SDK is a quality-of-life upgrade, not a feature unlock.
-
-**Reconsider when:** A second AI provider is added, function-calling pipelines get complex, or telemetry/observability becomes a goal.
-
-### 3. JSON Schema generation — `System.Text.Json.Schema.JsonSchemaExporter`
-
-**Recommendation:** Use `System.Text.Json.Schema.JsonSchemaExporter` (BCL, .NET 10). Generate the recipe schema at startup from the canonical C# DTO (`CanonicalRecipe` or similar) and cache it.
-
-**Why:** It's in the BCL — zero new dependencies. It's the same exporter that powers ASP.NET Core OpenAPI, Semantic Kernel, and `Microsoft.Extensions.AI` tool-calling, so the output JSON Schema is already shaped to be consumed by LLM provider APIs (including Anthropic's `output_config.format`). Honors `[JsonPropertyName]`, `[JsonRequired]`, nullability, polymorphism via `[JsonDerivedType]`.
-
-**Confidence:** HIGH — Microsoft Learn docs confirm GA in .NET 9, available in .NET 10. The app already serializes everything via `System.Text.Json`.
-
-**Configuration to set:**
-- `JsonSchemaExporterOptions.TreatNullObliviousAsNonNullable = true` — matches the project's `<Nullable>enable</Nullable>` posture so reference types only become nullable when explicitly `T?`.
-- Post-process the emitted `JsonNode` to inject `additionalProperties: false` on every `object`-typed node (Anthropic strict mode requires this; STJ does not emit it by default).
-
-**Integration points:**
-- New file: `src/CookBot.Application/Recipes/Canonical/CanonicalRecipeSchema.cs` — static `JsonNode Schema { get; }` cached singleton.
-- DI: register as `Singleton<CanonicalRecipeSchema>` so all callers share the cached schema and the post-processed-for-Anthropic variant.
-
-### 4. JSON Schema validation — `JsonSchema.Net` 9.x
-
-**Recommendation:** Add `JsonSchema.Net` (the `json-everything` package, currently 9.2.0) as a single new dependency for **runtime validation** of inbound recipes (AI responses, paste-in JSON, imported `.cookbook.json`).
-
-**Why this and not the alternatives:**
-
-| Option | Verdict | Reason |
-|--------|---------|--------|
-| `JsonSchema.Net` | **Pick** | First-party `System.Text.Json` integration (no `JObject` round-trips), supports JSON Schema drafts 6, 7, 2019-09, **2020-12** (which is what `JsonSchemaExporter` emits), MIT, actively maintained, used by `Microsoft.Extensions.AI`. |
-| `NJsonSchema` | Skip | Mature and feature-rich (RicoSuter), but historically `Newtonsoft.Json`-rooted; the codebase is 100% `System.Text.Json`. Adding `Newtonsoft.Json` as a transitive is unnecessary churn. |
-| `Newtonsoft.Json.Schema` | Skip | Commercial license above small-project usage caps. GPL-3.0 compatibility unclear; not worth the friction. |
-| `LateApexEarlySpeed.JsonSchema` | Skip | Faster in micro-benchmarks but smaller surface, less mainstream — premature optimization for a single-host self-host app. |
-
-**Confidence:** HIGH on `JsonSchema.Net`; the STJ-native angle is decisive given the rest of the codebase.
-
-**License:** MIT — GPL-3.0 compatible.
-
-**Integration points:**
-- `src/CookBot.Application/Recipes/Canonical/CanonicalRecipeValidator.cs` — `ValidationResult Validate(JsonNode payload)`, returns either parsed `CanonicalRecipe` or a structured list of errors (path + message).
-- `src/CookBot.Web/Components/Pages/AiChat.razor` — call validator after the model returns; on failure, send **one** repair prompt that includes the error list, then surface a clear UI failure.
-- `src/CookBot.Web/Services/CookbookTransferService.cs` — validate incoming `.cookbook.json` before EF Core mapping; on validation failure, run the version-migration pipeline (see §5).
-
-### 5. Canonical format & schema versioning — pattern, not package
-
-**Recommendation:** Define the canonical format as a single C# DTO tree under `src/CookBot.Application/Recipes/Canonical/`, with an explicit top-level `int Version` field. Keep migrations as ordered, pure functions in code (e.g. `IRecipeMigration` with `int FromVersion`, `JsonNode Apply(JsonNode)`). No third-party migration framework needed at this scale.
-
-**Layout:**
-
-```
-src/CookBot.Application/Recipes/Canonical/
-  CanonicalRecipe.cs              # current-version DTO
-  CanonicalRecipeSchema.cs        # JsonSchemaExporter-cached schema
-  CanonicalRecipeValidator.cs     # JsonSchema.Net validator
-  Migrations/
-    IRecipeMigration.cs
-    Migration_V1_To_V2.cs         # current `.cookbook.json` v1 -> canonical v2
-    RecipeMigrationPipeline.cs    # reads version, runs ordered migrations to current
+<!-- src/CookBot.Infrastructure/CookBot.Infrastructure.csproj — Bucket 5 -->
+<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.8" />
 ```
 
-**Why no library:**
-- Schema migration libraries (e.g. JSON-Schema-Migrate ports) are heavier than the problem.
-- The .NET community standard for JSON document upgrades is "read `version`, switch on it, mutate `JsonNode`" — clean, debuggable, testable with xUnit.
-- EF Core migrations already cover *database* schema; this is *document* schema.
+That is the complete v1.3 NuGet additions list.
 
-**Backward-compatibility path required by the milestone constraint:**
-- `.cookbook.json` files in the wild today have `SchemaVersion = 1` on the **outer envelope** (`CookbookTransferDocument`) but recipes inside are not version-stamped. Migration step v1 → v2 inserts `version: 2` on every recipe and rewrites `prepTimeMinutes`/`cookTimeMinutes`/`IsSection`/`localId` into the canonical names. Outer envelope `SchemaVersion` bumps to 2 in the same step.
+## Alternatives Considered
 
-**Confidence:** HIGH — pattern is well-established; the codebase already has `CookbookTransferDocument.SchemaVersion = 1` so the precedent exists.
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| `PersistKeysToDbContext` (EF Core key ring) | `PersistKeysToFileSystem` | Non-containerized self-hosters who already mount a stable local directory and don't want a `DataProtectionKeys` table in the DB. Avoid for Docker due to Linux filesystem issues. |
+| `PersistKeysToDbContext` (no at-rest encryption) | DPAPI (Windows) / X.509 cert / Azure KV | Cross-machine deploys where the SQLite file might be exfiltrated separately from the key ring. v1.3's trusted-LAN posture treats DB-file access as already-compromised — no value-add. |
+| `Verify.Xunit` 31.12.5 | `Verify.XunitV3` 31.12.5+ | Only after the project migrates `xunit` → v3 (and re-verifies `bUnit` compatibility). Separate milestone concern. |
+| Magic-byte sniffing | `SixLabors.ImageSharp` 3.1.12 | **REJECTED** for GPL-3.0 license incompatibility (see What NOT to Use). |
+| Magic-byte sniffing | `Magick.NET` | Q16 native binaries are large (50+ MB); GPL-3.0 compat is murky (ImageMagick license has clauses that need legal review). For v1.3's "validate-not-process" need, BCL byte-comparison is sufficient. |
+| Anthropic SSE token capture (no NuGet) | Adding a tokenizer library (`Tiktoken`-equivalent for Claude) | Would let us count tokens *before* sending. Anthropic doesn't publish their tokenizer; community libs are approximations. Server-returned `usage.*` is authoritative. |
 
-**Integration points:**
-- `src/CookBot.Application/DTOs/CookbookTransferDtos.cs` — bump `SchemaVersion` constant; add `MinimumSupportedVersion`.
-- `src/CookBot.Web/Services/CookbookTransferService.cs` — call `RecipeMigrationPipeline.UpgradeToCurrent(json)` before deserialization.
-- xUnit tests under `tests/CookBot.Tests/Recipes/Canonical/` — golden-file v1 sample + assertion that it round-trips through the migration to v2 lossless.
+## What NOT to Use
 
-### 6. Token/chip step composer — pattern over `MudAutocomplete` + `MudChipSet`
+| Rejected | Reason | Use Instead |
+|----------|--------|-------------|
+| `SixLabors.ImageSharp` | Six Labors Split License is Apache 2.0 for qualifying open-source projects, but Apache 2.0 ↔ GPL-3.0 has a patent-termination clause conflict per FSF guidance. Using ImageSharp in a GPL-3.0 repo requires a commercial license. Hard blocker. | Magic-byte header check with BCL `Span<byte>` |
+| `Newtonsoft.Json` | Project enforces 100% `System.Text.Json` since v1.0; adding Newtonsoft would introduce a second JSON runtime with subtly different default behaviors (date formats, null handling, enum casing) and risk canonical-doc round-trip drift | `System.Text.Json` (BCL, already in use) |
+| `NJsonSchema` | Enforced anti-pattern since v1.1 Phase 1. `JsonSchema.Net` already handles runtime schema validation for the canonical `RecipeDocument` | `JsonSchema.Net` 9.2.* (already in the Application project) |
+| `Microsoft.Extensions.AI` | Enforced anti-pattern. Adds an abstraction layer over `AnthropicAiService`'s deliberate direct-`HttpClient` design; would conflict with `output_config.format` structured-output transport and the existing `SecretRedactor` + `PromptInjectionGuard` interception points | `AnthropicAiService` (existing direct-HttpClient implementation) |
+| Official Anthropic NuGet (`Anthropic` package) | Enforced anti-pattern. Wraps the HTTP client and would conflict with `output_config.format` and the existing redaction/injection guards. The CLAUDE.md note "the existing HttpClient in AnthropicAiService is sufficient and structured-output is a body-shape change, not a client change" is the binding constraint | Existing `AnthropicAiService` |
+| `MudBlazor` | Stripped wholesale in v1.2 Phase 7 (repo-wide `Mud[A-Z]` grep returns zero hits). Re-adding would conflict with the custom Razor component system and the design tokens in `cookbot-design.css`. | Custom Cb atoms + `cookbot-design.css` design tokens |
+| `Microsoft.AspNetCore.Identity.*` middleware | Trusted-LAN auth posture is preserved for v1.3. `CookBotSettings.AuthMode` is reserved-unused. Identity middleware would force a Blazor pipeline rewrite that's out of scope. | Existing `CurrentUserService` + PBKDF2 password hashing |
+| `Azure.Extensions.AspNetCore.DataProtection.Blobs` / `.Keys` | Azure-only. CookBot is self-hosted on local disk/container, not Azure. | `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore` (DB-backed key ring) |
+| `Verify.XunitV3` | Requires `xunit.v3.extensibility.core >= 3.2.2` — incompatible with the project's `xunit 2.9.2`. Migrating xUnit is a separate milestone. | `Verify.Xunit` 31.12.5 |
+| Custom AES-GCM encryption | Hand-rolled crypto risks: IV reuse, missing AAD, custom key derivation. `IDataProtector` exists for exactly this case. | `IDataProtectionProvider.CreateProtector("AiApiKey.v1")` |
+| `Magick.NET` / `ImageMagick` | License complexity for GPL-3.0; large native binary footprint; overkill for "is this even an image" validation. | Magic-byte BCL check |
 
-**Recommendation:** Build the no-syntax step composer using **what MudBlazor 8.15 already ships**:
+## Integration Points with Existing Services
 
-- `MudAutocomplete<Ingredient>` — typeahead pinned to the existing 600+ ingredient seed (`seeds/ingredients.json`)
-- `MudChipSet<T>` with `MudChip<T>` instances, each chip carrying an `int IngredientId` + display text
-- `MudIconButton` for an inline "+ timer" affordance that prompts for a duration via `MudNumericField` and inserts a typed chip
+| New Capability | Touches | How |
+|---------------|---------|-----|
+| Data Protection key ring | `CookBotDbContext` (`CookBot.Infrastructure`) | Implement `IDataProtectionKeyContext`; add `DbSet<DataProtectionKey>`; new EF migration adds `DataProtectionKeys` table |
+| Data Protection key ring | `Program.cs` (`CookBot.Web`) | `builder.Services.AddDataProtection().SetApplicationName("FreelovesCookBot").PersistKeysToDbContext<CookBotDbContext>()` |
+| AI key encrypt-at-rest | `AiApiKeyResolutionService` (`CookBot.Web`) | Inject `IDataProtectionProvider`; `Unprotect()` on read with `CreateProtector("AiApiKey.v1")` |
+| AI key encrypt-at-rest | `UserProfile` save path | `Protect()` on write; column stays `string?`, encrypted blob replaces plaintext in the same column |
+| AI key encrypt-at-rest | `DatabaseSeeder.SeedAsync` | One-time upgrade pass: detect plaintext rows by sentinel/version prefix, re-protect them |
+| Token-cost telemetry | `AnthropicAiService.SendStructuredAsync` / streaming path | Read `message_start.message.usage.input_tokens` + cumulative `message_delta.usage.output_tokens` from existing SSE parsing loop |
+| Token-cost telemetry | `StructuredResult<T>` record | Add `int InputTokens`, `int OutputTokens` fields |
+| Token-cost telemetry | New `AiUsageLog` entity + migration | `(Id, UserId, KeyOwnerId, ModelName, InputTokens, OutputTokens, EstimatedCostUsd, Timestamp)`; composite index on `(KeyOwnerId, Timestamp)` for Profile-widget queries |
+| Prompt snapshot tests | `tests/CookBot.Tests/CookBot.Tests.csproj` | Add `Verify.Xunit 31.12.5`; decorate test classes with `[UsesVerify]`; snapshot files live in `tests/CookBot.Tests/Snapshots/` via `Verifier.DerivePathInfo` |
+| Schema v3 (photos + description + per-step temp) | `RecipeUpcasterChain` | New V2→V3 step; pure POCO, no NuGet |
+| Schema v3 | `DatabaseSeeder.SeedAsync` | `IDatabaseBackupService` backup fires before the `AddRecipePhotoUrl` / `AddRecipeDescription` migrations per existing pattern; no new service |
+| File upload | `wwwroot/uploads/` OR `ContentRootPath/uploads/` directory; `.gitignore` add | Blazor Server `<InputFile OnChange=...>` with `OpenReadStream(maxAllowedSize)`; default 500 KB limit, pass explicit `maxAllowedSize` (recommended 5 MB). Use `Path.GetRandomFileName()` not client filename. Validate via magic-byte sniffing, NEVER trust `IBrowserFile.ContentType`. |
 
-The step itself is modeled as `List<StepToken>` where `StepToken` is one of `TextToken("preheat oven to ")`, `IngredientToken(IngredientId, DisplayName)`, `TimerToken(TimeSpan)`. Serialization to the canonical JSON is a 1:1 mapping. Round-trip back to the YAML *display* form (if still kept for paste-in) is a small renderer.
+## Trusted-LAN Posture Acknowledgment
 
-**Why not a rich-text editor (TinyMCE / Quill / Tiptap / Syncfusion / Blazored.TextEditor):**
-- Rich-text editors store HTML or Delta JSON; both leak presentation into the canonical format and fight the "schema validates everything" goal.
-- Mention/token rich-text in Blazor universally requires JS interop wrappers (Tribute.js, Quill mention modules) — the project explicitly minimizes JS (only `cooking-timers.js` and `download.js`).
-- Licensing — TinyMCE and Syncfusion have commercial tiers that complicate GPL-3.0 status; Blazored.TextEditor (Quill) and Tiptap are MIT but still drag in heavy JS.
-- The composer surface area is small: text + ingredient chips + timer chips. A custom Razor component on top of MudBlazor primitives is ~300 lines and stays in C#.
+v1.3's "self-hostable for others" goal does NOT flip the trusted-LAN posture. Out of scope for the stack:
 
-**Confidence:** HIGH on the pattern — MudBlazor's chip + autocomplete primitives are explicitly designed for this composition (community feature requests in `MudBlazor#328`, `#7423` are exactly this scenario, and the answer has been "compose the existing primitives").
-
-**Integration points:**
-- New: `src/CookBot.Web/Components/Recipes/StepComposer.razor` (+ `.razor.cs`) — replaces the raw textarea step entry in `RecipeEditor.razor`.
-- New: `src/CookBot.Application/Recipes/Canonical/StepToken.cs` — discriminated union (`[JsonDerivedType]` polymorphism) for canonical persistence.
-- `RecipeEditor.razor` — wire `StepComposer` into the step list; remove the `[name](#id)` syntax help text.
-- `RecipeFormatParser.cs` — keeps responsibility for **paste-in** parsing (free-form / numbered / YAML), but emits `List<StepToken>` directly so there's a single internal representation.
-
-### 7. YAML round-trip — keep YamlDotNet 16.3.0 as a *display/paste* layer only
-
-**Recommendation:** Keep `YamlDotNet` 16.3.0 (current latest is 17.0.1; upgrade is optional and orthogonal to this milestone). Demote YAML from "wire format" to "human-paste / human-display format only." JSON (validated against the schema) becomes the **canonical** representation everywhere — DB JSON columns, AI request/response, `.cookbook.json` export, in-memory.
-
-**Why:**
-- YAML's appeal was human-readable paste-in; it's still good at that.
-- YAML's downsides for our use: no comment-preserving round-trip (long-standing YamlDotNet limitation, see `aaubry/YamlDotNet#96`, `#152`, `#451`), implicit-typing footguns (Norway problem, version strings auto-quoted differently across libraries), no native JSON-Schema toolchain.
-- Anthropic Structured Outputs only accepts JSON Schema, not YAML schema.
-- A single canonical JSON eliminates the "three competing serializations" problem flagged in `.planning/codebase/CONCERNS.md` §1–4.
-
-**No alternative YAML library is needed.** Other .NET YAML options (YamlConfiguration, custom forks) don't materially solve the round-trip-comments gap, and we don't need it because YAML is no longer the canonical store.
-
-**Confidence:** HIGH on the demotion strategy; MEDIUM on whether to bump YamlDotNet to 17.0.1 in the same milestone — acceptable but not required.
-
-**Integration points:**
-- `src/CookBot.Application/Services/RecipeFormatParser.cs` — keep YAML *parser* path; redirect output to `CanonicalRecipe` instead of the current ad-hoc shape.
-- Add `CanonicalRecipeYamlRenderer` for the "Copy as YAML" affordance if any UX still wants it (likely just the prompt builder).
-
-### 8. Cooklang and other domain DSLs — explicit reject
-
-**Recommendation:** Do **not** adopt Cooklang (or RecipeML, JSON-LD `Recipe`, MealMaster) as the canonical format.
-
-**Why:**
-- Cooklang is a fine plain-text format but binds the recipe body to its specific `@ingredient{quantity}` / `#cookware` / `~timer{}` syntax, which is exactly the "users shouldn't have to know our special syntax" *anti-goal* of this milestone.
-- Schema.org `Recipe` (JSON-LD) is great for SEO/interop *export* but is loosely typed (free-text instructions) and undermines structured-output/validation guarantees.
-- Owning the canonical format (with version field) lets us add per-step temperature, ingredient substitutions, expiration dates, equipment requirements without negotiating with an external spec.
-
-**Optional follow-up (not this milestone):** Expose a one-way *export* to Schema.org `Recipe` JSON-LD if SEO becomes a goal. Out of scope now.
-
-**Confidence:** HIGH.
-
-## What NOT to Add (and Why)
-
-| Not adding | Why |
-|------------|-----|
-| Official `Anthropic` NuGet SDK (v12.17.0) | Existing `HttpClient`-based service works; structured outputs is a body-shape change, not a client change. Re-evaluate when a second provider is added. |
-| `Microsoft.Extensions.AI` / `IChatClient` | Same reason — `IAiService` already abstracts the provider; no current driver for the broader MEAI surface. |
-| MudBlazor 9.x upgrade (current latest 9.4.0) | Major version with breaking changes; not required to deliver this milestone. The chip/autocomplete primitives we need are stable in 8.15. Treat as a separate maintenance milestone. |
-| `Newtonsoft.Json` / `Newtonsoft.Json.Schema` | App is 100% `System.Text.Json`; adding Newtonsoft pulls in ~400 KB and a parallel JSON model. License of `Newtonsoft.Json.Schema` is also commercial above small-project caps. |
-| `NJsonSchema` | Newtonsoft-rooted; STJ alternative `JsonSchema.Net` is a cleaner fit. |
-| Cooklang / RecipeML / Schema.org as canonical | Defeats "no special syntax" goal and gives up control over versioning. |
-| TinyMCE / Quill / Tiptap / Syncfusion / Blazored.TextEditor | Rich-text editors don't fit a typed-token model; all require JS interop; licensing varies; over-scoped for the composer's actual surface. |
-| A second YAML library | YamlDotNet 16.3.0 is sufficient as a paste/display layer. The comment-round-trip pain disappears once YAML is no longer canonical. |
-| A schema migration framework | At ~one or two version transitions, ordered C# functions are simpler than any library. |
-| OpenAI / Gemini / local-model clients | Out of milestone scope per `PROJECT.md`; structured outputs design must stay portable across `IAiService` but no second implementation lands here. |
-| Identity middleware / OAuth | Out of scope per `PROJECT.md`; trusted-LAN posture unchanged. |
-| Containerization (Docker), CI workflows | Out of scope per `PROJECT.md`. |
-
-## Integration Points (where the additions land in the existing tree)
-
-```
-src/
-  CookBot.Application/
-    Recipes/
-      Canonical/                                  # NEW namespace
-        CanonicalRecipe.cs                        # NEW — versioned DTO (with `Version` int)
-        StepToken.cs                              # NEW — text/ingredient/timer discriminated union
-        CanonicalRecipeSchema.cs                  # NEW — JsonSchemaExporter cache + Anthropic post-processing
-        CanonicalRecipeValidator.cs               # NEW — JsonSchema.Net wrapper, error surface
-        Migrations/
-          IRecipeMigration.cs                     # NEW
-          Migration_V1_To_V2.cs                   # NEW
-          RecipeMigrationPipeline.cs              # NEW
-    Services/
-      RecipeFormatParser.cs                       # CHANGE — emit CanonicalRecipe instead of legacy shape
-      PromptBuilderService.cs                     # CHANGE — remove opt-out clause; embed schema reference
-  CookBot.Infrastructure/
-    AI/
-      AnthropicAiService.cs                       # CHANGE — accept JSON schema; send output_config.format; strict tools
-  CookBot.Web/
-    Components/
-      Pages/
-        AiChat.razor                              # CHANGE — replace 3-tier extractor with parse→validate→repair-once
-        RecipeEditor.razor                        # CHANGE — replace step textarea with <StepComposer>
-      Recipes/                                    # NEW folder
-        StepComposer.razor + .razor.cs            # NEW — MudAutocomplete + MudChipSet composition
-        IngredientChip.razor                      # NEW
-        TimerChip.razor                           # NEW
-    Services/
-      CookbookTransferService.cs                  # CHANGE — run RecipeMigrationPipeline on import
-tests/
-  CookBot.Tests/
-    Recipes/Canonical/                            # NEW — schema gen + validator + migration tests
-```
-
-## Installation (additive — single new package)
-
-```bash
-# Single new dependency
-dotnet add src/CookBot.Application package JsonSchema.Net --version 9.2.*
-
-# Nothing else — System.Text.Json.Schema.JsonSchemaExporter is BCL.
-# Anthropic structured outputs is an HTTP body change, not a package.
-# MudAutocomplete/MudChipSet are already in MudBlazor 8.15.
-```
+- TLS/HTTPS cert hardening — defer to reverse-proxy guidance in the deploy doc (`nginx`/`Caddy` in front of `localhost:7000`)
+- Identity middleware / OAuth / SSO
+- Rate limiting / DoS protection
+- `IDataProtector` at-rest encryption of the *key ring itself* (DPAPI / X.509 / Azure KV) — accepted: if attacker has the SQLite file, they have the key ring; document this in the deploy guide rather than pretend otherwise
 
 ## Confidence Assessment
 
-| Area | Confidence | Reason |
-|------|------------|--------|
-| Anthropic Structured Outputs adoption | HIGH | GA documented at platform.claude.com; supported on all three curated models in this app (Haiku 4.5 / Sonnet 4.6 / Opus 4.7); confirmed via Anthropic platform docs and multiple independent writeups. |
-| Defer official Anthropic .NET SDK | HIGH | Existing service is small and works; no provider abstraction need this milestone. |
-| `JsonSchemaExporter` (BCL) | HIGH | Microsoft Learn confirms .NET 10 availability; powers ASP.NET Core OpenAPI and `Microsoft.Extensions.AI`. |
-| `JsonSchema.Net` 9.x | HIGH | json-everything is the de facto STJ-native choice; supports draft 2020-12 (matches exporter output); MIT-licensed; actively maintained. |
-| Token composer on MudAutocomplete + MudChipSet | HIGH | Components exist and are stable in MudBlazor 8.15; community feature requests (`#328`, `#7423`) confirm this is the intended composition. |
-| Skip MudBlazor 9.x upgrade | HIGH | 9.4.0 (released 2026-04-22) is current; upgrading is optional churn unrelated to milestone goals. |
-| Demote YAML, JSON canonical | HIGH | Anthropic structured outputs is JSON-only; comment round-trip in YAML is a known unsolved area in YamlDotNet; eliminates "three serializations" problem. |
-| Reject Cooklang | HIGH | Direct conflict with "no special syntax" milestone goal. |
-| Schema-versioning pattern (no library) | HIGH | Standard practice; existing `CookbookTransferDocument.SchemaVersion = 1` already establishes the pattern in-tree. |
-| Skip rich-text editor libraries | HIGH | None match the typed-token model; all add JS interop; license/scope mismatch. |
+| Area | Confidence | Basis |
+|------|------------|-------|
+| `Verify.Xunit` 31.12.5 ↔ xUnit 2.9.2 compatibility | HIGH | NuGet package dependency spec: `xunit.extensibility.execution >= 2.9.3` — direct match |
+| ImageSharp GPL-3.0 incompatibility | HIGH | Six Labors Split License text read from GitHub; Apache 2.0 ↔ GPL-3.0 conflict is established FSF guidance |
+| `PersistKeysToDbContext` for Docker | HIGH | Official MS docs for .NET 10; `PersistKeysToFileSystem` Docker volume issues confirmed in dotnet/aspnetcore + dotnet/dotnet-docker GitHub issues |
+| Token telemetry — no new NuGet | HIGH | SSE event shapes verified from official Anthropic streaming docs |
+| Magic-byte validation without ImageSharp | HIGH | Documented BCL approach in multiple ASP.NET Core security guidance pages |
+| Blazor Server `<InputFile>` patterns | HIGH | Official .NET 10 file-uploads docs explicitly cover `OpenReadStream(maxAllowedSize)`, ContentType-untrusted warning, and `ContentRootPath`-over-`wwwroot` storage |
 
-## Open Questions for Roadmap
+## Open Questions for `/gsd-discuss-phase` (Photos / Encrypt-at-rest phases)
 
-These are not blockers — flag for phase-specific research later if needed:
+These are scope/architecture questions for the relevant phase plan — NOT stack questions. The stack answer is the same either way.
 
-1. **Schema complexity headroom** — The recipe schema with ingredient substitutions + per-step temperature + equipment will need to stay under Anthropic's 24-optional-parameter total. Worth a sanity-check pass once the new fields are locked down.
-2. **Streaming + structured outputs UX** — Confirm during phase build that partial JSON streaming chunks render acceptably in `AiChat.razor` (the user sees building JSON, not building markdown). May want a "compose then reveal" mode.
-3. **Repair prompt budget** — One repair attempt on validation failure is the proposed budget; verify in testing that this is enough with Sonnet 4.6 / Opus 4.7 once schemas stabilize.
+1. **File upload storage layout.** PROJECT.md (final-decision source) confirms "file upload AND paste-URL." Open: `wwwroot/uploads/{recipe-guid}.{ext}` (browser-fetchable directly, simpler) vs `ContentRootPath/uploads/{recipe-guid}.{ext}` (out-of-wwwroot, needs a Blazor Server route handler). The Microsoft recommendation leans `ContentRootPath` (avoids accidentally serving non-image content). Decide during the photos-phase plan.
+2. **Data Protection key upgrade strategy.** Existing plaintext `UserProfile.AiApiKey` rows need a one-time upgrade. Options: (a) sentinel-prefix the encrypted blob (e.g., `enc:v1:<base64>`), or (b) add a `UserProfile.AiApiKeyVersion` column. (a) is simpler. Decide during the encrypt-at-rest phase plan.
+3. **`PersistKeysToDbContext` migration ordering.** The new `DataProtectionKeys` table migration must run *before* the AiApiKey re-encryption pass in `DatabaseSeeder.SeedAsync`. Migration order is forward-only; verify migration name sort order at phase-plan time.
+4. **AI key sharing semantics under encrypt-at-rest.** `AiApiKeyShareService` currently lets recipient resolve a sharer's key without seeing it. Under `IDataProtector` with `SetApplicationName("FreelovesCookBot")`, the same protector scope covers all keys → recipient can `Unprotect` shared keys via `AiApiKeyResolutionService` (which does the unprotect server-side; recipient still never sees plaintext). Confirm trust model during the encrypt-at-rest phase plan.
 
 ## Sources
 
-- [Anthropic Structured Outputs (official docs)](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) — HIGH; GA, request shape, model coverage, complexity limits, strict tool use.
-- [Anthropic C# SDK docs](https://platform.claude.com/docs/en/api/sdks/csharp) — HIGH; confirms official SDK identity.
-- [Anthropic NuGet package (v12.17.0, 2026-04-24)](https://www.nuget.org/packages/Anthropic/) — HIGH; current version, MEAI integration, target frameworks.
-- [Microsoft Learn — JsonSchemaExporter (.NET 10)](https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/extract-schema) — HIGH; BCL availability, API shape.
-- [Microsoft Learn — JsonSchemaExporter API reference](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.schema.jsonschemaexporter?view=net-10.0) — HIGH.
-- [JsonSchema.Net on NuGet (9.2.0)](https://www.nuget.org/packages/JsonSchema.Net) — HIGH; current version, license, draft support.
-- [MudBlazor NuGet (9.4.0, 2026-04-22)](https://www.nuget.org/packages/MudBlazor) — HIGH; informs the "skip the 9.x upgrade this milestone" decision.
-- [MudBlazor Chips component docs](https://mudblazor.com/components/chips) — HIGH; confirms `MudChipSet`/`MudChip` API.
-- [MudBlazor token-input feature requests #328](https://github.com/MudBlazor/MudBlazor/issues/328), [#7423](https://github.com/MudBlazor/MudBlazor/issues/7423) — MEDIUM; community confirmation that the autocomplete+chipset composition is the intended pattern.
-- [YamlDotNet comment-preservation issues #96](https://github.com/aaubry/YamlDotNet/issues/96), [#152](https://github.com/aaubry/YamlDotNet/issues/152), [#451](https://github.com/aaubry/YamlDotNet/issues/451) — HIGH; documents the long-standing limitation that motivates demoting YAML from canonical.
-- [YamlDotNet on NuGet (17.0.1)](https://www.nuget.org/packages/YamlDotNet) — HIGH; confirms current version (we stay on 16.3.0 for this milestone).
-- [Cooklang format comparison](https://cooklang.org/blog/41-recipe-formats-for-developers/) — HIGH; confirms Cooklang is a special-syntax format (rejected for the no-syntax goal).
-- [JSON Schema versioning guidance — json-everything example](https://docs.json-everything.net/schema/examples/version-selection/) — MEDIUM; pattern reference for in-document version field.
-- [What's new in System.Text.Json (.NET 9 baseline)](https://devblogs.microsoft.com/dotnet/system-text-json-in-dotnet-9/) — HIGH; JsonSchemaExporter introduction.
-
----
-
-*Stack additions research: 2026-04-25*
+- [Verify.Xunit 31.12.5 on NuGet](https://www.nuget.org/packages/Verify.Xunit/31.12.5)
+- [Verify.XunitV3 on NuGet](https://www.nuget.org/packages/Verify.XunitV3)
+- [SixLabors ImageSharp LICENSE on GitHub](https://github.com/sixlabors/ImageSharp/blob/main/LICENSE)
+- [SixLabors.ImageSharp on NuGet](https://www.nuget.org/packages/SixLabors.ImageSharp)
+- [Microsoft.AspNetCore.DataProtection.EntityFrameworkCore on NuGet](https://www.nuget.org/packages/Microsoft.AspNetCore.DataProtection.EntityFrameworkCore)
+- [ASP.NET Core Data Protection: Key storage providers (.NET 10)](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/implementation/key-storage-providers?view=aspnetcore-10.0)
+- [ASP.NET Core Data Protection: Key encryption at rest (.NET 10)](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/implementation/key-encryption-at-rest?view=aspnetcore-10.0)
+- [ASP.NET Core Data Protection: Configuration (.NET 10)](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0)
+- [ASP.NET Core Blazor file uploads (.NET 10)](https://learn.microsoft.com/en-us/aspnet/core/blazor/file-uploads?view=aspnetcore-10.0)
+- [Anthropic Messages Streaming docs](https://platform.claude.com/docs/en/api/messages-streaming)
+- [PersistKeysToFileSystem Docker Linux issues — dotnet/aspnetcore#2941](https://github.com/dotnet/aspnetcore/issues/2941)
+- [PersistKeysToFileSystem Docker Linux issues — dotnet/dotnet-docker#4252](https://github.com/dotnet/dotnet-docker/issues/4252)
