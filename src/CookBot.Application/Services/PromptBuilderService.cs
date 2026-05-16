@@ -71,7 +71,7 @@ public class PromptBuilderService
         return result.Trim();
     }
 
-    /// <summary>System prompt for in-flow cooking step assistance (concise, step-focused).</summary>
+    // System prompt for in-flow cooking step assistance (concise, step-focused).
     public string BuildCookingStepAssistSystemPrompt(UserProfile profile)
     {
         var prefs = ResolveTemplate(
@@ -124,7 +124,7 @@ public class PromptBuilderService
                 sb.AppendLine("Use cups, tablespoons, and teaspoons for volume measurements.");
                 sb.AppendLine("Use grams and kilograms for weight measurements.");
                 sb.AppendLine("NEVER use fluid ounces, ounces, or pounds — Canadians don't use those.");
-                sb.AppendLine("Use Fahrenheit for oven temperatures.");
+                sb.AppendLine("Use Fahrenheit for baking temperatures.");
                 break;
             case UnitSystem.Metric:
                 sb.AppendLine("Preferred unit system: Metric.");
@@ -194,7 +194,7 @@ public class PromptBuilderService
             switch (profile.UnitSystem)
             {
                 case UnitSystem.Canadian:
-                    sb.AppendLine("- Units: Canadian-style — use cups/tbsp/tsp for volume, grams/kg for weight. NEVER use ounces or pounds. Use Fahrenheit for oven temps.");
+                    sb.AppendLine("- Units: Canadian-style — use cups/tbsp/tsp for volume, grams/kg for weight. NEVER use ounces or pounds. Use Fahrenheit for baking temps.");
                     break;
                 case UnitSystem.Metric:
                     sb.AppendLine("- Units: Metric — use mL/L for volume, g/kg for weight, Celsius for temperatures.");
