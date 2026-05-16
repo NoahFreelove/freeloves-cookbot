@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddSingleton<RecipeValidator>();
         services.AddSingleton<JsonRecipeSerializer>();
         services.AddSingleton<IRecipeUpcaster, Migration_V1_To_V2>();
+        services.AddSingleton<IRecipeUpcaster, Migration_V2_To_V3>();
         services.AddSingleton<RecipeUpcasterChain>();
 
         // Phase 2 Plan 03 (AI-02 / AI-03). Orchestrator is stateless, but IStructuredAiService
