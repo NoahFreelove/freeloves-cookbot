@@ -46,6 +46,7 @@ public sealed class CookbookTransferService
         var cookbook = await _db.Cookbooks
             .AsNoTracking()
             .Include(c => c.Recipes).ThenInclude(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+            .Include(c => c.Recipes).ThenInclude(r => r.Tags) // CLEAN-02: read tags from relational table
             .FirstOrDefaultAsync(c => c.Id == cookbookId, cancellationToken);
 
         if (cookbook == null) return null;
@@ -65,15 +66,8 @@ public sealed class CookbookTransferService
 
         foreach (var recipe in cookbook.Recipes.OrderByDescending(r => r.UpdatedAt))
         {
-            List<string> tags;
-            try
-            {
-                tags = JsonSerializer.Deserialize<List<string>>(recipe.TagsJson) ?? new();
-            }
-            catch
-            {
-                tags = new();
-            }
+            // CLEAN-02 (Plan 08): read tags from relational RecipeTag collection (.Include(r => r.Tags) above).
+            List<string> tags = recipe.Tags.Select(t => t.Name).ToList();
 
             var tr = new CookbookTransferRecipe
             {

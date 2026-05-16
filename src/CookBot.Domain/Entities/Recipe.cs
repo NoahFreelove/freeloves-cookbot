@@ -24,4 +24,5 @@ public class Recipe
     public Cookbook Cookbook { get; set; } = null!;
     public List<RecipeStep> Steps { get; set; } = new();
     public ICollection<RecipeIngredient> RecipeIngredients { get; set; } = new List<RecipeIngredient>();
+    public ICollection<RecipeTag> Tags { get; set; } = new List<RecipeTag>();
 }

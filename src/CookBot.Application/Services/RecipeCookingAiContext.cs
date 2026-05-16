@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using CookBot.Application.AI;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
@@ -16,7 +15,9 @@ public static class RecipeCookingAiContext
         var baseServings = recipe.Servings > 0 ? recipe.Servings : 1;
         targetServings = Math.Max(1, targetServings);
 
-        var tags = JsonSerializer.Deserialize<List<string>>(recipe.TagsJson ?? "[]") ?? new();
+        // CLEAN-02 (Plan 08): read tags from relational RecipeTag collection.
+        // Caller must .Include(r => r.Tags) on the Recipe query — without it EF returns empty.
+        var tags = recipe.Tags.Select(t => t.Name).ToList();
         var ingredients = recipe.RecipeIngredients
             .OrderBy(ri => ri.RecipeLocalId)
             .Select(ri => new ParsedIngredient

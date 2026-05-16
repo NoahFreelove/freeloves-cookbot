@@ -378,6 +378,7 @@
                     .Include(r => r.Cookbook)
                     .Include(r => r.Steps)
                     .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
+                    .Include(r => r.Tags) // CLEAN-02: tag read switches to relational path (Plan 08)
                     .FirstOrDefaultAsync(r => r.Id == RecipeId);
 
                 if (_existingRecipe != null)
@@ -417,7 +418,8 @@
         _prepTimeMinutes = recipe.PrepTimeMinutes;
         _cookTimeMinutes = recipe.CookTimeMinutes;
 
-        _tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(recipe.TagsJson ?? "[]") ?? new();
+        // CLEAN-02 (Plan 08): read tags from relational RecipeTag collection (.Include(r => r.Tags) in load query above).
+        _tags = recipe.Tags.Select(t => t.Name).ToList();
 
         _ingredients = recipe.RecipeIngredients
             .OrderBy(ri => ri.RecipeLocalId)
