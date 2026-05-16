@@ -2,7 +2,6 @@ using CookBot.Application.DTOs;
 using CookBot.Application.Recipes;
 using CookBot.Infrastructure;
 using CookBot.Infrastructure.Data;
-using CookBot.Infrastructure.Data.Migrations.Helpers;
 using CookBot.Web.Components;
 using CookBot.Web.Services;
 using QuestPDF.Infrastructure;
@@ -44,12 +43,10 @@ using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<CookBotDbContext>();
     var backupService = scope.ServiceProvider.GetRequiredService<IDatabaseBackupService>();
-    var projector = scope.ServiceProvider.GetRequiredService<LegacyRecipeProjector>();
     var canonicalSerializer = scope.ServiceProvider.GetRequiredService<JsonRecipeSerializer>();
     await DatabaseSeeder.SeedAsync(
         context,
         backupService,
-        projector,
         canonicalSerializer,
         app.Environment.ContentRootPath);
 }

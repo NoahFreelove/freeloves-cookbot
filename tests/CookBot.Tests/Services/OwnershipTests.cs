@@ -3,7 +3,6 @@ using CookBot.Application.Services;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
 using CookBot.Infrastructure.Data;
-using CookBot.Infrastructure.Data.Migrations.Helpers;
 using CookBot.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -42,9 +41,8 @@ public class OwnershipTests : IDisposable
         var recipeTagRepo = new Repository<RecipeTag>(_db);
         var parser = new StubRecipeFormatParser();
 
-        var projector = new LegacyRecipeProjector();
         var canonicalSerializer = new JsonRecipeSerializer();
-        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, projector, canonicalSerializer);
+        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, canonicalSerializer);
 
         var parsed = new ParsedRecipe
         {
@@ -103,9 +101,8 @@ public class OwnershipTests : IDisposable
         var recipeTagRepo = new Repository<RecipeTag>(_db);
         var parser = new StubRecipeFormatParser();
 
-        var projector = new LegacyRecipeProjector();
         var canonicalSerializer = new JsonRecipeSerializer();
-        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, projector, canonicalSerializer);
+        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, canonicalSerializer);
 
         // Act & Assert: user2 tries to delete recipe in user1's cookbook
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
