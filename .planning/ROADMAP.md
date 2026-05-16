@@ -34,7 +34,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 ### 📋 v1.3 Production-Ready & Format Maturity (Phases 8–10)
 
-- [ ] **Phase 8: Format Foundation** — V2→V3 canonical schema bump, LegacyRecipeProjector deletion, TagsJson→RecipeTag migration, lint denylist update, parser and snapshot tests
+- [x] **Phase 8: Format Foundation** — V2→V3 canonical schema bump, LegacyRecipeProjector deletion, TagsJson→RecipeTag migration, lint denylist update, parser and snapshot tests (completed 2026-05-16)
 - [ ] **Phase 9: Photos + Prod-Ready Infrastructure** — File upload pipeline + paste-URL safety, Docker + compose, encrypt-at-rest API key, token-cost telemetry write path, README deploy docs
 - [ ] **Phase 10: QOL, Polish & Consumer Surfaces** — Smart pantry-match, AI Chat hardening, accent picker, Profile prompt editor, telemetry widget, cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick
 
@@ -67,7 +67,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 - [x] 08-12-PLAN.md — Wave 4: AddPantryMatchIndexes migration (Phase 10 perf readiness; D-31 #4)
 - [x] 08-10-PLAN.md — Wave 5: D-32 5-step LegacyRecipeProjector deletion (permanent guard FIRST, then file deletion) (CLEAN-01)
 - [x] 08-11-PLAN.md — Wave 6: DropTagsJsonColumn migration + entity/configuration/RecipeService cleanup (CLEAN-02 finalization)
-- [ ] 08-13-PLAN.md — Wave 7: README "Recipe Format" inline section with v3 YAML/JSON examples + V1->V2->V3 lineage (CLEAN-04)
+- [x] 08-13-PLAN.md — Wave 7: README "Recipe Format" inline section with v3 YAML/JSON examples + V1->V2->V3 lineage (CLEAN-04)
 
 **UI hint**: no
 
@@ -113,7 +113,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 5. Foundation — Design tokens, atoms, shell, dialogs | v1.2 | 5/5 | Complete | 2026-04-27 |
 | 6. Marquee surfaces — Home, CookingMode, RecipeView, RecipeEditor | v1.2 | 4/4 | Complete | 2026-04-27 |
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
-| 8. Format Foundation | v1.3 | 12/13 | In Progress|  |
+| 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 0/TBD | Not started | — |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 0/TBD | Not started | — |
 
