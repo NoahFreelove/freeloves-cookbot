@@ -3,6 +3,7 @@
 @using CookBot.Domain.Interfaces
 @using CookBot.Infrastructure.AI
 @using CookBot.Application.DTOs
+@using CookBot.Application.Services
 @using Microsoft.AspNetCore.DataProtection
 @implements IDisposable
 @inject CurrentUserService UserService
@@ -100,6 +101,33 @@
                 <CbRadio TValue="string" GroupName="accent" Value="@("orange")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Default" />
                 <CbRadio TValue="string" GroupName="accent" Value="@("terracotta")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Terracotta" />
                 <CbRadio TValue="string" GroupName="accent" Value="@("sage")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Sage" />
+            </div>
+        </CbCard>
+
+        <!-- AI assistant instructions (ordinal #4 — W-05 card-order contract, Plan 10-07 QOL-06) -->
+        <CbCard>
+            <CbEyebrow>AI assistant instructions</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">Customize how CookBot's AI introduces itself. Variables expand at request time.</p>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                @foreach (var token in PromptTokens)
+                {
+                    var t = token;
+                    <button type="button" class="cb-chip" style="cursor:pointer;border:0;" @onclick="@(() => InsertToken(t))">@t</button>
+                }
+            </div>
+            <textarea id="@_promptTextareaId"
+                      value="@_promptTemplate"
+                      @oninput="@((ChangeEventArgs e) => _promptTemplate = e.Value as string ?? "")"
+                      rows="12"
+                      style="width:100%;font-family:var(--font-mono);font-size:13px;resize:vertical;min-height:240px;"
+                      aria-label="Custom AI system prompt template"></textarea>
+            <CbCard Padding="14" Style="background:var(--accent-soft);margin-top:12px;">
+                <strong style="font-size:13px;">About custom prompts</strong>
+                <p style="margin:6px 0 0 0;font-size:12.5px;color:var(--ink-2);line-height:1.5;">Your custom template is injected verbatim into the system prompt. CookBot's PromptInjectionGuard wraps user-supplied <em>content</em>, but not the system template itself. Avoid instructions that tell the model to disregard or override the rest of the prompt.</p>
+            </CbCard>
+            <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+                <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="ConfirmResetPromptAsync">Reset to default</CbButton>
+                <CbButton Variant="CbButton.CbButtonVariant.Primary" StartIcon="@Icon.Names.Save" OnClick="SavePromptTemplateAsync">Save</CbButton>
             </div>
         </CbCard>
 
@@ -364,6 +392,15 @@
     private bool _isCompactDensity;
     private string _accent = "orange";
 
+    // QOL-06 / Plan 10-07: AI assistant instructions prompt editor
+    private static readonly string[] PromptTokens =
+    {
+        "{{experience_level}}", "{{unit_system}}", "{{equipment}}",
+        "{{dietary_preferences}}", "{{pantry}}", "{{recipe_format}}"
+    };
+    private string _promptTemplate = "";
+    private string _promptTextareaId = "";
+
     private bool _hasOwnKey => !string.IsNullOrWhiteSpace(_profile?.AiApiKey);
     private bool _usingSharedKeyOnly => !_hasOwnKey && _effectiveAi?.SharedFromUserId != null;
     /// <summary>Incoming shares exist but no owner currently has a key (cannot resolve).</summary>
@@ -402,6 +439,7 @@
     protected override void OnInitialized()
     {
         _protector = DataProtectionProvider.CreateProtector("AiApiKey.v1");
+        _promptTextareaId = $"prompt-editor-textarea-{Guid.NewGuid():N}";
         base.OnInitialized();
     }
 
@@ -438,6 +476,7 @@
                 // field still hides it visually), and so a no-op Save round-trips cleanly via Protect.
                 _aiApiKeyEdit = DecryptForEditor(_profile.AiApiKey);
                 _displayNameEdit = _user.DisplayName;
+                _promptTemplate = _profile.AiSystemPromptTemplate ?? "";
                 _forceShowOwnKeyFields = false;
                 _effectiveAi = await AiKeyResolver.ResolveAsync(_loadedUserId!.Value);
                 _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(_loadedUserId.Value)).Count;
@@ -665,5 +704,47 @@
         _accent = newAccent;
         try { await JS.InvokeVoidAsync("localStorage.setItem", "cookbot_accent", newAccent); } catch { }
         try { await JS.InvokeVoidAsync("cookbot.setAccent", newAccent); } catch { }
+    }
+
+    // QOL-06 / Plan 10-07: AI assistant instructions prompt editor methods
+
+    private async Task InsertToken(string token)
+    {
+        try { await JS.InvokeVoidAsync("CookbotPromptEditor.insertAtCursor", _promptTextareaId, token); }
+        catch (JSException) { }
+        catch (Microsoft.JSInterop.JSDisconnectedException) { }
+    }
+
+    private async Task ConfirmResetPromptAsync()
+    {
+        var parameters = new CbDialogParameters
+        {
+            { nameof(CbConfirmDialog.Title), "Reset prompt template?" },
+            { nameof(CbConfirmDialog.Body), "Your custom template will be lost. The default will be loaded into the editor — you can still cancel by closing the page without saving." },
+            { nameof(CbConfirmDialog.ConfirmLabel), "Reset" },
+            { nameof(CbConfirmDialog.ConfirmVariant), CbButton.CbButtonVariant.Accent },
+        };
+        var result = await CbDialogService.ShowAsync<CbConfirmDialog>("Reset prompt template?", parameters);
+        if (!result.Canceled)
+        {
+            _promptTemplate = PromptBuilderService.DefaultTemplate;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SavePromptTemplateAsync()
+    {
+        if (_profile == null || _user == null) return;
+        try
+        {
+            _profile.AiSystemPromptTemplate = string.IsNullOrWhiteSpace(_promptTemplate) ? null : _promptTemplate;
+            DbContext.UserProfiles.Update(_profile);
+            await DbContext.SaveChangesAsync();
+            Toast.Show("AI assistant instructions saved.", CbToastSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Save failed: {ex.Message}", CbToastSeverity.Error);
+        }
     }
 }
