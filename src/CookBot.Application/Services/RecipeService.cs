@@ -136,7 +136,14 @@ public class RecipeService
         return await CreateAsync(cookbookId, userId, parsed);
     }
 
-    public async Task<Recipe> UpdateAsync(int recipeId, int userId, ParsedRecipe parsed)
+    /// <summary>
+    /// Phase 10 / Plan 10-10 / POLISH-01 — <paramref name="newCookbookId"/> allows the caller to
+    /// reparent the recipe to a different cookbook the user owns. When <paramref name="newCookbookId"/>
+    /// is non-null and differs from the recipe's current <c>CookbookId</c>, destination ownership is
+    /// validated via an inline check (PATTERNS.md correction #5 — <c>db.UserCanAccessCookbookAsync</c>
+    /// does not exist in this codebase; use the inline pattern from <c>CreateAsync</c>).
+    /// </summary>
+    public async Task<Recipe> UpdateAsync(int recipeId, int userId, ParsedRecipe parsed, int? newCookbookId = null)
     {
         var recipe = await _recipeRepo.GetByIdAsync(recipeId)
             ?? throw new InvalidOperationException("Recipe not found.");
@@ -146,6 +153,18 @@ public class RecipeService
 
         if (cookbook.UserId != userId)
             throw new UnauthorizedAccessException("You do not own this cookbook.");
+
+        // Phase 10 / Plan 10-10 / POLISH-01 — reparent block (PATTERNS.md correction #5).
+        // Inline destination-ownership check mirrors the CreateAsync pattern at lines 35-39.
+        // T-10-10-01: cross-user reparenting throws UnauthorizedAccessException BEFORE assignment.
+        if (newCookbookId.HasValue && newCookbookId.Value != recipe.CookbookId)
+        {
+            var destination = await _cookbookRepo.GetByIdAsync(newCookbookId.Value)
+                ?? throw new InvalidOperationException("Destination cookbook not found.");
+            if (destination.UserId != userId)
+                throw new UnauthorizedAccessException("You do not own the destination cookbook.");
+            recipe.CookbookId = newCookbookId.Value;
+        }
 
         recipe.Name = parsed.Name;
         recipe.Servings = parsed.Servings;
