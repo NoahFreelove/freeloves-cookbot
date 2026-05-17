@@ -15,6 +15,7 @@ status: drafted
 **Phase numbering:** Phases continue from v1.2 — v1.3 starts at **Phase 8**.
 
 **Sources informing these requirements:**
+
 - User's 5-bucket framing + 3 AskUserQuestion scoping rounds (file upload + bundle in v3 + all QOL/polish/prod-ready items)
 - Gap answers: per-step temperature **F + C + gas**; backup is **volumes + README only** (no UI button)
 - `.planning/research/SUMMARY.md` (synthesizer) + STACK.md + FEATURES.md + ARCHITECTURE.md + PITFALLS.md
@@ -75,29 +76,30 @@ The four v1.1 Phase 4 carry-forwards (`FUTURE-V1.1-02..05`) ship together. The `
 
 Four QOL items the user picked across all multi-selects. Smart pantry-match uses ingredient-coverage % baseline + recency debounce via existing `IRecipeMadeService` (per FEATURES research); expiration-weighting is explicitly out (anti-feature at this scope).
 
-- [ ] **QOL-01**: Smart pantry-match service `IPantryMatchService` in `CookBot.Application`. Scoring formula: `pantryMatches / totalIngredients` (ingredient-coverage %) — Cooklang-blog/SuperCook baseline. Tie-break by recency-debounce (recipes cooked in last 7 days score lower) sourced from `IRecipeMadeService`. Stable sort by `(score desc, recipeId asc)` to prevent volatility on reload (per PITFALLS H8). Replaces Home's deterministic stub. Closes `FUTURE-13`.
-- [ ] **QOL-02**: Smart pantry-match dietary filter — `UserProfile.DietaryPreferences` (existing) filters out recipes containing excluded ingredients before scoring. Requires `RecipeTag` relational table (depends on CLEAN-02; informs sequencing).
-- [ ] **QOL-03**: Smart pantry-match composite DB indexes — index on `RecipeIngredient(RecipeId, IngredientId)` + `PantryItem(UserId, IngredientId)` to keep Home load O(n log n), not O(n²) (per PITFALLS H7). Migration `AddPantryMatchIndexes`.
-- [ ] **QOL-04**: AI Chat "Edit anyway" hardening — `RawRecipeEditorDialog` Cb component replaces the silent `IRecipeFormatParser.TryParse` fallback. Dialog shows the raw AI response in a textarea with a "Parse and save" action that re-runs the parser, and a "Save raw to clipboard" action for manual recovery. Closes `FUTURE-15`.
-- [ ] **QOL-05**: User-facing accent variant picker — terracotta / sage (in addition to default orange). CSS tokens already wired in v1.2 DS-02. Persistence via `localStorage.setItem("cookbot_accent", v)` (matches density-toggle pattern, NOT a new `UserProfile` column). Profile UI: radio group with live in-page preview. Sets `data-accent` on `<html>` before first paint. Closes `FUTURE-14`.
-- [ ] **QOL-06**: Profile-side AI prompt editor — surfaces `UserProfile.AiSystemPromptTemplate` (already loaded by `PromptBuilderService.BuildSystemPrompt` but with no UI today). Profile page adds an "AI assistant instructions" card with a `<CbTextarea>` for the template + reset-to-default button + variable insertion hints (`{{recipe-name}}`, `{{user-name}}`). Save persists to `UserProfile`. Closes `DEFERRED-PROF-AIPROMPT`.
-- [ ] **QOL-07**: AI prompt editor — prompt-injection warning UI. A small `<CbCard>` note adjacent to the editor explains that custom templates ARE injected verbatim into the system prompt and recommends avoiding instructions that override safety (PromptInjectionGuard wraps user content but not the system-prompt template itself).
+- [x] **QOL-01**: Smart pantry-match service `IPantryMatchService` in `CookBot.Application`. Scoring formula: `pantryMatches / totalIngredients` (ingredient-coverage %) — Cooklang-blog/SuperCook baseline. Tie-break by recency-debounce (recipes cooked in last 7 days score lower) sourced from `IRecipeMadeService`. Stable sort by `(score desc, recipeId asc)` to prevent volatility on reload (per PITFALLS H8). Replaces Home's deterministic stub. Closes `FUTURE-13`.
+- [x] **QOL-02**: Smart pantry-match dietary filter — `UserProfile.DietaryPreferences` (existing) filters out recipes containing excluded ingredients before scoring. Requires `RecipeTag` relational table (depends on CLEAN-02; informs sequencing).
+- [x] **QOL-03**: Smart pantry-match composite DB indexes — index on `RecipeIngredient(RecipeId, IngredientId)` + `PantryItem(UserId, IngredientId)` to keep Home load O(n log n), not O(n²) (per PITFALLS H7). Migration `AddPantryMatchIndexes`.
+- [x] **QOL-04**: AI Chat "Edit anyway" hardening — `RawRecipeEditorDialog` Cb component replaces the silent `IRecipeFormatParser.TryParse` fallback. Dialog shows the raw AI response in a textarea with a "Parse and save" action that re-runs the parser, and a "Save raw to clipboard" action for manual recovery. Closes `FUTURE-15`.
+- [x] **QOL-05**: User-facing accent variant picker — terracotta / sage (in addition to default orange). CSS tokens already wired in v1.2 DS-02. Persistence via `localStorage.setItem("cookbot_accent", v)` (matches density-toggle pattern, NOT a new `UserProfile` column). Profile UI: radio group with live in-page preview. Sets `data-accent` on `<html>` before first paint. Closes `FUTURE-14`.
+- [x] **QOL-06**: Profile-side AI prompt editor — surfaces `UserProfile.AiSystemPromptTemplate` (already loaded by `PromptBuilderService.BuildSystemPrompt` but with no UI today). Profile page adds an "AI assistant instructions" card with a `<CbTextarea>` for the template + reset-to-default button + variable insertion hints (`{{recipe-name}}`, `{{user-name}}`). Save persists to `UserProfile`. Closes `DEFERRED-PROF-AIPROMPT`.
+- [x] **QOL-07**: AI prompt editor — prompt-injection warning UI. A small `<CbCard>` note adjacent to the editor explains that custom templates ARE injected verbatim into the system prompt and recommends avoiding instructions that override safety (PromptInjectionGuard wraps user content but not the system-prompt template itself).
 
 ### Small-stuff polish (`POLISH-*`)
 
 The five tech-debt items from the v1.2 audit + 6-design-handoff list. Each is small (≤1 plan).
 
-- [ ] **POLISH-01**: Cookbook reparenting on edit — `RecipeService.UpdateAsync` accepts a new optional `cookbookId` parameter. Validates the user has access to the destination cookbook via `db.UserCanAccessCookbookAsync`. Closes v1.2 D-26.
-- [ ] **POLISH-02**: Pantry per-row quick-add — `PantryView` per-row "Add to grocery" cart icon (currently disabled affordance) wires to `GroceryListService.AddItem` for the current user's primary grocery list. Toast on success; closes v1.2 D-37.
-- [ ] **POLISH-03**: Moon glyph added — 37th outline icon in `Icon.razor` (current set has Sun but no Moon, so the dark-mode toggle uses Sun for both states). Dark-mode toggle now shows Sun when light and Moon when dark. Closes v1.2 D-15.
-- [ ] **POLISH-04**: TopBar `RightSlot` per-page passthrough — `MainLayout` exposes a `[CascadingParameter]`-style mechanism (or a `RenderFragment` page parameter) so pages can inject content into `TopBar.RightSlot`. `RecipeView.razor` migrates RV-05 actions from the inline-above-hero PRAGMATIC fallback to the TopBar slot. Closes v1.2 D-16.
-- [ ] **POLISH-05**: Home active-timer live JS tick — `cooking-session-state.js` adds a `setInterval(updateTick, 1000)` that updates `data-remaining-seconds` on the DOM band. Tear down on page unload. Closes the v1.2 slice-09 punch-list "live JS tick" item.
+- [x] **POLISH-01**: Cookbook reparenting on edit — `RecipeService.UpdateAsync` accepts a new optional `cookbookId` parameter. Validates the user has access to the destination cookbook via `db.UserCanAccessCookbookAsync`. Closes v1.2 D-26.
+- [x] **POLISH-02**: Pantry per-row quick-add — `PantryView` per-row "Add to grocery" cart icon (currently disabled affordance) wires to `GroceryListService.AddItem` for the current user's primary grocery list. Toast on success; closes v1.2 D-37.
+- [x] **POLISH-03**: Moon glyph added — 37th outline icon in `Icon.razor` (current set has Sun but no Moon, so the dark-mode toggle uses Sun for both states). Dark-mode toggle now shows Sun when light and Moon when dark. Closes v1.2 D-15.
+- [x] **POLISH-04**: TopBar `RightSlot` per-page passthrough — `MainLayout` exposes a `[CascadingParameter]`-style mechanism (or a `RenderFragment` page parameter) so pages can inject content into `TopBar.RightSlot`. `RecipeView.razor` migrates RV-05 actions from the inline-above-hero PRAGMATIC fallback to the TopBar slot. Closes v1.2 D-16.
+- [x] **POLISH-05**: Home active-timer live JS tick — `cooking-session-state.js` adds a `setInterval(updateTick, 1000)` that updates `data-remaining-seconds` on the DOM band. Tear down on page unload. Closes the v1.2 slice-09 punch-list "live JS tick" item.
 
 ### Prod-ready for self-hosters (`PROD-*`)
 
 The new track. Docker + encrypt-at-rest + token telemetry + README rewrite + first-run UX. Highest pitfall density of any v1.3 bucket — PITFALLS C1/C2/C3/C4/C6 + H9/H10 + M4/M5/M6 are all addressed below.
 
 #### Dockerfile + compose
+
 - [ ] **PROD-01**: Multi-stage `Dockerfile` at repo root — `mcr.microsoft.com/dotnet/sdk:10.0` build stage → `mcr.microsoft.com/dotnet/aspnet:10.0` runtime stage. Builds `CookBot.Web` into `/app`. `ENTRYPOINT ["dotnet", "CookBot.Web.dll"]`.
 - [ ] **PROD-02**: `docker-compose.yml` at repo root — exposes port 7000 (or `${COOKBOT_PORT:-7000}`); named volumes for `/data` (covers `cookbot.db` + key ring via `PersistKeysToDbContext`) and `/uploads` (mounts `wwwroot/uploads/`). `restart: unless-stopped`; explicit env vars set in compose file for `ASPNETCORE_URLS`, `ConnectionStrings__DefaultConnection`, etc.
 - [ ] **PROD-03**: Container listens on `0.0.0.0:7000` via `ASPNETCORE_URLS=http://0.0.0.0:7000` in `Dockerfile` ENV (per PITFALLS M4 — default localhost binding is unreachable from outside the container).
@@ -105,6 +107,7 @@ The new track. Docker + encrypt-at-rest + token telemetry + README rewrite + fir
 - [ ] **PROD-05**: Forward-only migration runs at first container start via existing `DatabaseSeeder.SeedAsync` → `MigrateAsync()` — container start must NOT mask migration failures. PROD-05 adds an explicit health-check route `/healthz` that fails fast if migrations error, surfacing the failure instead of being masked by `restart: unless-stopped` (per PITFALLS M6).
 
 #### Encrypt-at-rest for `UserProfile.AiApiKey`
+
 - [ ] **PROD-06**: `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8` added to `CookBot.Infrastructure`. `CookBotDbContext` implements `IDataProtectionKeyContext` with `DbSet<DataProtectionKey>`. EF migration `AddDataProtectionKeys` creates the table.
 - [ ] **PROD-07**: `Program.cs` registration: `builder.Services.AddDataProtection().SetApplicationName("FreelovesCookBot").PersistKeysToDbContext<CookBotDbContext>()`. Key ring lives in `cookbot.db`, colocated with the data it protects — one persistent volume backs up the whole story.
 - [ ] **PROD-08**: AI key encrypt path — EF Core `ValueConverter<string, string>` on `UserProfile.AiApiKey` calls `IDataProtector.Protect`/`Unprotect` via a single shared scope (`CreateProtector("AiApiKey.v1")`), NOT per-user (per PITFALLS C2 — sharing breaks under per-user scoping). The column stays `string?`; the encrypted blob replaces plaintext.
@@ -113,6 +116,7 @@ The new track. Docker + encrypt-at-rest + token telemetry + README rewrite + fir
 - [ ] **PROD-11**: AI key sharing still works under encryption — `AiApiKeyShareService` rows remain owner-ID references; `AiApiKeyResolutionService` decrypts the owner's key at resolution time using the shared protector scope. Recipient still never sees the plaintext key. Integration test covers the share-then-resolve round-trip.
 
 #### Token-cost telemetry
+
 - [ ] **PROD-12**: `AnthropicAiService` SSE parsing captures `message_start.message.usage.input_tokens` + cumulative `message_delta.usage.output_tokens` per the official Anthropic streaming docs. (Anthropic Usage Admin API NOT used — requires org-level `sk-ant-admin...` key unavailable to individual self-hosters.)
 - [ ] **PROD-13**: `StructuredResult<T>` record gains `int InputTokens`, `int OutputTokens` fields with `= 0` defaults (backward-compatible interface). Surfaced through `IAiRecipeGenerator.GenerateAsync` return.
 - [ ] **PROD-14**: New `AiUsageLog` entity: `(Id, UserId, KeyOwnerId, ModelName, InputTokens, OutputTokens, EstimatedCostUsd, IsRetryAttempt, Timestamp)`. EF migration `AddAiUsageLog` adds composite index on `(KeyOwnerId, Timestamp DESC)` for Profile-widget queries (per PITFALLS M8).
@@ -121,6 +125,7 @@ The new track. Docker + encrypt-at-rest + token telemetry + README rewrite + fir
 - [ ] **PROD-17**: Profile widget — per-user "AI usage" card showing rolling 30-day input/output tokens + estimated cost in USD, sourced from `AiUsageLog` aggregated by `KeyOwnerId`. Cross-user privacy note: in trusted-LAN mode, the key-owner can see who burned their credits (`UserId` != `KeyOwnerId` rows); documented in README (per PITFALLS M9).
 
 #### README + deploy docs
+
 - [ ] **PROD-18**: README rewrite — new "Install" section covering both `docker compose up` quickstart and the existing `./run.sh` local-dev path. Notes the `7000` default port, `cookbot.db` + `uploads/` volume locations, first-run UX (no AI key required to start — AI features gracefully degrade per the `AiFeaturesEnabled` + `AiEnabled` gates).
 - [ ] **PROD-19**: README "Configuration" section — documents env-var override pattern for all `CookBotSettings`, `ConnectionStrings__DefaultConnection`, `ASPNETCORE_URLS`, `AiPricing` table.
 - [ ] **PROD-20**: README "Backup & restore" section — explicit instructions for self-hosters: stop the container, snapshot/copy BOTH volumes (`cookbot.db` data + `uploads/`), restart. Notes the WAL files. Notes that the Data Protection key ring is inside `cookbot.db`; losing the DB also loses the ability to decrypt the AI keys (which is the correct trust model — there's no second copy of the keys anywhere).
@@ -151,6 +156,7 @@ These items are explicitly deferred — included here so the carry-forward pictu
 Explicit boundaries with reasoning. Some are absolute project-level OOS (carried from PROJECT.md); some are v1.3-specific OOS to keep scope contained.
 
 **Architecture (project-level):**
+
 - Web API / SPA / WebAssembly client — Blazor Server stays.
 - Multi-tenant SaaS hosting — trusted-LAN self-host only; CookBotSettings.AuthMode is reserved-unused.
 - AI providers other than Anthropic — `IAiService` is the abstraction; new provider is a separate milestone.
@@ -163,6 +169,7 @@ Explicit boundaries with reasoning. Some are absolute project-level OOS (carried
 - MudBlazor reintroduction — stripped wholesale in v1.2; staying out.
 
 **v1.3-specific:**
+
 - **Multiple photos per recipe / gallery** — v3 schema reserves a single `PhotoUrl` field; multi-photo is a v1.4+ schema decision.
 - **EXIF / metadata stripping on uploaded images** — files are stored as uploaded; v1.3 doesn't process pixel data.
 - **CDN integration / image proxying for paste-URL** — browser fetches direct from photo host (the `referrerpolicy="no-referrer"` is the only privacy mitigation).

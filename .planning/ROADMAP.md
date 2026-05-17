@@ -140,7 +140,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 7/7 | Complete   | 2026-05-16 |
-| 10. QOL, Polish & Consumer Surfaces | v1.3 | 14/14 | Complete   | 2026-05-17 |
+| 10. QOL, Polish & Consumer Surfaces | v1.3 | 14/14 | Complete    | 2026-05-17 |
 
 ---
 
