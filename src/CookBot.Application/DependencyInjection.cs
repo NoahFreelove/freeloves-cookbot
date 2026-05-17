@@ -34,6 +34,10 @@ public static class DependencyInjection
         // a Singleton consuming a Scoped dependency, so the orchestrator is Scoped too.
         services.AddScoped<IAiRecipeGenerator, AiRecipeGenerator>();
 
+        // Phase 10 / QOL-01..03 — pantry-match scoring service (D-44..47).
+        // Scoped because it depends on PantryService (also Scoped) and IRecipeMadeService.
+        services.AddScoped<IPantryMatchService, PantryMatchService>();
+
         return services;
     }
 }

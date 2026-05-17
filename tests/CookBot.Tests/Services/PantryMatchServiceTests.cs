@@ -38,6 +38,7 @@ public class PantryMatchServiceTests : IDisposable
         var userProfileRepo = new Repository<UserProfile>(_db);
         var recipeIngredientRepo = new Repository<RecipeIngredient>(_db);
         var ingredientRepo = new Repository<Ingredient>(_db);
+        var recipeTagRepo = new Repository<RecipeTag>(_db);
         var cookbookShareRepo = new Repository<CookbookShare>(_db);
         var pantryRepo = new Repository<PantryItem>(_db);
         var pantryEntityRepo = new Repository<Pantry>(_db);
@@ -46,7 +47,7 @@ public class PantryMatchServiceTests : IDisposable
         var pantryService = new PantryService(pantryRepo, pantryEntityRepo, memberRepo, ingredientRepo, unitConverter);
         var recipeMadeService = new RecipeMadeService(_db);
         var options = Options.Create(opts ?? new PantryMatchOptions());
-        return new PantryMatchService(recipeRepo, userProfileRepo, recipeIngredientRepo, ingredientRepo, cookbookShareRepo, recipeMadeService, pantryService, options);
+        return new PantryMatchService(recipeRepo, userProfileRepo, recipeIngredientRepo, ingredientRepo, recipeTagRepo, cookbookShareRepo, recipeMadeService, pantryService, options);
     }
 
     /// <summary>Seeds a user+cookbook+pantry and returns (userId, cookbookId, pantryId).</summary>
