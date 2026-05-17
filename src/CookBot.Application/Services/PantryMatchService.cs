@@ -173,9 +173,11 @@ public class PantryMatchService : IPantryMatchService
             }
             else
             {
-                var daysSinceCooked = (DateTime.UtcNow - lastCook.CompletedAt).TotalDays;
+                // Clamp to zero so clock-skewed future timestamps don't flip the penalty
+                // term into a bonus (exp(positive) > 1 would oversubtract).
+                var daysSinceCooked = Math.Max(0.0, (DateTime.UtcNow - lastCook.CompletedAt).TotalDays);
                 score = coverage - _opts.RecencyPenaltyWeight
-                    * Math.Exp(-daysSinceCooked / _opts.RecencyHalfLifeDays);
+                    * Math.Exp(-daysSinceCooked / _opts.EffectiveHalfLifeDays);
             }
 
             // First missing ingredient (ordered by natural RI order — Id ascending)

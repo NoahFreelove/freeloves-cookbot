@@ -32,4 +32,9 @@ public sealed class PantryMatchOptions
     /// <see cref="Services.IPantryMatchService.GetMatchesAsync"/>.
     /// </summary>
     public int ResultCount { get; set; } = 3;
+
+    // Guards the scoring formula's division when callers register IOptions
+    // without binding configuration (test hosts, AddApplication without
+    // Configure<>). A zero half-life would produce NaN scores silently.
+    public double EffectiveHalfLifeDays => RecencyHalfLifeDays > 0 ? RecencyHalfLifeDays : 7.0;
 }

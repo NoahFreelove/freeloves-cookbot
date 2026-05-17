@@ -104,6 +104,8 @@ public partial class Home : ComponentBase
     /// </summary>
     private readonly HashSet<int> _photoFailedFor = new();
 
+    private bool _tickLoopStarted;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (UserService.CurrentUserId.HasValue && _loadedUserId != UserService.CurrentUserId.Value)
@@ -122,11 +124,14 @@ public partial class Home : ComponentBase
             StateHasChanged();
         }
 
-        // POLISH-05 — start the live JS tick loop for the active-timer band on first render.
-        // Runs after LoadActiveSessionAsync so _activeTimer is populated. The tick mutates
-        // the DOM element directly every 1 second without a Blazor re-render per tick.
-        if (firstRender && _activeTimer != null)
+        // POLISH-05 — start the live JS tick loop once _activeTimer is populated. Cold-load
+        // path: data loads on firstRender, StateHasChanged triggers a second render where
+        // firstRender=false but _activeTimer is now set — so do NOT gate on firstRender;
+        // gate on _tickLoopStarted to ensure exactly-once start. JS-side teardown handles
+        // element removal and pagehide.
+        if (_activeTimer != null && !_tickLoopStarted)
         {
+            _tickLoopStarted = true;
             try
             {
                 await JS.InvokeVoidAsync(
