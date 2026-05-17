@@ -36,7 +36,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 - [x] **Phase 8: Format Foundation** — V2→V3 canonical schema bump, LegacyRecipeProjector deletion, TagsJson→RecipeTag migration, lint denylist update, parser and snapshot tests (completed 2026-05-16)
 - [x] **Phase 9: Photos + Prod-Ready Infrastructure** — File upload pipeline + paste-URL safety, Docker + compose, encrypt-at-rest API key, token-cost telemetry write path, README deploy docs (completed 2026-05-16)
-- [ ] **Phase 10: QOL, Polish & Consumer Surfaces** — Smart pantry-match, AI Chat hardening, accent picker, Profile prompt editor, telemetry widget, cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick
+- [x] **Phase 10: QOL, Polish & Consumer Surfaces** — Smart pantry-match, AI Chat hardening, accent picker, Profile prompt editor, telemetry widget, cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick (completed 2026-05-17)
 
 ## Phase Details
 
@@ -119,7 +119,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 - [x] 10-07-PLAN.md — Wave 3: EditProfile AI assistant instructions card + prompt-editor-insert.js + DefaultTemplate visibility raise (QOL-06, QOL-07)
 - [x] 10-08-PLAN.md — Wave 3: ICbTopBarService + CbTopBarService (IDisposable + NavigationManager subscription) + Program.cs registration + tests (POLISH-04)
 - [x] 10-09-PLAN.md — Wave 4: MainLayout wiring + TopBar slot class + RecipeView/RecipeEditor migrations + responsive @media CSS (POLISH-04)
-- [ ] 10-10-PLAN.md — Wave 5: RecipeService.UpdateAsync newCookbookId + RecipeEditor CbSelect (POLISH-01)
+- [x] 10-10-PLAN.md — Wave 5: RecipeService.UpdateAsync newCookbookId + RecipeEditor CbSelect (POLISH-01)
 - [x] 10-11-PLAN.md — Wave 2: GroceryListService.EnsurePrimaryListAsync + AddItemAsync + PantryView cart wiring + tests (POLISH-02)
 - [x] 10-12-PLAN.md — Wave 2: Moon glyph in Icon.razor + MainLayout Sun↔Moon swap + accent picker (cookbot-shell.js + EditProfile) (POLISH-03, QOL-05)
 - [x] 10-13-PLAN.md — Wave 3: cooking-session-state.js startTickLoop + Home.razor.cs OnAfterRenderAsync hook (POLISH-05)
@@ -140,7 +140,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 7/7 | Complete   | 2026-05-16 |
-| 10. QOL, Polish & Consumer Surfaces | v1.3 | 13/14 | In Progress|  |
+| 10. QOL, Polish & Consumer Surfaces | v1.3 | 14/14 | Complete   | 2026-05-17 |
 
 ---
 
