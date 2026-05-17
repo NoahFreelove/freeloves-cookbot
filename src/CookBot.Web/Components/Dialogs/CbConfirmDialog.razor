@@ -1,0 +1,33 @@
+@namespace CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@using CookBot.Web.Components.Atoms
+
+@* CbConfirmDialog — Phase 10 / Plan 10-07 / QOL-06 / W-01.
+   Minimal reusable Yes/No confirm dialog invoked via CbDialogService.ShowAsync<CbConfirmDialog>.
+   Returns CbDialogResult.Ok(true) on confirm and Cancel() on dismiss.
+   Closes W-01: commits to CbDialog (not window.confirm) for all destructive confirm flows. *@
+
+<h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink);">@Title</h2>
+<p style="margin:8px 0 16px 0;font-size:13.5px;color:var(--ink-2);line-height:1.5;">@Body</p>
+<div style="display:flex;gap:8px;justify-content:flex-end;">
+    <CbButton Variant="CbButton.CbButtonVariant.Ghost" OnClick="@(() => Close(false))">@CancelLabel</CbButton>
+    <CbButton Variant="@ConfirmVariant" OnClick="@(() => Close(true))">@ConfirmLabel</CbButton>
+</div>
+
+@code {
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
+
+    [Parameter] public string Title { get; set; } = "Confirm";
+    [Parameter] public string Body { get; set; } = "Are you sure?";
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
+    [Parameter] public string CancelLabel { get; set; } = "Cancel";
+    [Parameter] public CbButton.CbButtonVariant ConfirmVariant { get; set; } = CbButton.CbButtonVariant.Primary;
+
+    private void Close(bool confirmed)
+    {
+        if (confirmed)
+            DialogInstance?.Close(CbDialogResult.Ok(true));
+        else
+            DialogInstance?.Cancel();
+    }
+}
