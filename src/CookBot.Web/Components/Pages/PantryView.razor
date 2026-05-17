@@ -9,6 +9,7 @@
 @inject ICbDialogService CbDialogService
 @inject ICbToastService Toast
 @inject AiApiKeyResolutionService AiKeyResolver
+@inject CookBot.Application.Services.GroceryListService GroceryListService
 @rendermode InteractiveServer
 
 @* Phase 7 / Plan 07-02 / PA-01..04.
@@ -354,8 +355,8 @@
                 <button type="button"
                         aria-label="@($"Add {item.Ingredient.Name} to grocery list")"
                         title="Add to grocery list"
-                        disabled
-                        style="background:transparent;border:0;color:var(--ink-4);cursor:not-allowed;padding:4px;display:grid;place-items:center;">
+                        @onclick="@(() => AddToGroceryList(item))"
+                        style="background:transparent;border:0;color:var(--ink-3);cursor:pointer;padding:4px;display:grid;place-items:center;">
                     <Icon Name="@Icon.Names.Cart" Size="15" />
                 </button>
                 <button type="button"
@@ -534,6 +535,27 @@
         _pantryItems.Remove(item);
         RecomputeSummary();
         Toast.Show("Item removed from pantry.", CbToastSeverity.Info);
+    }
+
+    /// <summary>
+    /// POLISH-02 / Phase 10 Plan 10-11: quick-add handler for the per-row cart button.
+    /// Ensures a primary grocery list exists (or creates "Pantry quick-add"), then
+    /// appends the pantry item. amount passes as double — both PantryItem.Amount and
+    /// GroceryListItem.Amount are double, so no cast is needed (B-02).
+    /// </summary>
+    private async Task AddToGroceryList(PantryItem item)
+    {
+        if (!UserService.CurrentUserId.HasValue) return;
+        try
+        {
+            var list = await GroceryListService.EnsurePrimaryListAsync(UserService.CurrentUserId.Value);
+            await GroceryListService.AddItemAsync(list.Id, item.IngredientId, item.Amount, item.Unit);
+            Toast.Show($"Added {item.Ingredient.Name} to grocery list", CbToastSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Could not add: {ex.Message}", CbToastSeverity.Error);
+        }
     }
 
     private async Task ShowCreateSharedPantryDialog()
