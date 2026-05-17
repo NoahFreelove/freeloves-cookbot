@@ -123,4 +123,69 @@ window.CookbotSession = {
         const d = Math.floor(h / 24);
         return d + 'd ago';
     },
+
+    // POLISH-05 — live tick loop for the Home active-timer band.
+    // Writes formatted MM:SS (or HH:MM:SS) directly into the DOM element every
+    // 1 second without a Blazor/SignalR round-trip. Keyed by elementId so
+    // multiple simultaneous timers are each tracked independently.
+    _tickHandles: {},
+
+    /**
+     * Starts a 1-second countdown tick that writes the remaining time into the
+     * DOM element with the given id. Idempotent: clears any prior interval for
+     * that element before starting a new one.
+     *
+     * @param {string} elementId    - id attribute of the target DOM element
+     * @param {string} startedAtIso - ISO 8601 timestamp of when the timer started
+     * @param {number} durationSeconds - total timer duration in seconds
+     */
+    startTickLoop(elementId, startedAtIso, durationSeconds) {
+        const handle = this._tickHandles[elementId];
+        if (handle) clearInterval(handle);
+        const startedAtMs = Date.parse(startedAtIso);
+        if (!Number.isFinite(startedAtMs)) return;
+        const tick = () => {
+            const el = document.getElementById(elementId);
+            if (!el) {
+                clearInterval(this._tickHandles[elementId]);
+                delete this._tickHandles[elementId];
+                return;
+            }
+            const elapsed = Math.floor((Date.now() - startedAtMs) / 1000);
+            const remaining = Math.max(0, (durationSeconds | 0) - elapsed);
+            const h = Math.floor(remaining / 3600);
+            const m = Math.floor((remaining % 3600) / 60);
+            const s = remaining % 60;
+            const pad = (n) => String(n).padStart(2, '0');
+            el.textContent = h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+            if (remaining <= 0) {
+                clearInterval(this._tickHandles[elementId]);
+                delete this._tickHandles[elementId];
+            }
+        };
+        tick();
+        this._tickHandles[elementId] = setInterval(tick, 1000);
+    },
+
+    /**
+     * Stops the tick loop for the given element id and clears the bookkeeping entry.
+     *
+     * @param {string} elementId - id attribute of the target DOM element
+     */
+    stopTickLoop(elementId) {
+        const handle = this._tickHandles[elementId];
+        if (handle) {
+            clearInterval(handle);
+            delete this._tickHandles[elementId];
+        }
+    },
 };
+
+// POLISH-05 — pagehide teardown: clear every active tick interval when the page
+// is unloaded (navigation away, tab close, bfcache entry). Prevents handle leaks
+// across navigations. Registered once at module load, outside the object literal.
+window.addEventListener('pagehide', () => {
+    const handles = window.CookbotSession._tickHandles || {};
+    for (const id in handles) clearInterval(handles[id]);
+    window.CookbotSession._tickHandles = {};
+}, { once: false });
