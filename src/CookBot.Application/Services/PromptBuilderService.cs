@@ -15,6 +15,11 @@ public class PromptBuilderService
         _docs = docs;
     }
 
+    /// <remarks>
+    /// Phase 10 / Plan 10-07: doc-comment added so EditProfile's reset-to-default affordance (D-54)
+    /// references this field through a clearly-typed public surface. Visibility is unchanged
+    /// (already public static readonly — cannot be const because string.Join is a runtime expression).
+    /// </remarks>
     public static readonly string DefaultTemplate = string.Join("\n", new[]
     {
         "You are CookBot, an expert AI cooking assistant. You help users discover, create, and refine recipes.",
