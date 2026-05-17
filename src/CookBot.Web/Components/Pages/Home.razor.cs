@@ -120,6 +120,23 @@ public partial class Home : ComponentBase
             await LoadActiveSessionAsync();
             StateHasChanged();
         }
+
+        // POLISH-05 — start the live JS tick loop for the active-timer band on first render.
+        // Runs after LoadActiveSessionAsync so _activeTimer is populated. The tick mutates
+        // the DOM element directly every 1 second without a Blazor re-render per tick.
+        if (firstRender && _activeTimer != null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync(
+                    "CookbotSession.startTickLoop",
+                    _activeTimerCountdownId,
+                    _activeTimer.StartedAtIso,
+                    _activeTimer.DurationSeconds);
+            }
+            catch (Microsoft.JSInterop.JSException) { }
+            catch (Microsoft.JSInterop.JSDisconnectedException) { }
+        }
     }
 
     /// <summary>
