@@ -203,10 +203,12 @@
     @* === Right rail — meta cards === *@
     <aside style="display:flex;flex-direction:column;gap:16px;">
 
-        @* Cookbook (selector) *@
+        @* Cookbook (selector) — Phase 10 / Plan 10-10 / POLISH-01 reparenting CbSelect.
+           T-10-10-02: _userCookbooks is filtered by current user so only owned cookbooks appear.
+           CbSelect<int> shape mirrors SaveRecipeDialog.razor:11-16. *@
         <CbCard Padding="18">
             <CbEyebrow><div style="margin-bottom:10px;">Cookbook</div></CbEyebrow>
-            @if (_availableCookbooks.Count == 0)
+            @if (_userCookbooks.Count == 0)
             {
                 <div class="cb-row active" style="background:var(--cream-2);color:var(--ink-2);">
                     <Icon Name="@Icon.Names.Book" Size="14" />
@@ -215,16 +217,12 @@
             }
             else
             {
-                <CbDropdown TValue="int"
-                            Value="@_selectedCookbookId"
-                            ValueChanged="OnCookbookChanged"
-                            Label="@(_availableCookbooks.FirstOrDefault(c => c.Id == _selectedCookbookId)?.Name ?? "Select cookbook")"
-                            StartIcon="@Icon.Names.Book">
-                    @foreach (var cb in _availableCookbooks)
+                <CbSelect TValue="int" Value="_selectedCookbookId" ValueChanged="@((int v) => _selectedCookbookId = v)">
+                    @foreach (var cb in _userCookbooks)
                     {
-                        <CbDropdownItem TValue="int" Value="@cb.Id" Label="@cb.Name" Icon="@Icon.Names.Book" />
+                        <CbOption TValue="int" Value="@cb.Id" Label="@cb.Name" />
                     }
-                </CbDropdown>
+                </CbSelect>
             }
         </CbCard>
 
@@ -374,7 +372,8 @@
     private List<ParsedStep> _steps = new();
     private List<string> _warnings = new();
 
-    private List<Cookbook> _availableCookbooks = new();
+    // Phase 10 / Plan 10-10 / POLISH-01 — T-10-10-02: filtered by current user so only owned cookbooks appear.
+    private List<Cookbook> _userCookbooks = new();
     private int _selectedCookbookId;
 
     private int _nextLocalId = 1;
@@ -396,8 +395,10 @@
             var userOn = user?.Profile?.AiEnabled ?? false;
             _aiOn = hostOn && userOn;
 
-            // Load owned cookbooks for the right-rail selector.
-            _availableCookbooks = await DbContext.Cookbooks
+            // Phase 10 / Plan 10-10 / POLISH-01 — load owned cookbooks for the reparenting CbSelect.
+            // T-10-10-02: AsNoTracking() + filter by current user prevents cross-user cookbook exposure.
+            _userCookbooks = await DbContext.Cookbooks
+                .AsNoTracking()
                 .Where(c => c.UserId == userId)
                 .OrderBy(c => c.Name)
                 .ToListAsync();
@@ -603,17 +604,6 @@
     }
 
     // ------------------------------------------------------------------------
-    // Cookbook selector
-    // ------------------------------------------------------------------------
-
-    private void OnCookbookChanged(int newId)
-    {
-        if (newId <= 0) return;
-        _selectedCookbookId = newId;
-        CookbookId = newId;
-    }
-
-    // ------------------------------------------------------------------------
     // Ingredient operations (ED-02 / ED-06 — preserve immutable LocalId on reorder)
     // ------------------------------------------------------------------------
 
@@ -816,15 +806,24 @@
 
             if (_isEdit && _existingRecipe != null)
             {
-                await RecipeService.UpdateAsync(_existingRecipe.Id, userId, parsed);
+                // Phase 10 / Plan 10-10 / POLISH-01 — capture original CookbookId before save
+                // so we can detect a reparent and navigate to the recipe view on success.
+                var originalCookbookId = _existingRecipe.CookbookId;
+                var updatedRecipe = await RecipeService.UpdateAsync(_existingRecipe.Id, userId, parsed, _selectedCookbookId);
                 Toast.Show("Recipe updated!", CbToastSeverity.Success);
+                // On cookbook change: land on the recipe view (which works in the new cookbook context).
+                // On no-change: existing behavior — go back to the cookbook.
+                if (_selectedCookbookId != originalCookbookId)
+                    Navigation.NavigateTo($"/recipes/{updatedRecipe.Id}");
+                else
+                    Navigation.NavigateTo($"/cookbooks/{_selectedCookbookId}");
             }
             else
             {
                 await RecipeService.CreateAsync(_selectedCookbookId, userId, parsed);
                 Toast.Show("Recipe created!", CbToastSeverity.Success);
+                Navigation.NavigateTo($"/cookbooks/{_selectedCookbookId}");
             }
-            Navigation.NavigateTo($"/cookbooks/{_selectedCookbookId}");
         }
         catch (Exception ex)
         {
