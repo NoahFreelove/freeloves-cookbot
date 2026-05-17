@@ -45,8 +45,12 @@ public class GroceryListServiceTests : IDisposable
     [Fact]
     public async Task EnsurePrimaryListAsync_ReturnsMostRecent_WhenExisting()
     {
-        // Arrange: seed two GroceryLists for userId=1 with different CreatedAt timestamps.
-        const int userId = 1;
+        // Arrange: seed a User (required by FK) then two GroceryLists with different CreatedAt.
+        var user = new User { DisplayName = "TestUser" };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+        var userId = user.Id;
+
         var older = new GroceryList { UserId = userId, Name = "Old list", CreatedAt = DateTime.UtcNow.AddDays(-5) };
         var newer = new GroceryList { UserId = userId, Name = "New list", CreatedAt = DateTime.UtcNow.AddDays(-1) };
         _db.GroceryLists.AddRange(older, newer);
@@ -64,8 +68,12 @@ public class GroceryListServiceTests : IDisposable
     [Fact]
     public async Task EnsurePrimaryListAsync_CreatesPantryQuickAdd_WhenNone()
     {
-        // Arrange: empty DbContext — no grocery lists exist.
-        const int userId = 1;
+        // Arrange: seed a User (required by FK) but no grocery lists.
+        var user = new User { DisplayName = "TestUser" };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+        var userId = user.Id;
+
         var service = BuildService();
 
         // Act
@@ -80,8 +88,12 @@ public class GroceryListServiceTests : IDisposable
     [Fact]
     public async Task AddItemAsync_AppendsGroceryListItem_WithIsPurchasedFalse()
     {
-        // Arrange: seed one GroceryList and one Ingredient.
-        const int userId = 1;
+        // Arrange: seed a User (FK), one GroceryList, and one Ingredient.
+        var user = new User { DisplayName = "TestUser" };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+        var userId = user.Id;
+
         var list = new GroceryList { UserId = userId, Name = "Test list" };
         _db.GroceryLists.Add(list);
         var ingredient = new Ingredient { Name = "Flour", Category = CookBot.Domain.Enums.IngredientCategory.Grains };
