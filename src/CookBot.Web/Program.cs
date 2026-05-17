@@ -60,6 +60,7 @@ builder.Services.AddScoped<LocalRecipePhotoStorage>();
 builder.Services.AddScoped<IScheduledRecipeService, ScheduledRecipeService>();
 builder.Services.AddScoped<IRecipeMadeService, RecipeMadeService>();
 builder.Services.Configure<CookBotSettings>(builder.Configuration.GetSection("CookBot"));
+builder.Services.Configure<PantryMatchOptions>(builder.Configuration.GetSection("CookBot:PantryMatch"));
 
 var app = builder.Build();
 
