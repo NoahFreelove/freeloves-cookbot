@@ -34,6 +34,7 @@ builder.Services.AddRazorComponents()
     .AddHubOptions(o => o.MaximumReceiveMessageSize = 12 * 1024 * 1024);
 
 builder.Services.AddScoped<ICbDialogService, CbDialogService>();
+builder.Services.AddScoped<ICbTopBarService, CbTopBarService>();
 builder.Services.AddSingleton<ICbToastService, CbToastService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 
