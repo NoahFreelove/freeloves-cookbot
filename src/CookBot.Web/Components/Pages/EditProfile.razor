@@ -90,6 +90,19 @@
             </div>
         </CbCard>
 
+        <!-- Accent color (ordinal #3 — W-05 card-order contract, Plan 10-12 QOL-05) -->
+        <CbCard>
+            <CbEyebrow>Accent color</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">
+                Changes the highlight color across the app. Saved in your browser only.
+            </p>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <CbRadio TValue="string" GroupName="accent" Value="@("orange")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Default" />
+                <CbRadio TValue="string" GroupName="accent" Value="@("terracotta")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Terracotta" />
+                <CbRadio TValue="string" GroupName="accent" Value="@("sage")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Sage" />
+            </div>
+        </CbCard>
+
         <!-- AI features toggle -->
         <CbCard>
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
@@ -349,6 +362,7 @@
     private int _incomingUsableCount;
     private bool _forceShowOwnKeyFields;
     private bool _isCompactDensity;
+    private string _accent = "orange";
 
     private bool _hasOwnKey => !string.IsNullOrWhiteSpace(_profile?.AiApiKey);
     private bool _usingSharedKeyOnly => !_hasOwnKey && _effectiveAi?.SharedFromUserId != null;
@@ -448,6 +462,15 @@
                 }
             }
             catch (InvalidOperationException) { /* prerender — ignore */ }
+
+            // Read persisted accent preference (QOL-05 / Plan 10-12).
+            try
+            {
+                _accent = await JS.InvokeAsync<string?>("localStorage.getItem", "cookbot_accent") ?? "orange";
+                if (_accent != "orange" && _accent != "terracotta" && _accent != "sage") _accent = "orange";
+                StateHasChanged();
+            }
+            catch { _accent = "orange"; }
         }
     }
 
@@ -635,5 +658,12 @@
             await JS.InvokeVoidAsync("cookbot.setDensity", mode);
         }
         catch (InvalidOperationException) { /* prerender — ignore */ }
+    }
+
+    private async Task OnAccentChanged(string newAccent)
+    {
+        _accent = newAccent;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "cookbot_accent", newAccent); } catch { }
+        try { await JS.InvokeVoidAsync("cookbot.setAccent", newAccent); } catch { }
     }
 }

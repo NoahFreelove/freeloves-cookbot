@@ -36,8 +36,14 @@ window.cookbot.applyDefaults = function () {
   // Idempotent — safe to call on every render. Phase 7 Plan 07-05: density toggle
   // ships on Profile, persisting via cookbot.setDensity() → localStorage. Restore
   // here so the preference survives reload / new sessions.
+  // Phase 10 Plan 10-12 (QOL-05): accent preference read from localStorage before first paint.
   if (!document.documentElement.hasAttribute("data-accent")) {
-    document.documentElement.setAttribute("data-accent", "orange");
+    var accent = "orange";
+    try {
+      var stored = localStorage.getItem("cookbot_accent");
+      if (stored === "orange" || stored === "terracotta" || stored === "sage") accent = stored;
+    } catch (e) { /* ignore — privacy mode / prerender */ }
+    document.documentElement.setAttribute("data-accent", accent);
   }
   if (!document.documentElement.hasAttribute("data-density")) {
     var density = "comfy";

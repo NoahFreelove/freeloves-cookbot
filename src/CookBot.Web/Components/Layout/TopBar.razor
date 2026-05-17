@@ -68,7 +68,7 @@
                 aria-label="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
                 aria-pressed="@_isDarkMode"
                 @onclick="ToggleDarkMode">
-            <Icon Name="@Icon.Names.Sun" Size="16" />
+            <Icon Name="@(_isDarkMode ? Icon.Names.Moon : Icon.Names.Sun)" Size="16" />
         </button>
     </div>
 </header>
