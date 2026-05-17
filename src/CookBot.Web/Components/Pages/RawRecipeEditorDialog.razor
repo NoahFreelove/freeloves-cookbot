@@ -1,0 +1,129 @@
+@* Phase 10 / Plan 10-05 / QOL-04 / D-48..51: raw AI response edit-and-save dialog. *@
+@inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
+@inject ICbToastService Toast
+@inject ICbDialogService CbDialogService
+@inject CurrentUserService UserService
+@inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+    <textarea id="@_textareaId"
+              value="@_editedJson"
+              @oninput="HandleInput"
+              rows="20"
+              style="font-family:var(--font-mono);font-size:13px;min-height:400px;resize:vertical;width:100%;box-sizing:border-box;"></textarea>
+
+    <div style="display:flex;align-items:center;gap:6px;font-size:13px;">
+        @if (_isValid)
+        {
+            <Icon Name="@Icon.Names.Check" Size="14" Style="color:var(--success,#2d9a5c);" />
+            <span style="color:var(--success,#2d9a5c);">Valid recipe — ready to save</span>
+        }
+        else
+        {
+            <Icon Name="@Icon.Names.Bolt" Size="14" Style="color:var(--warn,#c0392b);" />
+            <span style="color:var(--warn,#c0392b);">Validation failed: @_validationMessage</span>
+        }
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <CbButton Variant="CbButton.CbButtonVariant.Primary"
+                  StartIcon="@Icon.Names.Save"
+                  Disabled="@(!_isValid)"
+                  OnClick="ParseAndSave">Parse and save</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                  StartIcon="@Icon.Names.Copy"
+                  OnClick="CopyRawToClipboard">Copy raw to clipboard</CbButton>
+        <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                  OnClick="Close">Close</CbButton>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private CbDialogInstance? DialogInstance { get; set; }
+    [Parameter] public string RawJson { get; set; } = "";
+
+    private readonly string _textareaId = $"raw-recipe-editor-{Guid.NewGuid():N}";
+    private string _editedJson = "";
+    private bool _isValid;
+    private string? _validationMessage;
+    private System.Threading.Timer? _debounceTimer;
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(RawJson);
+            _editedJson = node?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? RawJson;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            _editedJson = RawJson;
+        }
+        Validate();
+    }
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        _editedJson = e.Value as string ?? "";
+        _debounceTimer?.Dispose();
+        _debounceTimer = new System.Threading.Timer(_ =>
+        {
+            _ = InvokeAsync(() => { Validate(); StateHasChanged(); });
+        }, null, 500, System.Threading.Timeout.Infinite);
+        await Task.CompletedTask;
+    }
+
+    private void Validate()
+    {
+        _isValid = Parser.TryParse(_editedJson, out _, out var errors);
+        _validationMessage = _isValid ? null : (errors.FirstOrDefault() ?? "Unknown error");
+    }
+
+    private async Task ParseAndSave()
+    {
+        if (!_isValid) return;
+        if (!UserService.CurrentUserId.HasValue) return;
+
+        var cookbooks = await DbContext.Cookbooks
+            .Where(c => c.UserId == UserService.CurrentUserId.Value)
+            .ToListAsync();
+
+        if (!cookbooks.Any())
+        {
+            Toast.Show("Create a cookbook first.", CbToastSeverity.Warning);
+            return;
+        }
+
+        DialogInstance?.Close(CbDialogResult.Ok(true));
+
+        var parameters = new CbDialogParameters
+        {
+            ["Cookbooks"] = cookbooks,
+            ["RecipeContent"] = _editedJson,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true);
+        await CbDialogService.ShowAsync<SaveRecipeDialog>("Save Recipe to Cookbook", parameters, options);
+    }
+
+    private async Task CopyRawToClipboard()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _editedJson);
+            Toast.Show("Copied to clipboard.", CbToastSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Copy failed: {ex.Message}", CbToastSeverity.Error);
+        }
+    }
+
+    private void Close() => DialogInstance?.Close(CbDialogResult.Cancel());
+
+    public void Dispose()
+    {
+        _debounceTimer?.Dispose();
+    }
+}
