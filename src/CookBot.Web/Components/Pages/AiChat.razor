@@ -766,8 +766,10 @@ else
             }
         }
 
-        // D-09 fallback: parser couldn't coerce — surface the raw JSON for manual edit.
-        Toast.Show("The AI draft could not be parsed automatically. Copy it from the chat and paste into the recipe editor.", CbToastSeverity.Info);
+        // D-09 fallback (Phase 10 / QOL-04): parser couldn't coerce — open RawRecipeEditorDialog for manual edit (D-48).
+        var editorParameters = new CbDialogParameters { ["RawJson"] = rawJson };
+        var editorOptions = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Md, FullWidth: true);
+        await CbDialogService.ShowAsync<RawRecipeEditorDialog>("Edit raw AI response", editorParameters, editorOptions);
     }
 
     private async Task RetryRecipeGeneration()
