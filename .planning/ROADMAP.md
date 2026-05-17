@@ -113,12 +113,12 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 - [x] 10-01-PLAN.md — Wave 1: Move IRecipeMadeService interface to Application layer (layering fix, QOL-01)
 - [x] 10-02-PLAN.md — Wave 2: PantryMatchOptions + PantryMatchResult DTOs + IPantryMatchService interface + appsettings + Program.cs binding (QOL-01..03)
 - [x] 10-03-PLAN.md — Wave 3: PantryMatchService impl + diet→category map + scoring/diet/sort/authz tests (QOL-01..03)
-- [ ] 10-04-PLAN.md — Wave 4: Home.razor.cs swap to IPantryMatchService + EF model snapshot test for pantry-match indexes (QOL-01, QOL-03)
+- [x] 10-04-PLAN.md — Wave 4: Home.razor.cs swap to IPantryMatchService + EF model snapshot test for pantry-match indexes (QOL-01, QOL-03)
 - [x] 10-05-PLAN.md — Wave 2: RawRecipeEditorDialog + AiChat fallback rewiring (QOL-04)
 - [x] 10-06-PLAN.md — Wave 2: PromptBuilderService null-fallback wiring + null-fallback tests (QOL-06)
 - [x] 10-07-PLAN.md — Wave 3: EditProfile AI assistant instructions card + prompt-editor-insert.js + DefaultTemplate visibility raise (QOL-06, QOL-07)
 - [x] 10-08-PLAN.md — Wave 3: ICbTopBarService + CbTopBarService (IDisposable + NavigationManager subscription) + Program.cs registration + tests (POLISH-04)
-- [ ] 10-09-PLAN.md — Wave 4: MainLayout wiring + TopBar slot class + RecipeView/RecipeEditor migrations + responsive @media CSS (POLISH-04)
+- [x] 10-09-PLAN.md — Wave 4: MainLayout wiring + TopBar slot class + RecipeView/RecipeEditor migrations + responsive @media CSS (POLISH-04)
 - [ ] 10-10-PLAN.md — Wave 5: RecipeService.UpdateAsync newCookbookId + RecipeEditor CbSelect (POLISH-01)
 - [x] 10-11-PLAN.md — Wave 2: GroceryListService.EnsurePrimaryListAsync + AddItemAsync + PantryView cart wiring + tests (POLISH-02)
 - [x] 10-12-PLAN.md — Wave 2: Moon glyph in Icon.razor + MainLayout Sun↔Moon swap + accent picker (cookbot-shell.js + EditProfile) (POLISH-03, QOL-05)
@@ -140,7 +140,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 7. Remaining surfaces, accessibility, MudBlazor strip | v1.2 | 7/7 | Complete | 2026-04-27 |
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 7/7 | Complete   | 2026-05-16 |
-| 10. QOL, Polish & Consumer Surfaces | v1.3 | 11/14 | In Progress|  |
+| 10. QOL, Polish & Consumer Surfaces | v1.3 | 13/14 | In Progress|  |
 
 ---
 
