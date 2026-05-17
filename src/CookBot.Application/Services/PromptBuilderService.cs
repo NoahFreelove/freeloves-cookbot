@@ -34,10 +34,6 @@ public class PromptBuilderService
         "{{recipe_format}}"
     });
 
-    /// <summary>
-    /// Phase 10 / Plan 10-06 / D-52 — null-fallback override on profile.AiSystemPromptTemplate.
-    /// Whitespace-only treated as null. Corrects REQUIREMENTS QOL-06 "already loaded" misclaim.
-    /// </summary>
     public string BuildSystemPrompt(UserProfile profile, IEnumerable<PantryItem>? pantryItems = null)
     {
         var template = string.IsNullOrWhiteSpace(profile.AiSystemPromptTemplate)
