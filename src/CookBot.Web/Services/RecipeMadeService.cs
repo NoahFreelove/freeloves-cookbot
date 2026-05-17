@@ -1,3 +1,4 @@
+using CookBot.Application.Services;
 using CookBot.Domain.Entities;
 using CookBot.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -9,13 +10,6 @@ namespace CookBot.Web.Services;
 /// Closes FUTURE-Recently-Cooked from the v1.2 milestone summary — Home's
 /// "Recently cooked" tile and RecipeView's made-count both read through here.
 /// </summary>
-public interface IRecipeMadeService
-{
-    Task<RecipeMade> LogMadeAsync(int recipeId, int userId, string? notes = null, CancellationToken ct = default);
-    Task<int> GetMadeCountAsync(int recipeId, int userId, CancellationToken ct = default);
-    Task<RecipeMade?> GetLastCookAsync(int recipeId, int userId, CancellationToken ct = default);
-    Task<List<RecipeMade>> GetRecentForUserAsync(int userId, int take = 4, CancellationToken ct = default);
-}
 
 public class RecipeMadeService : IRecipeMadeService
 {
