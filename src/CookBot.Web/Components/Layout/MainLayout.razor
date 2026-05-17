@@ -2,6 +2,8 @@
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject ICbTopBarService TopBarService
+@implements IDisposable
 
 @* MainLayout — Phase 5 / Plan 05-05 / SHELL-01 / D-19 (Phase 7 / Plan 07-07 final).
 
@@ -31,7 +33,8 @@
                 IsDarkModeChanged="OnDarkModeChanged"
                 OnUserSwitched="OnUserSwitched"
                 IsDrawerCollapsed="_drawerCollapsed"
-                OnToggleDrawer="OnToggleDrawer" />
+                OnToggleDrawer="OnToggleDrawer"
+                RightSlot="@TopBarService.RightSlot" />
         <div style="flex:1;overflow:auto;padding:24px;">
             <CascadingValue Value="UserService.CurrentUserId" Name="CurrentUserId">
                 @Body
@@ -47,6 +50,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Phase 10 / Plan 10-09 / POLISH-04 / D-56 — subscribe to TopBar right-slot changes.
+        // Mirrors CbToastHost subscribe-in-OnInitialized / unsubscribe-in-Dispose pattern.
+        TopBarService.OnChanged += HandleSlotChanged;
+
         // Auto-create Home Chef admin if no users exist (preserved from existing layout).
         _users = await UserService.GetAllUsersAsync();
         if (!_users.Any())
@@ -134,4 +141,13 @@
         }
         catch (InvalidOperationException) { /* prerender — ignore */ }
     }
+
+    // Phase 10 / Plan 10-09 / POLISH-04 / T-10-09-01 — slot-change handler.
+    // Called by ICbTopBarService.OnChanged whenever a page sets or clears RightSlot.
+    // InvokeAsync marshals back onto the Blazor renderer thread before calling StateHasChanged.
+    private void HandleSlotChanged() => _ = InvokeAsync(StateHasChanged);
+
+    // Phase 10 / Plan 10-09 / POLISH-04 / T-10-09-01 — unsubscribe from OnChanged on dispose
+    // to prevent the event from holding a reference to the disposed component.
+    public void Dispose() => TopBarService.OnChanged -= HandleSlotChanged;
 }

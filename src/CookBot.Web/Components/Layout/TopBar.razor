@@ -43,7 +43,9 @@
     </div>
 
     <div style="display:flex;align-items:center;gap:10px;">
-        @RightSlot
+        @* Phase 10 / Plan 10-09 / POLISH-04 / D-59 — wrapper class gives the CSS media query
+           a stable hook to hide the slot below 720px without touching TopBar's API. *@
+        <div class="topbar-right-slot">@RightSlot</div>
 
         @if (_users.Any())
         {
