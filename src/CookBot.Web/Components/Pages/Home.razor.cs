@@ -27,6 +27,7 @@ public partial class Home : ComponentBase
     [Inject] private IOptions<CookBotSettings> CookBotSettingsOptions { get; set; } = null!;
     [Inject] private IScheduledRecipeService ScheduledRecipeService { get; set; } = null!;
     [Inject] private IRecipeMadeService RecipeMadeService { get; set; } = null!;
+    [Inject] private IPantryMatchService PantryMatchService { get; set; } = null!;
     [Inject] private IJSRuntime JS { get; set; } = null!;
 
     /// <summary>Current user (greeting + per-user authz). Null until first render restores the user.</summary>
@@ -245,8 +246,8 @@ public partial class Home : ComponentBase
             ? (DateTime?)null
             : groceryLists.Max(g => g.CreatedAt);
 
-        // HOME-02 — deterministic pantry-match stub.
-        _pantryMatches = await BuildPantryMatchesAsync(userId, allItems);
+        // HOME-02 — real pantry-match via IPantryMatchService (QOL-01..03 / Plan 10-04).
+        _pantryMatches = await BuildPantryMatchesAsync(userId);
 
         // HOME-04 — Recently cooked. Plan 07-09 Feature 2 wires this to the real
         // RecipeMade log; fall back to the 4 most-recently-updated recipes when the
@@ -308,58 +309,21 @@ public partial class Home : ComponentBase
     }
 
     /// <summary>
-    /// Deterministic pantry-match stub (HOME-02 / D-03). Smart matching (expiration-aware,
-    /// %-of-pantry-used, dietary-filtered) is FUTURE-13.
+    /// Thin projection over <see cref="IPantryMatchService.GetMatchesAsync"/> (QOL-01..03 / Plan 10-04).
+    /// All scoring logic (D-44 exponential-decay, D-45 dietary filter, D-46 configurable weights)
+    /// lives in <see cref="PantryMatchService"/>. Home is now a pure projection layer.
     /// </summary>
-    private async Task<List<HomePantryMatch>> BuildPantryMatchesAsync(int userId, IList<PantryItem> pantryItems)
+    private async Task<List<HomePantryMatch>> BuildPantryMatchesAsync(int userId, CancellationToken ct = default)
     {
-        if (pantryItems == null || pantryItems.Count == 0) return new();
-
-        var pantryIngredientIds = pantryItems.Select(p => p.IngredientId).ToHashSet();
-
-        var recipes = await DbContext.Recipes
-            .AsNoTracking()
-            .Where(r => r.Cookbook.UserId == userId
-                        || r.Cookbook.Shares.Any(s => s.SharedWithUserId == userId))
-            .Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)
-            .ToListAsync();
-
-        var matches = new List<HomePantryMatch>();
-        foreach (var recipe in recipes)
-        {
-            var total = recipe.RecipeIngredients.Count;
-            if (total == 0) continue;
-
-            var matched = recipe.RecipeIngredients.Count(ri => pantryIngredientIds.Contains(ri.IngredientId));
-            // TODO: smart matching — FUTURE-13 (expiration-aware, %-of-pantry-used, dietary-filtered).
-            var ratio = (double)matched / total;
-            if (ratio < 0.6) continue;
-
-            var firstMissing = recipe.RecipeIngredients
-                .FirstOrDefault(ri => !pantryIngredientIds.Contains(ri.IngredientId));
-
-            matches.Add(new HomePantryMatch(
-                recipe.Id,
-                recipe.Name,
-                matched,
-                total,
-                MatchMetaLine(recipe, matched, total),
-                firstMissing?.Ingredient?.Name,
-                recipe.PhotoUrl));
-        }
-
-        return matches
-            .OrderByDescending(m => (double)m.MatchedCount / Math.Max(1, m.TotalCount))
-            .ThenBy(m => m.RecipeName, StringComparer.OrdinalIgnoreCase)
-            .Take(3)
-            .ToList();
-    }
-
-    private static string MatchMetaLine(Recipe r, int matched, int total)
-    {
-        var minutes = (r.PrepTimeMinutes ?? 0) + (r.CookTimeMinutes ?? 0);
-        var timePart = minutes > 0 ? $"{minutes} min · " : "";
-        return $"{timePart}uses {matched} of {total} ingredients";
+        var results = await PantryMatchService.GetMatchesAsync(userId, ct);
+        return results.Select(r => new HomePantryMatch(
+            r.RecipeId,
+            r.RecipeName,
+            r.MatchedCount,
+            r.TotalCount,
+            $"uses {r.MatchedCount} of {r.TotalCount} ingredients",
+            r.FirstMissingIngredientName,
+            r.PhotoUrl)).ToList();
     }
 
     private static string DescribeRelative(DateTime utc)
