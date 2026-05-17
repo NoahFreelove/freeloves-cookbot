@@ -707,3 +707,16 @@ body.dark-mode .cb-chip:focus-visible,
 body.dark-mode .cb-dropdown-item:focus-visible {
   outline-color: var(--accent);
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Responsive TopBar.RightSlot — Phase 10 / Plan 10-09 / POLISH-04 / D-59.
+   Below 720px the TopBar slot is hidden; each migrating page renders its own
+   inline-action-row fallback (class .recipe-actions-inline-fallback).
+   Above 720px the inline fallback is hidden; the slot is visible in the TopBar.
+   ────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+    .topbar-right-slot { display: none !important; }
+}
+@media (min-width: 721px) {
+    .recipe-actions-inline-fallback { display: none !important; }
+}
