@@ -10,6 +10,11 @@ public class RecipeIngredientConfiguration : IEntityTypeConfiguration<RecipeIngr
     {
         builder.HasKey(ri => ri.Id);
 
+        // QOL-03 / Phase 8 AddPantryMatchIndexes — composite index for the pantry-match join
+        // performance guarantee. Declaring it here keeps the EF model snapshot in sync with
+        // the migration-applied index so a future scaffold migration does not accidentally drop it.
+        builder.HasIndex(ri => new { ri.RecipeId, ri.IngredientId });
+
         builder.Property(ri => ri.Unit)
             .HasMaxLength(50)
             .IsRequired();
