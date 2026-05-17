@@ -131,6 +131,29 @@
             </div>
         </CbCard>
 
+        <!-- AI usage (ordinal #5 — W-05 card-order contract, Plan 10-14 PROD-17) -->
+        <CbCard>
+            <CbEyebrow>AI usage</CbEyebrow>
+            <p style="margin:6px 0 14px 0;font-size:13px;color:var(--ink-3);">Rolling 30-day Anthropic API usage for keys you own.</p>
+            @if (_aiInputTokens30d == 0 && _aiOutputTokens30d == 0 && _aiCost30d == 0)
+            {
+                <p style="margin:0;font-size:13px;color:var(--ink-3);">No AI activity in the last 30 days.</p>
+            }
+            else
+            {
+                <dl style="margin:0;display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:13px;">
+                    <dt style="color:var(--ink-3);">Input tokens</dt>
+                    <dd style="margin:0;color:var(--ink);">@_aiInputTokens30d.ToString("N0")</dd>
+                    <dt style="color:var(--ink-3);">Output tokens</dt>
+                    <dd style="margin:0;color:var(--ink);">@_aiOutputTokens30d.ToString("N0")</dd>
+                    <dt style="color:var(--ink-3);">Estimated cost</dt>
+                    <dd style="margin:0;color:var(--ink);">$@_aiCost30d.ToString("F4")</dd>
+                </dl>
+            }
+            <p style="margin:8px 0 0 0;font-size:11.5px;color:var(--ink-4);">Pricing as of @(CookBotSettingsOptions.Value.AiPricingVerifiedDate?.ToString("yyyy-MM-dd") ?? "—").</p>
+            <p style="margin:4px 0 0 0;font-size:11.5px;color:var(--ink-4);">Includes spending by users sharing your key.</p>
+        </CbCard>
+
         <!-- AI features toggle -->
         <CbCard>
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
@@ -392,6 +415,11 @@
     private bool _isCompactDensity;
     private string _accent = "orange";
 
+    // PROD-17 / Plan 10-14: AI usage rolling-30-day telemetry (read surface)
+    private long _aiInputTokens30d;
+    private long _aiOutputTokens30d;
+    private decimal _aiCost30d;
+
     // QOL-06 / Plan 10-07: AI assistant instructions prompt editor
     private static readonly string[] PromptTokens =
     {
@@ -478,6 +506,7 @@
                 _displayNameEdit = _user.DisplayName;
                 _promptTemplate = _profile.AiSystemPromptTemplate ?? "";
                 _forceShowOwnKeyFields = false;
+                await LoadAiUsageAsync(_loadedUserId.Value);
                 _effectiveAi = await AiKeyResolver.ResolveAsync(_loadedUserId!.Value);
                 _incomingShareCount = (await AiKeyShareService.ListIncomingAsync(_loadedUserId.Value)).Count;
                 _incomingUsableCount =
@@ -746,5 +775,19 @@
         {
             Toast.Show($"Save failed: {ex.Message}", CbToastSeverity.Error);
         }
+    }
+
+    // PROD-17 / Plan 10-14: Load rolling 30-day AI usage totals for the key owner.
+    // Filter: KeyOwnerId == userId AND IsRetryAttempt == false AND Timestamp >= cutoff.
+    // Excludes retry rows per PITFALL H9 to avoid double-counting the 2-retry repair loop.
+    // Server-side EF predicate (not client-side) — privacy boundary per PROD-17 authz contract.
+    private async Task LoadAiUsageAsync(int userId)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        var rows = DbContext.AiUsageLogs.AsNoTracking()
+            .Where(r => r.KeyOwnerId == userId && !r.IsRetryAttempt && r.Timestamp >= cutoff);
+        _aiInputTokens30d = await rows.SumAsync(r => (long)r.InputTokens);
+        _aiOutputTokens30d = await rows.SumAsync(r => (long)r.OutputTokens);
+        _aiCost30d = await rows.SumAsync(r => r.EstimatedCostUsd);
     }
 }
