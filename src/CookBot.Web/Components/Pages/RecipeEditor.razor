@@ -15,6 +15,8 @@
 @inject ICbToastService Toast
 @inject ICbDialogService CbDialogService
 @inject IOptions<CookBotSettings> CookBotSettingsOptions
+@inject ICbTopBarService TopBarService
+@implements IDisposable
 @rendermode InteractiveServer
 
 @*  Recipe Editor — Phase 6 / Plan 06-04 / ED-01..ED-09 (absorbs v1.1 EDITOR-01..07).
@@ -35,8 +37,10 @@
 <PageTitle>CookBot - @(_isEdit ? "Edit" : "New") Recipe</PageTitle>
 
 <UserGuard>
-@* Top action row (TopBar right-slot fallback per Phase 6 D-16 PRAGMATIC) *@
-<div style="max-width:1180px;margin:0 auto;padding:24px 32px 0 32px;display:flex;align-items:center;gap:10px;">
+@* Top action row — also rendered in TopBar.RightSlot on wide viewports (Phase 10 / Plan 10-09 / POLISH-04).
+   D-59: class="recipe-actions-inline-fallback" is hidden above 720px by CSS media query; the TopBar slot
+   shows the same _topBarActions RenderFragment instead. Below 720px the slot is hidden and this row shows. *@
+<div class="recipe-actions-inline-fallback" style="max-width:1180px;margin:0 auto;padding:24px 32px 0 32px;display:flex;align-items:center;gap:10px;">
     <button type="button"
             class="cb-btn ghost"
             style="padding:6px 12px;"
@@ -47,17 +51,7 @@
     <div style="flex:1;color:var(--ink-3);font-size:13px;">
         @(_existingRecipe?.Cookbook?.Name is { Length: > 0 } cb ? $"Cookbooks / {cb}" : "Cookbooks")
     </div>
-    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
-              StartIcon="@Icon.Names.Copy"
-              OnClick="PasteRawText">Paste raw text</CbButton>
-    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
-              OnClick="GoBack">Cancel</CbButton>
-    <CbButton Variant="CbButton.CbButtonVariant.Primary"
-              StartIcon="@Icon.Names.Save"
-              OnClick="SaveRecipe"
-              Disabled="@_saving">
-        @(_saving ? "Saving..." : "Save")
-    </CbButton>
+    @_topBarActions
 </div>
 
 @if (_warnings.Any())
@@ -332,6 +326,36 @@
 @code {
     [Parameter] public int CookbookId { get; set; }
     [Parameter] public int RecipeId { get; set; }
+
+    // Phase 10 / Plan 10-09 / POLISH-04 / W-02 — RenderFragment fed to TopBar.RightSlot.
+    // Constructed once in OnInitialized using the Razor @<text> markup-template form (W-02
+    // committed shape, identical to RecipeView). The same fragment also renders in the inline
+    // fallback below 720px.
+    private RenderFragment? _topBarActions;
+
+    protected override void OnInitialized()
+    {
+        // W-02: @<text> markup-template construction — identical shape in RecipeView + RecipeEditor.
+        _topBarActions = @<text>
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                      StartIcon="@Icon.Names.Copy"
+                      OnClick="PasteRawText">Paste raw text</CbButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                      OnClick="GoBack">Cancel</CbButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Primary"
+                      StartIcon="@Icon.Names.Save"
+                      OnClick="SaveRecipe"
+                      Disabled="@_saving">
+                @(_saving ? "Saving..." : "Save")
+            </CbButton>
+        </text>;
+        // D-57: auto-clear on navigation is handled by CbTopBarService.LocationChanged; no explicit Clear() needed.
+        TopBarService.SetRightSlot(_topBarActions);
+    }
+
+    // Phase 10 / Plan 10-09 / POLISH-04 — IDisposable required by @implements directive.
+    // D-57: service auto-clears on navigation; Dispose is a no-op here but satisfies the contract.
+    public void Dispose() { }
 
     private string _name = string.Empty;
     private string _description = string.Empty;

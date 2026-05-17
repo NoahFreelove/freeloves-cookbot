@@ -11,6 +11,8 @@
 @inject NavigationManager Navigation
 @inject ICbDialogService CbDialogService
 @inject IRecipeMadeService RecipeMadeService
+@inject ICbTopBarService TopBarService
+@implements IDisposable
 @rendermode InteractiveServer
 
 @*  Recipe View — Phase 6 / Plan 06-03 / RV-01..RV-05.
@@ -35,12 +37,11 @@
 <UserGuard>
 @if (_doc != null && _recipe != null)
 {
-    @* Inline action row (TopBar right-slot fallback per CONTEXT D-17 PRAGMATIC) *@
-    <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;justify-content:flex-end;gap:10px;align-items:center;">
-        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Pencil" OnClick="EditRecipe">Edit</CbButton>
-        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Share" OnClick="OpenShareDialog">Share</CbButton>
-        <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Clock" OnClick="OpenScheduleDialog">Schedule</CbButton>
-        <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Flame" OnClick="StartCooking">Cook this</CbButton>
+    @* Inline action row — also rendered in TopBar.RightSlot on wide viewports (Phase 10 / Plan 10-09 / POLISH-04).
+       D-59: class="recipe-actions-inline-fallback" is hidden above 720px by CSS media query; the TopBar slot
+       shows the same _topBarActions RenderFragment instead. Below 720px the slot is hidden and this row shows. *@
+    <div class="recipe-actions-inline-fallback" style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;justify-content:flex-end;gap:10px;align-items:center;">
+        @_topBarActions
     </div>
 
     <article style="max-width:1080px;margin:0 auto;padding:24px 32px 80px;">
@@ -231,6 +232,28 @@ else if (_loaded)
 
 @code {
     [Parameter] public int RecipeId { get; set; }
+
+    // Phase 10 / Plan 10-09 / POLISH-04 / W-02 — RenderFragment fed to TopBar.RightSlot.
+    // Constructed once in OnInitialized using the Razor @<text> markup-template form (W-02
+    // committed shape). The same fragment also renders in the inline fallback below 720px.
+    private RenderFragment? _topBarActions;
+
+    protected override void OnInitialized()
+    {
+        // W-02: @<text> markup-template construction — identical shape in RecipeView + RecipeEditor.
+        _topBarActions = @<text>
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Pencil" OnClick="EditRecipe">Edit</CbButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Share" OnClick="OpenShareDialog">Share</CbButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Clock" OnClick="OpenScheduleDialog">Schedule</CbButton>
+            <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Flame" OnClick="StartCooking">Cook this</CbButton>
+        </text>;
+        // D-57: auto-clear on navigation is handled by CbTopBarService.LocationChanged; no explicit Clear() needed.
+        TopBarService.SetRightSlot(_topBarActions);
+    }
+
+    // Phase 10 / Plan 10-09 / POLISH-04 — IDisposable required by @implements directive.
+    // D-57: service auto-clears on navigation; Dispose is a no-op here but satisfies the contract.
+    public void Dispose() { }
 
     private CookBot.Domain.Entities.Recipe? _recipe;
     private RecipeDocument? _doc;
