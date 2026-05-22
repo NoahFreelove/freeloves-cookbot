@@ -30,10 +30,20 @@ result: pass
 
 ### 4. RawRecipeEditorDialog end-to-end flow (QOL-04)
 expected: AI Chat → trigger validation-fail fallback → "Edit anyway" opens RawRecipeEditorDialog with pretty-printed JSON. Invalid JSON shows red validation within 500ms; valid JSON enables "Parse and save", which closes the dialog and opens SaveRecipeDialog.
-result: issue
+result: [pending-retest]
 reported: "AI error: Anthropic API error 400: output_config.format.schema: For 'anyOf', 'additionalProperties, required, type' is not supported"
 severity: blocker
-note: Cannot reach the validation-fail fallback because the Anthropic structured-outputs request itself is rejected. Schema sent in body uses anyOf branches that include disallowed keywords.
+note: |
+  Root cause: STJ's JsonSchemaExporter emitted the polymorphic StepNode (ContentStep | SectionStep)
+  as steps.items.anyOf with each branch carrying inline type/properties/required/additionalProperties.
+  Anthropic strict structured-outputs forbids those keywords inside anyOf branches and requires
+  branches to be $ref wrappers into $defs.
+fix: |
+  RecipeJsonSchemaProvider.ExternalizeAnyOfBranches added — walks the schema post-export, lifts
+  each anyOf branch carrying forbidden keywords into $defs/<discriminator-named> entry and
+  replaces the branch with { "$ref": "#/$defs/..." }. SchemaAssertionTests now has a regression
+  guard (GetSchema_AnyOfBranches_ContainOnlyRefs) and an idempotency guard. The fallback
+  validation-fail UX path itself was not modified — re-run this UAT to confirm it now reaches.
 
 ### 5. Cookbook reparenting navigation (POLISH-01)
 expected: Recipe editor → change cookbook selector → Save. Recipe saves; browser navigates to destination cookbook's page; recipe no longer appears in its original cookbook.
@@ -59,9 +69,13 @@ blocked: 0
 ## Gaps
 
 - truth: "AI Chat returns a parsed/validated RecipeDocument that the user can review (and on failure, opens RawRecipeEditorDialog with the raw output)"
-  status: failed
-  reason: "User reported: Anthropic API error 400 — output_config.format.schema: For 'anyOf', 'additionalProperties, required, type' is not supported. The structured-outputs request is rejected before any model output is generated, so the validation-fail fallback path cannot be exercised."
+  status: code-fix-applied-pending-retest
+  reason: "User reported: Anthropic API error 400 — output_config.format.schema: For 'anyOf', 'additionalProperties, required, type' is not supported. The structured-outputs request was rejected before any model output was generated, so the validation-fail fallback path could not be exercised."
+  fix_commit: pending
+  fix_summary: "RecipeJsonSchemaProvider.ExternalizeAnyOfBranches lifts polymorphic anyOf branches into $defs and replaces them with $ref wrappers, removing the forbidden inline keywords from anyOf. Regression guard added."
   severity: blocker
   test: 4
-  artifacts: []
+  artifacts:
+    - src/CookBot.Application/Recipes/RecipeJsonSchemaProvider.cs
+    - tests/CookBot.Tests/Recipes/SchemaAssertionTests.cs
   missing: []

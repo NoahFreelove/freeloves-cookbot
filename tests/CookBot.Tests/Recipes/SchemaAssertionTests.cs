@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json.Nodes;
 using CookBot.Application.Recipes;
 
@@ -106,39 +107,120 @@ public class SchemaAssertionTests
             $"(SetAdditionalPropertiesFalse walker regression), but got: {objectSubschema.ToJsonString()}");
     }
 
+    /// <summary>
+    /// Regression guard for the Anthropic strict structured-outputs constraint discovered during
+    /// Phase 10 UAT Test 4 (POLISH/QOL-04): the API rejects requests whose schema contains
+    /// <c>anyOf</c> branches carrying inline <c>type</c> / <c>properties</c> / <c>required</c> /
+    /// <c>additionalProperties</c>. Branches must be externalized to <c>$defs</c> and reduced to
+    /// <c>$ref</c> wrappers. See <see cref="RecipeJsonSchemaProvider.ExternalizeAnyOfBranches"/>.
+    /// </summary>
+    [Fact]
+    public void GetSchema_AnyOfBranches_ContainOnlyRefs()
+    {
+        var schema = new RecipeJsonSchemaProvider().GetSchema();
+        var violations = new System.Collections.Generic.List<string>();
+        WalkAnyOf(schema, "$", violations);
+
+        Assert.True(
+            violations.Count == 0,
+            $"Anthropic strict structured-outputs forbids type/properties/required/additionalProperties " +
+            $"inside anyOf branches. Found violations at: {string.Join("; ", violations)}. " +
+            $"Schema: {schema.ToJsonString()}");
+    }
+
+    /// <summary>
+    /// Recursively walks the schema and, for every <c>anyOf</c> array encountered, asserts each
+    /// branch is either a pure <c>$ref</c> wrapper or contains only the limited set of keywords
+    /// Anthropic permits inside an anyOf branch (i.e. NOT type/properties/required/additionalProperties).
+    /// </summary>
+    private static void WalkAnyOf(JsonNode? node, string path, System.Collections.Generic.List<string> violations)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["anyOf"] is JsonArray anyOf)
+            {
+                for (var i = 0; i < anyOf.Count; i++)
+                {
+                    if (anyOf[i] is JsonObject branch)
+                    {
+                        foreach (var forbidden in new[] { "type", "properties", "required", "additionalProperties" })
+                        {
+                            // Permit `type: "null"` — Anthropic accepts a null-sentinel branch.
+                            if (forbidden == "type"
+                                && branch["type"] is JsonValue tv
+                                && tv.TryGetValue<string>(out var ts)
+                                && ts == "null")
+                            {
+                                continue;
+                            }
+                            if (branch.ContainsKey(forbidden))
+                            {
+                                violations.Add($"{path}.anyOf[{i}].{forbidden}");
+                            }
+                        }
+                    }
+                }
+            }
+            foreach (var kvp in obj)
+            {
+                WalkAnyOf(kvp.Value, $"{path}.{kvp.Key}", violations);
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            for (var i = 0; i < arr.Count; i++)
+            {
+                WalkAnyOf(arr[i], $"{path}[{i}]", violations);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Idempotency guard: calling the provider twice (or re-running the externalizer on its own
+    /// output) must not produce nested <c>Variant_</c> / <c>kind_…</c> duplicates or alter the
+    /// schema shape.
+    /// </summary>
+    [Fact]
+    public void GetSchema_IsIdempotent_AcrossInstances()
+    {
+        var a = new RecipeJsonSchemaProvider().GetSchema().ToJsonString();
+        var b = new RecipeJsonSchemaProvider().GetSchema().ToJsonString();
+        Assert.Equal(a, b);
+    }
+
     // ─────────────────────────── helpers ───────────────────────────
 
     /// <summary>
     /// Navigates into the schema to find the ContentStep anyOf branch (identified by the
     /// presence of a "text" property), then returns that branch's "properties" object.
+    /// Follows <c>$ref</c> into <c>$defs</c> (Anthropic strict-mode externalization, see
+    /// <see cref="RecipeJsonSchemaProvider"/>) so the navigation works whether the branch
+    /// is inline or externalized.
     /// Throws <see cref="Xunit.Sdk.XunitException"/> with a diagnostic fragment if not found.
     /// </summary>
     private static JsonObject FindContentStepProperties(JsonObject rootSchema)
     {
-        // steps -> items -> anyOf -> branch containing "text"
+        // steps -> items -> anyOf -> branch (possibly $ref) -> properties containing "text"
         var stepsSchema = rootSchema["properties"]?["steps"]?.AsObject()
             ?? throw new Xunit.Sdk.XunitException(
                 $"Could not navigate to schema['properties']['steps']. Root: {rootSchema.ToJsonString()}");
 
-        // steps may be: { "type": "array", "items": { "anyOf": [...] } }
-        // or items may itself be the anyOf object
         var stepsItems = stepsSchema["items"]?.AsObject()
             ?? throw new Xunit.Sdk.XunitException(
                 $"Could not navigate to schema['properties']['steps']['items']. Steps schema: {stepsSchema.ToJsonString()}");
 
-        // Under items, look for "anyOf"
         var anyOf = stepsItems["anyOf"]?.AsArray()
             ?? throw new Xunit.Sdk.XunitException(
                 $"Expected 'anyOf' under steps.items for polymorphic StepNode. " +
                 $"Items schema: {stepsItems.ToJsonString()}");
 
-        // Find the ContentStep branch: the one whose "properties" contains "text"
         foreach (var branch in anyOf)
         {
             if (branch is not JsonObject branchObj)
                 continue;
 
-            var branchProps = branchObj["properties"]?.AsObject();
+            var resolved = ResolveRef(rootSchema, branchObj);
+            var branchProps = resolved?["properties"]?.AsObject();
             if (branchProps is not null && branchProps.ContainsKey("text"))
             {
                 return branchProps;
@@ -148,6 +230,26 @@ public class SchemaAssertionTests
         throw new Xunit.Sdk.XunitException(
             $"Could not find ContentStep anyOf branch (expected branch with 'text' property). " +
             $"anyOf array: {anyOf.ToJsonString()}");
+    }
+
+    /// <summary>
+    /// If <paramref name="node"/> is a <c>{ "$ref": "#/$defs/Foo" }</c> wrapper, resolves it
+    /// against the root schema's <c>$defs</c>. Otherwise returns <paramref name="node"/> as-is.
+    /// Only internal <c>#/$defs/…</c> refs are supported (matches the provider's externalizer).
+    /// </summary>
+    private static JsonObject? ResolveRef(JsonObject root, JsonObject node)
+    {
+        if (node["$ref"] is JsonValue refVal && refVal.TryGetValue<string>(out var refStr))
+        {
+            const string prefix = "#/$defs/";
+            if (refStr.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                var name = refStr[prefix.Length..];
+                return root["$defs"]?[name]?.AsObject();
+            }
+            return null;
+        }
+        return node;
     }
 
     /// <summary>
