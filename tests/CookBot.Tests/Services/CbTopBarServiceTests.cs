@@ -29,6 +29,11 @@ public class CbTopBarServiceTests
             Uri = uri;
             base.NotifyLocationChanged(isInternalNavigation);
         }
+
+        // 999.1 test helper: simulate Blazor's behavior where the browser navigates and updates
+        // the URL BEFORE the LocationChanged event subscribers fire. Lets a test stamp a slot at
+        // the destination URL and then fire LocationChanged for that same URL.
+        public void SetUriDirectly(string uri) => Uri = uri;
     }
 
     [Fact]
@@ -69,6 +74,43 @@ public class CbTopBarServiceTests
         svc.Clear();
 
         Assert.Equal(0, fired);
+    }
+
+    // 999.1 regression guard (2026-05-23): Blazor Server fires NavigationManager.LocationChanged
+    // AFTER the new page's OnInitialized has run. The original D-57 contract ("auto-clear on every
+    // navigation") was wiping the slot the new page had just set. SetRightSlot now stamps the URL
+    // it was called at, and LocationChanged preserves the slot when the destination URL matches.
+    [Fact]
+    public void LocationChanged_PreservesSlot_WhenSetForSameUrl()
+    {
+        var nav = new TestNavigationManager();
+        // Simulate Blazor's real ordering:
+        //   1. URL changes to /recipes/2 (browser/router-driven, BEFORE event subscribers run)
+        //   2. RecipeView.OnInitialized runs, calls SetRightSlot — stamps URL=/recipes/2
+        //   3. LocationChanged event fires with destination URL=/recipes/2
+        // The slot must survive step 3.
+        nav.SetUriDirectly("http://localhost/recipes/2");
+        var svc = new CbTopBarService(nav);
+        svc.SetRightSlot(builder => builder.AddContent(0, "buttons"));
+
+        nav.NotifyLocationChanged("http://localhost/recipes/2", isInternalNavigation: true);
+
+        Assert.NotNull(svc.RightSlot);
+    }
+
+    [Fact]
+    public void LocationChanged_ClearsSlot_WhenStampedUrlDiffersFromDestination()
+    {
+        var nav = new TestNavigationManager();
+        // Slot was set for /recipes/2 (e.g., the user was on that page), then user navigates
+        // to /home which doesn't set its own slot. The stale slot from /recipes/2 must clear.
+        nav.SetUriDirectly("http://localhost/recipes/2");
+        var svc = new CbTopBarService(nav);
+        svc.SetRightSlot(builder => builder.AddContent(0, "stale"));
+
+        nav.NotifyLocationChanged("http://localhost/home", isInternalNavigation: true);
+
+        Assert.Null(svc.RightSlot);
     }
 
     [Fact]

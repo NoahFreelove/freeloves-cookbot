@@ -148,20 +148,14 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 ## Backlog
 
-### Phase 999.1: RecipeView Cook button missing — TopBarService navigation race (BACKLOG)
+### Phase 999.1: RecipeView Cook button missing — TopBarService navigation race ✅ RESOLVED 2026-05-23
 
 **Goal:** Fix `CbTopBarService` so the TopBar.RightSlot survives a route change to a page that re-sets the slot in `OnInitialized` (RecipeView, RecipeEditor).
-**Requirements:** TBD
-**Plans:** 0 plans
+**Status:** Resolved 2026-05-23 — see commit history.
 
-**Reproducer:** Generate a recipe in AiChat → save → navigate to `/recipes/{id}` (RecipeView). Cook / Edit / Share / Schedule buttons are absent from both `TopBar.RightSlot` (≥721px viewport) and the inline `.recipe-actions-inline-fallback` row (≤720px viewport).
+**Reproducer (now fixed):** Generate a recipe in AiChat → save → navigate to `/recipes/{id}` (RecipeView). Cook / Edit / Share / Schedule buttons were absent from both `TopBar.RightSlot` (≥721px viewport) and the inline `.recipe-actions-inline-fallback` row (≤720px viewport).
 
-**Hypothesis:** `CbTopBarService.HandleLocationChanged` (`src/CookBot.Web/Services/CbTopBarService.cs:44`) fires Clear() on `NavigationManager.LocationChanged` synchronously *before* the new page's `OnInitialized` runs. But MainLayout's `HandleSlotChanged` queues `StateHasChanged` via `InvokeAsync` — the two slot writes (clear → set) may collapse into a single render where the cleared state wins. Possibly fixable by moving the auto-clear from `LocationChanged` to a delayed/dispatcher-tail callback, or by letting RecipeView/RecipeEditor re-set after `OnAfterRenderAsync(firstRender)`.
-
-**Surfaced:** Phase 10 UAT Test 4 retest (2026-05-22). User report: "no cook button on the page whatsoever".
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
+**Actual root cause** (opposite of original hypothesis): Diagnostic traces showed `NavigationManager.LocationChanged` fires ~4ms *AFTER* the new page's `OnInitialized` returns, not before. The original D-57 auto-clear was wiping the slot the new page had just set. Fix: `SetRightSlot` now stamps the URL it was called at, and `HandleLocationChanged` preserves the slot when the destination URL matches the stamp (slot belongs to this page); clears only when URL differs (stale slot from prior page).
 
 ### Phase 999.4: RecipeView responsive layout broken at narrow viewports (BACKLOG)
 

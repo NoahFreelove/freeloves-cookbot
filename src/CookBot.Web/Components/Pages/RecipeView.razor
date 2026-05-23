@@ -247,7 +247,8 @@ else if (_loaded)
             <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Clock" OnClick="OpenScheduleDialog">Schedule</CbButton>
             <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Flame" OnClick="StartCooking">Cook this</CbButton>
         </text>;
-        // D-57: auto-clear on navigation is handled by CbTopBarService.LocationChanged; no explicit Clear() needed.
+        // D-57 (revised by 999.1): SetRightSlot stamps the current URL; CbTopBarService's
+        // LocationChanged handler keeps the slot when the destination URL matches the stamp.
         TopBarService.SetRightSlot(_topBarActions);
     }
 
