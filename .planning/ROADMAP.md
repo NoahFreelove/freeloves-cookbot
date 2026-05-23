@@ -163,6 +163,40 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
+### Phase 999.4: RecipeView responsive layout broken at narrow viewports (BACKLOG)
+
+**Goal:** Make RecipeView usable at ≤720px viewports. POLISH-04 wired the TopBar/inline-fallback toggle, but the rest of RecipeView's layout still assumes wide viewport.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Reproducer:** Open any `/recipes/{id}` page, resize browser to 719px. The hero `display:grid; grid-template-columns:1fr 1fr` doesn't stack — title is clipped, the hero photo placeholder compresses to a vertical strip on the right. Ingredients column overflows; method column wraps text per-word into a too-narrow strip. `<article style="max-width:1080px;padding:24px 32px 80px">` has no narrow-viewport variant.
+
+**Notes:** Likely needs `@media (max-width: 720px)` rules on the hero grid, the ingredient/method grid, and the step number grid. Or a single CSS class for "responsive recipe layout" that switches grid-template-columns to a single column below the breakpoint.
+
+**Surfaced:** Phase 10 UAT Test 7 (2026-05-22). User: "everything is squished but nothing condensed properly".
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.5: RecipeView inline-fallback action row missing Edit button (BACKLOG)
+
+**Goal:** Find out why the Edit button is absent from the inline `.recipe-actions-inline-fallback` row even though `RecipeView._topBarActions` includes it as the first CbButton in the RenderFragment.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Reproducer:** Open `/recipes/{id}` at ≤720px viewport. The inline fallback row shows Share / Schedule / Cook this, but Edit is absent.
+
+**Suspects to investigate:**
+- Edit may be clipped left by the row's `justify-content:flex-end` if total width exceeds container — but other buttons would also overflow then.
+- `CbButton` with `StartIcon="Pencil"` may be conditionally hidden by some auth/owner check we haven't traced.
+- The `@<text>` RenderFragment construction may be dropping the first child in some Blazor/MarkupString quirk.
+- A separate CSS rule may be `display:none`-ing buttons matching a Pencil icon pattern.
+
+**Surfaced:** Phase 10 UAT Test 7 (2026-05-22). Visible in user screenshot at narrow viewport.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ### Phase 999.3: Sidebar polish — Profile row clipped, body bg ends before sidebar bottom (BACKLOG)
 
 **Goal:** Fix the `.cb-shell .side` grid cell so (a) the Profile row at the sidebar bottom is fully visible (not clipped on the left), and (b) the `--cream` body background extends to the full sidebar height instead of cutting off short.
