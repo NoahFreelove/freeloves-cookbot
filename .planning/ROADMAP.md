@@ -163,6 +163,21 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
+### Phase 999.3: Sidebar polish — Profile row clipped, body bg ends before sidebar bottom (BACKLOG)
+
+**Goal:** Fix the `.cb-shell .side` grid cell so (a) the Profile row at the sidebar bottom is fully visible (not clipped on the left), and (b) the `--cream` body background extends to the full sidebar height instead of cutting off short.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Reproducer:** Open any page at default desktop zoom on a typical 1080p viewport. The Profile button at the bottom of the sidebar is partially hidden (text "rofile" visible, leading icon clipped). The main column's cream background stops short of the sidebar bottom edge, exposing the body background underneath.
+
+**Notes:** Both symptoms point at the `.cb-shell { display:grid; height:100% }` rule — `height:100%` may not be inheriting correctly from the `<div class="cb-shell" style="height:100vh">` wrapper, OR the sidebar is being given an explicit height that exceeds the grid row.
+
+**Surfaced:** Phase 10 UAT Test 4 retest (2026-05-22). User screenshot showed both issues simultaneously.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ### Phase 999.2: Recipe amounts not in user-selected unit system (BACKLOG)
 
 **Goal:** Render `RecipeIngredient.Amount` + `Unit` (and per-step `StepTemperature`) through the user's `UserProfile.UnitSystem` preference on RecipeView, CookingMode, and the AiChat canvas.
