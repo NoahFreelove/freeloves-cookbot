@@ -129,9 +129,13 @@ public class SchemaAssertionTests
     }
 
     /// <summary>
-    /// Recursively walks the schema and, for every <c>anyOf</c> array encountered, asserts each
-    /// branch is either a pure <c>$ref</c> wrapper or contains only the limited set of keywords
-    /// Anthropic permits inside an anyOf branch (i.e. NOT type/properties/required/additionalProperties).
+    /// Recursively walks the schema and, for every <c>anyOf</c> array encountered, asserts:
+    ///   (a) every branch is either a pure <c>$ref</c> wrapper or carries only keywords
+    ///       Anthropic permits inside an anyOf branch (NOT type/properties/required/
+    ///       additionalProperties), AND
+    ///   (b) the <c>anyOf</c>'s parent object has none of <c>type</c>/<c>required</c>/
+    ///       <c>additionalProperties</c> as siblings of <c>anyOf</c> — Anthropic strict mode
+    ///       rejects those at the same level as the union.
     /// </summary>
     private static void WalkAnyOf(JsonNode? node, string path, System.Collections.Generic.List<string> violations)
     {
@@ -139,6 +143,16 @@ public class SchemaAssertionTests
         {
             if (obj["anyOf"] is JsonArray anyOf)
             {
+                // (b) sibling-keyword check
+                foreach (var forbiddenSibling in new[] { "type", "required", "additionalProperties" })
+                {
+                    if (obj.ContainsKey(forbiddenSibling))
+                    {
+                        violations.Add($"{path}.{forbiddenSibling} (sibling of anyOf)");
+                    }
+                }
+
+                // (a) per-branch check
                 for (var i = 0; i < anyOf.Count; i++)
                 {
                     if (anyOf[i] is JsonObject branch)

@@ -29,8 +29,16 @@ public sealed class RecipeJsonSchemaProvider
         // JsonSchemaExporter requires the options to carry a TypeInfoResolver before being
         // marked read-only; pin DefaultJsonTypeInfoResolver explicitly so reflection-based
         // metadata is available at schema-export time.
-        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        //
+        // CRITICAL: do NOT use JsonSerializerDefaults.Web here. The Web preset turns on
+        // NumberHandling.AllowReadingFromString, which causes the exporter to emit every
+        // numeric field as a `"type": ["string","integer"]` (or "string"/"number") union
+        // with a regex pattern. Anthropic's structured-outputs grammar compiler chokes on
+        // these unions ("Grammar compilation timed out") — see Phase 10 UAT Test 4 retest 3.
+        // We still want camelCase property naming, so set that explicitly.
+        var serializerOptions = new JsonSerializerOptions
         {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         };
         var exporterOptions = new JsonSchemaExporterOptions
@@ -104,12 +112,18 @@ public sealed class RecipeJsonSchemaProvider
     };
 
     /// <summary>
-    /// Anthropic strict structured-outputs rejects inline <c>type</c>/<c>properties</c>/<c>required</c>/
-    /// <c>additionalProperties</c> inside an <c>anyOf</c> branch — the branch must reduce to a
-    /// <c>$ref</c> (or to a pure null sentinel). Walks the schema; for every <c>anyOf</c> array
-    /// branch that carries any forbidden keyword, lifts the branch to <c>$defs/&lt;name&gt;</c> and
-    /// replaces it with <c>{ "$ref": "#/$defs/&lt;name&gt;" }</c>. Idempotent — a second pass over
-    /// branches that are already <c>$ref</c> is a no-op.
+    /// Anthropic strict structured-outputs has two restrictions around <c>anyOf</c>:
+    ///   1. Branches inside <c>anyOf</c> may not carry inline <c>type</c>/<c>properties</c>/
+    ///      <c>required</c>/<c>additionalProperties</c> — they must reduce to a <c>$ref</c>
+    ///      (or a pure null sentinel).
+    ///   2. <c>type</c>/<c>required</c>/<c>additionalProperties</c> may not appear as
+    ///      <i>siblings</i> of <c>anyOf</c> on the parent object either — the entire shape
+    ///      must live in the referenced <c>$defs</c> entry, not split across parent + branches.
+    /// This pass walks the schema, lifts each non-conforming branch into
+    /// <c>$defs/&lt;name&gt;</c>, hoists the parent's sibling constraints into every branch's
+    /// <c>$defs</c> entry, and strips them from the parent so it becomes a thin
+    /// <c>{ "anyOf": [...] }</c>. Idempotent — a re-run over an already-normalized schema
+    /// is a no-op.
     /// </summary>
     private static void ExternalizeAnyOfBranches(JsonNode? root)
     {
@@ -129,6 +143,114 @@ public sealed class RecipeJsonSchemaProvider
         if (defs.Count > 0 && rootObj["$defs"] is null)
         {
             rootObj["$defs"] = defs;
+        }
+
+        // Second pass: enforce the sibling-keyword restriction. Must run AFTER externalization
+        // so the $defs targets exist and can absorb the hoisted constraints.
+        if (rootObj["$defs"] is JsonObject finalDefs)
+        {
+            NormalizeAnyOfParents(rootObj, finalDefs, isInsideDefs: false);
+        }
+    }
+
+    /// <summary>
+    /// For every object with an <c>anyOf</c> array, hoists parent-level <c>type</c>/
+    /// <c>required</c>/<c>additionalProperties</c> into each <c>$ref</c>'d <c>$defs</c>
+    /// entry (so the constraints are preserved by the union) and then strips those keys
+    /// from the parent. After this pass, no <c>anyOf</c> appears as a sibling of those
+    /// keywords — the parent reduces to <c>{ "anyOf": [...] }</c>.
+    /// </summary>
+    private static void NormalizeAnyOfParents(JsonNode? node, JsonObject defs, bool isInsideDefs)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["anyOf"] is JsonArray anyOf)
+            {
+                // Snapshot parent siblings before mutating.
+                var parentType = obj["type"]?.DeepClone();
+                var parentRequired = obj["required"] as JsonArray;
+                var parentAdditional = obj["additionalProperties"]?.DeepClone();
+
+                if (parentType is not null || parentRequired is not null || parentAdditional is not null)
+                {
+                    foreach (var branch in anyOf)
+                    {
+                        if (branch is JsonObject bo
+                            && bo["$ref"] is JsonValue refVal
+                            && refVal.TryGetValue<string>(out var refStr)
+                            && refStr.StartsWith("#/$defs/", StringComparison.Ordinal))
+                        {
+                            var name = refStr["#/$defs/".Length..];
+                            if (defs[name] is JsonObject target)
+                            {
+                                HoistSiblingsIntoBranch(target, parentType, parentRequired, parentAdditional);
+                            }
+                        }
+                    }
+
+                    obj.Remove("type");
+                    obj.Remove("required");
+                    obj.Remove("additionalProperties");
+                }
+            }
+
+            foreach (var kvp in obj.ToList())
+            {
+                NormalizeAnyOfParents(kvp.Value, defs, isInsideDefs || kvp.Key == "$defs");
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var child in arr)
+            {
+                NormalizeAnyOfParents(child, defs, isInsideDefs);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merges parent <c>type</c>/<c>required</c>/<c>additionalProperties</c> into a single
+    /// <c>$defs</c> entry. Branch's own value wins where both are set; <c>required</c> is
+    /// merged as a set union to preserve discriminator + branch-specific required-ness.
+    /// </summary>
+    private static void HoistSiblingsIntoBranch(
+        JsonObject target,
+        JsonNode? parentType,
+        JsonArray? parentRequired,
+        JsonNode? parentAdditional)
+    {
+        if (parentType is not null && target["type"] is null)
+        {
+            target["type"] = parentType.DeepClone();
+        }
+
+        if (parentAdditional is not null && target["additionalProperties"] is null)
+        {
+            target["additionalProperties"] = parentAdditional.DeepClone();
+        }
+
+        if (parentRequired is not null)
+        {
+            var existing = target["required"] as JsonArray;
+            if (existing is null)
+            {
+                target["required"] = parentRequired.DeepClone();
+            }
+            else
+            {
+                var seen = new HashSet<string>();
+                foreach (var item in existing)
+                {
+                    if (item is JsonValue iv && iv.TryGetValue<string>(out var s)) seen.Add(s);
+                }
+                foreach (var item in parentRequired)
+                {
+                    if (item is JsonValue iv && iv.TryGetValue<string>(out var s) && seen.Add(s))
+                    {
+                        existing.Add(s);
+                    }
+                }
+            }
         }
     }
 

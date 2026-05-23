@@ -103,7 +103,7 @@ else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
        The page sits inside MainLayout's main column (24px padding); we
        pull padding off the inner shell so the rail's paper-2 background
        extends edge-to-edge inside the page bounds. *@
-    <div style="display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 96px);min-height:520px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--paper);">
+    <div style="display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 112px);min-height:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--paper);">
 
         @* ── Left rail: chat conversation + input ─────────────────────── *@
         <section style="border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--paper-2);min-width:0;">
@@ -1030,7 +1030,7 @@ else
                             <div style="display:flex;gap:16px;padding:12px 0;border-bottom:1px solid var(--line);">
                                 <span class="num" style="@numStyle">@(stepIdx + 1)</span>
                                 <span style="font-size:14px;line-height:1.55;color:var(--ink-2);">
-                                    @cs.Text
+                                    @CookBot.Application.Services.RecipeStepTextFormatter.ToPlainText(cs.Text)
                                 </span>
                             </div>
                             contentIndex++;

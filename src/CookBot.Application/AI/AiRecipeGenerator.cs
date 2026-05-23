@@ -86,8 +86,9 @@ public sealed class AiRecipeGenerator : IAiRecipeGenerator
         // the retry budget on a path that cannot converge.
         if (result.Validation is null && result.SanitizedError is not null)
         {
-            _logger.LogInformation(
-                "AI recipe generation: non-recoverable failure on first attempt; skipping repair loop.");
+            _logger.LogWarning(
+                "AI recipe generation: non-recoverable failure on first attempt; skipping repair loop. Error: {Error}",
+                result.SanitizedError);
             await WriteTelemetryAsync(attempts, userId, keyOwnerId, modelId, ct);
             return result;
         }

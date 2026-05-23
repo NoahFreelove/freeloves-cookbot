@@ -239,25 +239,39 @@ public class AnthropicAiService : IAiService, IStructuredAiService
 
         try
         {
-            // D-10: output_config.format with type=json_schema, the cached schema node, strict=true.
-            var outputConfig = new
+            // D-10 superseded (Phase 10 UAT Test 4 retest 5): output_config.format with
+            // type=json_schema sends the schema to Anthropic's structured-outputs grammar
+            // compiler, which times out on the polymorphic StepNode + nested-nullable
+            // (temperature/timers) shape — confirmed via "Grammar compilation timed out" 400.
+            // Switching to the tool-use API: same cached JSON schema, but routed through
+            // Anthropic's tool grammar compiler with strict=true. tool_choice forces the
+            // model to emit exactly one emit_recipe call, so the response is always a
+            // tool_use content block whose input is the structured RecipeDocument.
+            const string emitRecipeToolName = "emit_recipe";
+            var tools = new object[]
             {
-                format = new
+                new
                 {
-                    type = "json_schema",
-                    schema = schema,
-                    strict = true
+                    name = emitRecipeToolName,
+                    description = "Emit the structured recipe document conforming to the canonical schema. Always call this tool; never reply in prose.",
+                    input_schema = schema,
                 }
+            };
+            var toolChoice = new
+            {
+                type = "tool",
+                name = emitRecipeToolName,
             };
 
             var payload = new Dictionary<string, object>
             {
-                ["model"]         = modelId ?? DefaultModelId,
-                ["system"]        = systemPrompt,
-                ["messages"]      = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
-                ["max_tokens"]    = maxTokens,
-                ["stream"]        = true,           // SSE under the hood (D-01)
-                ["output_config"] = outputConfig,
+                ["model"]       = modelId ?? DefaultModelId,
+                ["system"]      = systemPrompt,
+                ["messages"]    = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
+                ["max_tokens"]  = maxTokens,
+                ["stream"]      = true,           // SSE under the hood (D-01)
+                ["tools"]       = tools,
+                ["tool_choice"] = toolChoice,
             };
 
             var requestContent = new StringContent(
@@ -315,11 +329,17 @@ public class AnthropicAiService : IAiService, IStructuredAiService
                         using var evt = JsonDocument.Parse(data);
                         var type = evt.RootElement.GetProperty("type").GetString();
 
-                        // P-4: structured-output JSON arrives in content_block_delta.delta.text.
+                        // P-4 superseded (tool-use migration): structured-output JSON arrives in
+                        // content_block_delta.delta.partial_json (input_json_delta event family)
+                        // when the response is a tool_use block. The legacy text path is preserved
+                        // because non-tool free-text fallbacks could still hit this method, but the
+                        // tool_choice forces an emit_recipe call so partial_json is the live path.
                         if (type == "content_block_delta")
                         {
                             var delta = evt.RootElement.GetProperty("delta");
-                            if (delta.TryGetProperty("text", out var text))
+                            if (delta.TryGetProperty("partial_json", out var partial))
+                                accumulated.Append(partial.GetString());
+                            else if (delta.TryGetProperty("text", out var text))
                                 accumulated.Append(text.GetString());
                         }
                         // PROD-12 — input_tokens fires once at the top of the stream in
