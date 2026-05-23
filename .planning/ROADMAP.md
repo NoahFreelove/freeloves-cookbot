@@ -145,3 +145,36 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 ---
 
 *v1.2 milestone archived 2026-05-15. v1.3 roadmap created 2026-05-15 — 3 phases (8–10), 63 requirements mapped. See `.planning/MILESTONES.md` for the historical record.*
+
+## Backlog
+
+### Phase 999.1: RecipeView Cook button missing — TopBarService navigation race (BACKLOG)
+
+**Goal:** Fix `CbTopBarService` so the TopBar.RightSlot survives a route change to a page that re-sets the slot in `OnInitialized` (RecipeView, RecipeEditor).
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Reproducer:** Generate a recipe in AiChat → save → navigate to `/recipes/{id}` (RecipeView). Cook / Edit / Share / Schedule buttons are absent from both `TopBar.RightSlot` (≥721px viewport) and the inline `.recipe-actions-inline-fallback` row (≤720px viewport).
+
+**Hypothesis:** `CbTopBarService.HandleLocationChanged` (`src/CookBot.Web/Services/CbTopBarService.cs:44`) fires Clear() on `NavigationManager.LocationChanged` synchronously *before* the new page's `OnInitialized` runs. But MainLayout's `HandleSlotChanged` queues `StateHasChanged` via `InvokeAsync` — the two slot writes (clear → set) may collapse into a single render where the cleared state wins. Possibly fixable by moving the auto-clear from `LocationChanged` to a delayed/dispatcher-tail callback, or by letting RecipeView/RecipeEditor re-set after `OnAfterRenderAsync(firstRender)`.
+
+**Surfaced:** Phase 10 UAT Test 4 retest (2026-05-22). User report: "no cook button on the page whatsoever".
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.2: Recipe amounts not in user-selected unit system (BACKLOG)
+
+**Goal:** Render `RecipeIngredient.Amount` + `Unit` (and per-step `StepTemperature`) through the user's `UserProfile.UnitSystem` preference on RecipeView, CookingMode, and the AiChat canvas.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Reproducer:** Set `UserProfile.UnitSystem = "imperial"` (or "metric"). Generate or view a recipe whose AI-emitted units are the other system (e.g. `400 g spaghetti`). The view displays the raw AI unit, not a converted display unit.
+
+**Notes:** This is a feature gap, not a regression. The canonical `RecipeDocument.Ingredient.Unit` is authoritative; display-side conversion would need a unit-conversion table (g↔oz, ml↔fl oz, °F↔°C, etc.) and a per-recipe-per-user toggle so the user can opt back to the original units. `UserProfile.UnitSystem` exists today and is read by `PromptBuilderService` for AI guidance, but no display-time conversion layer exists.
+
+**Surfaced:** Phase 10 UAT Test 4 retest (2026-05-22). User report: "its not displaying the units in the user selected units".
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
