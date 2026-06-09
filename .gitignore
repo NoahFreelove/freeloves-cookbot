@@ -60,3 +60,8 @@ docs/*
 # but the directory must exist on fresh clone, so .gitkeep is force-included.
 src/CookBot.Web/wwwroot/uploads/*
 !src/CookBot.Web/wwwroot/uploads/.gitkeep
+
+## Phase 11 / UATAUTO-01 — Playwright/Node UAT harness. Own package.json; node_modules
+# is gitignored and never shipped in the .NET app.
+tests/uat-harness/node_modules/
+tests/uat-harness/.playwright/

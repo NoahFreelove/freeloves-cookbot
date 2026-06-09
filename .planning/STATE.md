@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Production-Ready & Format Maturity
 status: completed
 stopped_at: Phase 10 context gathered
-last_updated: "2026-05-17T05:31:01.783Z"
-last_activity: 2026-05-17
+last_updated: "2026-06-05T21:37:13.113Z"
+last_activity: 2026-06-05 — Milestone v1.3 completed and archived
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 34
-  completed_plans: 34
-  percent: 100
+  total_phases: 5
+  completed_phases: 4
+  total_plans: 39
+  completed_plans: 39
+  percent: 80
 ---
 
 # Project State
@@ -22,18 +22,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-**Current focus:** Phase 10 — qol-polish-consumer-surfaces
+**Current focus:** v1.3 complete — all 4 phases (8, 9, 10, 11) shipped & verified. Ready to complete the milestone.
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: Executing Phase 10
-Last activity: 2026-05-17
-
-**Next step:** `/gsd:plan-phase 8`
-
-**Phase numbering:** Continues from v1.2 — v1.3 phases are 8, 9, 10.
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-05 — Milestone v1.3 completed and archived
 
 ## Shipped milestones
 
@@ -47,7 +43,7 @@ Last activity: 2026-05-17
 
 ### v1.1 Canonical Format & AI Conformance
 
-**Status:** Milestone complete
+**Status:** v1.3 milestone complete
 
 | Phase | Status | Disposition |
 |-------|--------|-------------|
@@ -89,12 +85,16 @@ Hard invariants carried into v1.3:
 
 ### Blockers / concerns
 
-None — ready to begin Phase 8 planning.
+None — v1.3 shipped & archived (tag `v1.3`). One known historical item: Phase 03 `03-GOAL-VERIFICATION.md` is `gaps_found`, but Phase 03 (v1.1 "Editor UX") was absorbed into v1.2 — out of scope, retained for the record.
 
 ## Session Continuity
 
-Last session: 2026-05-16T21:04:27.926Z
+Last session: 2026-06-05T21:01:39.525Z
 Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-qol-polish-consumer-surfaces/10-CONTEXT.md
+Resume file: None
 
-**Next:** `/gsd:plan-phase 8` — Format Foundation (16 requirements: SCHEMA-01..12 + CLEAN-01..04; 5 user-resolved decisions in CONTEXT.md D-26/D-27/D-31/D-34/D-35).
+**Next:** `/gsd-new-milestone` — v1.3 (Phases 8–11) shipped & archived 2026-06-05. Define the v1.4+ milestone (candidate scope in PROJECT.md → Carry-forward). The reusable UAT harness at `tests/uat-harness/` (`npm test`) is available for future milestone UAT.
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

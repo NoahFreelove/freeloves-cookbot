@@ -1,5 +1,24 @@
 # Milestones — FreelovesCookBot
 
+## v1.3 Production-Ready & Format Maturity (Shipped: 2026-06-05)
+
+**Phases completed:** 4 phases (8–11), 39 plans, 59 tasks · **Tag:** `v1.3`
+
+**Key accomplishments:**
+
+- **Canonical format → v3** — `PhotoUrl`, `Description`, and per-step `Temperature` (°F/°C/gas) wired through the type system, upcaster chain, EF columns, AI schema, YAML/JSON wire, and parser; a v2 `.cookbook.json` upcasts to v3 losslessly (Phase 8).
+- **Format cleanup** — `LegacyRecipeProjector` deleted behind a permanent null-canonical boot guard; `TagsJson` migrated to a relational `RecipeTag` table; byte-stable prompt-snapshot regression (Verify.Xunit); README recipe-format section (Phase 8).
+- **Recipe hero photos** — file upload + paste-URL with magic-byte validation, scheme allowlist, and 12 MB limits at all three Blazor Server boundaries; rendered across five read surfaces with a one-shot `onerror` fallback (Phase 9).
+- **Production-ready infrastructure** — Docker + compose with persistent volumes; encrypt-at-rest AI keys via Data Protection with idempotent re-encryption and share-then-resolve integrity; per-call token-cost telemetry (retry rows separated); `/healthz`; full README install/backup/upgrade docs (Phase 9).
+- **Consumer surfaces & QOL** — scored pantry-match on Home (deterministic, indexed), AI-Chat raw-edit recovery dialog, accent picker, Profile prompt-editor + rolling token-cost widget, cookbook reparenting, pantry quick-add, TopBar RightSlot, 1-second live timer tick (Phase 10).
+- **UAT cleanup + automated UAT harness** — fixed the four Phase-10-UAT-surfaced items (RecipeView inline Edit clip → CLEANUP-01, responsive ≤720px → CLEANUP-02, sidebar Profile clip + body-bg → CLEANUP-03, unit-system display conversion → CLEANUP-04) and shipped a reusable Playwright/chromium browser-UAT harness (`tests/uat-harness/`) that runs Phase 10 UAT Tests 5 & 7 + a conversion check hands-free (Phase 11).
+
+**Known deferred at close:**
+- UAT Test 4 (AI validation-fail → RawRecipeEditorDialog) — honest deferral; cannot be triggered while the AI happy-path succeeds (would need fault injection). Harness records it as SKIP, never faked.
+- Phase 03 `03-GOAL-VERIFICATION.md` (`gaps_found`) — historical v1.1 "Editor UX" phase that was **absorbed into v1.2**; out of v1.3 scope, retained as-is for the record.
+
+---
+
 Historical record of shipped milestones. Each entry summarizes scope, stats, and accomplishments; full details live in the per-milestone archive under `.planning/milestones/`.
 
 | Milestone | Shipped | Phases | Plans | Requirements | Tag | Archive |

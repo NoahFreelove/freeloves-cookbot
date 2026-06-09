@@ -2,6 +2,7 @@
 @using System.Text.Json
 @using CookBot.Application.Recipes
 @using CookBot.Application.Services
+@using CookBot.Domain.Enums
 @using CookBot.Domain.Recipes
 @using CookBot.Infrastructure.Data
 @using CookBot.Web.Components.Atoms
@@ -12,6 +13,8 @@
 @inject ICbDialogService CbDialogService
 @inject IRecipeMadeService RecipeMadeService
 @inject ICbTopBarService TopBarService
+@inject RecipeUnitDisplayService UnitDisplayService
+@inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -40,14 +43,14 @@
     @* Inline action row — also rendered in TopBar.RightSlot on wide viewports (Phase 10 / Plan 10-09 / POLISH-04).
        D-59: class="recipe-actions-inline-fallback" is hidden above 720px by CSS media query; the TopBar slot
        shows the same _topBarActions RenderFragment instead. Below 720px the slot is hidden and this row shows. *@
-    <div class="recipe-actions-inline-fallback" style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;justify-content:flex-end;gap:10px;align-items:center;">
+    <div class="recipe-actions-inline-fallback">
         @_topBarActions
     </div>
 
-    <article style="max-width:1080px;margin:0 auto;padding:24px 32px 80px;">
+    <article class="recipe-article">
 
         @* Hero (RV-01) *@
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:48px;align-items:end;">
+        <div class="recipe-hero">
             <div>
                 @if (_doc.Tags.Count > 0)
                 {
@@ -110,7 +113,7 @@
         </div>
 
         @* Two-column body (RV-02, RV-03) *@
-        <div style="display:grid;grid-template-columns:300px 1fr;gap:56px;">
+        <div class="recipe-body-grid">
 
             @* LEFT — sticky sidebar (RV-02) *@
             <aside style="position:sticky;top:80px;align-self:start;">
@@ -130,6 +133,17 @@
                             @onclick="IncrementServings"
                             disabled="@(_targetServings >= 100)"
                             aria-label="Increase servings">+</button>
+                </div>
+
+                @* CLEANUP-04 — per-recipe unit toggle. Default = converted (user's UnitSystem).
+                   Toggle flips to original (AI-emitted) units for this recipe only.
+                   localStorage key: cookbot_units_<recipeId>. *@
+                <div style="margin-bottom:12px;">
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                              StartIcon="@Icon.Names.Scale"
+                              OnClick="ToggleUnitMode">
+                        @(_unitMode == "converted" ? "Show original units" : "Show converted units")
+                    </CbButton>
                 </div>
 
                 @foreach (var ing in _doc.Ingredients)
@@ -171,7 +185,7 @@
                     else if (step is ContentStep content)
                     {
                         contentIndex++;
-                        <div style="display:grid;grid-template-columns:40px 1fr;gap:16px;padding:20px 0;border-bottom:1px solid var(--line);">
+                        <div class="recipe-step-grid">
                             <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);letter-spacing:-0.03em;line-height:1;">@(contentIndex.ToString("D2"))</div>
                             <div>
                                 <div style="font-size:15px;line-height:1.6;color:var(--ink-2);">@StripIngredientLinks(content.Text)</div>
@@ -184,6 +198,18 @@
                                                 @t.Duration @t.Unit
                                             </CbChip>
                                         }
+                                    </div>
+                                }
+                                @* CLEANUP-04 — per-step temperature display. Renders converted when
+                                   _unitMode=="converted", raw value otherwise. *@
+                                @if (content.Temperature != null)
+                                {
+                                    var tempDisplay = _unitMode == "converted" && _unitSystem.HasValue
+                                        ? UnitDisplayService.FormatTemperature(content.Temperature, _unitSystem.Value)
+                                        : $"{content.Temperature.Value}°{content.Temperature.Unit}";
+                                    <div style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--ink-3);font-weight:500;">
+                                        <Icon Name="@Icon.Names.Flame" Size="13" />
+                                        @tempDisplay
                                     </div>
                                 }
                             </div>
@@ -261,6 +287,11 @@ else if (_loaded)
     private bool _loaded;
     private int _targetServings = 1;
 
+    // CLEANUP-04 — unit display mode. Default = "converted" (user's UnitSystem).
+    // Per-recipe toggle writes cookbot_units_<recipeId> to localStorage.
+    private UnitSystem? _unitSystem;
+    private string _unitMode = "converted";
+
     // Last-cook callout state — populated from the RecipeMade log entity (Plan 07-09 Feature 2).
     // The conditional in markup hides the callout when there are no logged cooks for this user.
     private string? _lastCookNote;
@@ -302,6 +333,8 @@ else if (_loaded)
             // PHOTO-10 / PITFALL H4 — reset the photo-failure flag for the new recipe so
             // its hero gets a fresh chance to load even if the previous recipe had a broken URL.
             _heroPhotoFailed = false;
+            // CLEANUP-04 — reset unit mode for new recipe so localStorage re-read picks it up.
+            _unitMode = "converted";
         }
     }
 
@@ -350,9 +383,25 @@ else if (_loaded)
                     _lastCookNote = string.IsNullOrWhiteSpace(lastCook.Notes) ? null : lastCook.Notes;
                     _lastCookDate = lastCook.CompletedAt;
                 }
+
+                // CLEANUP-04 — load the user's UnitSystem for display-time conversion.
+                var profile = await DbContext.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+                if (profile != null)
+                    _unitSystem = profile.UnitSystem;
             }
 
             _loaded = true;
+
+            // CLEANUP-04 — read per-recipe unit-mode from localStorage (prerender-safe).
+            // Done after _loaded so the component has rendered at least once. Default = "converted".
+            try
+            {
+                var stored = await JS.InvokeAsync<string?>("localStorage.getItem", $"cookbot_units_{RecipeId}");
+                if (stored == "original" || stored == "converted")
+                    _unitMode = stored;
+            }
+            catch (InvalidOperationException) { /* prerender — JS interop unavailable */ }
+
             StateHasChanged();
         }
     }
@@ -371,9 +420,32 @@ else if (_loaded)
     {
         if (ing.Amount <= 0) return string.IsNullOrWhiteSpace(ing.Unit) ? "—" : ing.Unit;
         var origServings = _doc?.Servings > 0 ? _doc.Servings : 1;
+
+        // CLEANUP-04: SCALE-THEN-FORMAT ORDER.
+        // In the converted path: scale first (returns a raw double), then pass to
+        // FormatIngredientAmount so FractionFormatter runs EXACTLY ONCE inside the converter.
+        // In the original path: keep the existing FormatScaledAmount path (scales + formats).
+        if (_unitMode == "converted" && _unitSystem.HasValue && !string.IsNullOrWhiteSpace(ing.Unit))
+        {
+            var scaled = RecipeScalingService.ScaleAmount(ing.Amount, origServings, _targetServings);
+            return UnitDisplayService.FormatIngredientAmount(scaled, ing.Unit, _unitSystem.Value);
+        }
+
         var formatted = RecipeScalingService.FormatScaledAmount(ing.Amount, origServings, _targetServings);
         var unitDisplay = string.IsNullOrWhiteSpace(ing.Unit) ? "" : $" {UnitParser.ToDisplayString(ing.Unit)}";
         return $"{formatted}{unitDisplay}";
+    }
+
+    // CLEANUP-04 — per-recipe unit toggle. Flips between "converted" and "original".
+    // Writes cookbot_units_<recipeId> to localStorage (prerender-safe).
+    private async Task ToggleUnitMode()
+    {
+        _unitMode = _unitMode == "converted" ? "original" : "converted";
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", $"cookbot_units_{RecipeId}", _unitMode);
+        }
+        catch (InvalidOperationException) { /* prerender */ }
     }
 
     private static string StripIngredientLinks(string text)

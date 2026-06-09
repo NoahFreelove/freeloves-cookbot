@@ -215,10 +215,15 @@
 }
 
 /* Sidebar / app shell tokens */
+/* CLEANUP-03: height:100vh + grid-template-rows:1fr so the single implicit grid row
+   always fills the viewport. The prior height:100% only resolved against a sized
+   ancestor; the explicit 100vh here (combined with the row template) ensures .side
+   and the --cream main column both reach the viewport bottom. */
 .cb-shell {
   display: grid;
   grid-template-columns: 232px 1fr;
-  height: 100%;
+  grid-template-rows: 1fr;
+  height: 100vh;
   background: var(--cream);
 }
 /* Hamburger collapses the sidebar column entirely. The Sidebar component is
@@ -714,8 +719,86 @@ body.dark-mode .cb-dropdown-item:focus-visible {
    inline-action-row fallback (class .recipe-actions-inline-fallback).
    Above 720px the inline fallback is hidden; the slot is visible in the TopBar.
    ────────────────────────────────────────────────────────────────────────── */
+
+/* CLEANUP-01 (Phase 11 / Plan 11-02): base rule for the inline fallback action
+   row on RecipeView. flex-wrap:wrap ensures all four buttons (Edit, Share,
+   Schedule, Cook this) wrap to a second line on narrow viewports instead of the
+   leading Edit button being clipped off the left edge of a no-wrap flex-end row. */
+.recipe-actions-inline-fallback {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: center;
+}
+
+/* CLEANUP-02 (Phase 11 / Plan 11-02): base classes for RecipeView grid containers.
+   Desktop layout is preserved exactly; classes allow the 720px media query to
+   override grid-template-columns for single-column collapse at narrow viewports. */
+.recipe-article {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+
+.recipe-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 48px;
+  align-items: end;
+}
+
+.recipe-body-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 56px;
+}
+
+.recipe-step-grid {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
 @media (max-width: 720px) {
     .topbar-right-slot { display: none !important; }
+
+    /* CLEANUP-01: wrap the fallback action row so Edit is not clipped at left */
+    .recipe-actions-inline-fallback {
+      justify-content: flex-start;
+      padding: 0 16px;
+    }
+
+    /* CLEANUP-02: single-column collapse for RecipeView layout */
+    .recipe-article {
+      padding: 16px 16px 64px;
+    }
+
+    .recipe-hero {
+      grid-template-columns: 1fr;
+    }
+
+    .recipe-body-grid {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+
+    /* 28px keeps the step number column narrow enough to avoid per-word wrapping */
+    .recipe-step-grid {
+      grid-template-columns: 28px 1fr;
+      gap: 12px;
+    }
+
+    /* Reduce 64px display cap so the recipe title doesn't overflow on narrow screens */
+    .cb-recipe-cap {
+      font-size: 40px;
+    }
 }
 @media (min-width: 721px) {
     .recipe-actions-inline-fallback { display: none !important; }

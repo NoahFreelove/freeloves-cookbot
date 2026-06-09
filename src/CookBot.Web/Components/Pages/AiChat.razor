@@ -3,6 +3,7 @@
 @using System.Text.RegularExpressions
 @using CookBot.Application.DTOs
 @using CookBot.Application.Services
+@using CookBot.Domain.Enums
 @using CookBot.Domain.Recipes
 @using CookBot.Infrastructure.AI
 @using Markdig
@@ -19,6 +20,7 @@
 @inject ICbToastService Toast
 @inject ICbDialogService CbDialogService
 @inject NavigationManager Navigation
+@inject CookBot.Application.Services.RecipeUnitDisplayService UnitDisplayService
 @rendermode InteractiveServer
 
 @* Phase 7 / Plan 07-04 / AIC-01..05.
@@ -294,6 +296,13 @@ else if (_profile != null && _profile.AiEnabled && _effectiveAi != null)
                     </span>
                 </div>
                 <div style="display:flex;gap:8px;">
+                    @* CLEANUP-04 — per-canvas unit toggle. Default = converted. *@
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                              StartIcon="@Icon.Names.Scale"
+                              Disabled="@(_lastStructuredRecipe?.Ok != true)"
+                              OnClick="ToggleCanvasUnitMode">
+                        @(_unitMode == "converted" ? "Show original units" : "Show converted units")
+                    </CbButton>
                     <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Copy"
                               Disabled="@(_lastStructuredRecipe?.Ok != true)"
                               OnClick="CopyRecipeJsonAsync">
@@ -349,6 +358,11 @@ else
 
     private int? _loadedUserId;
 
+    // CLEANUP-04 — unit display mode for the canvas. Default = "converted".
+    // Per-canvas localStorage key: cookbot_units_canvas (no persisted recipe id until saved).
+    private UnitSystem? _unitSystem;
+    private string _unitMode = "converted";
+
     // Plan 02-04 / AI-08-AUDIT (D-15): assistant content is rendered through a pipeline with
     // raw HTML disabled, so injected markdown like "<img src='https://attacker/log'>"
     // or "<a href='javascript:...'>" cannot reach the DOM. Markdown image syntax
@@ -399,7 +413,27 @@ else
             _effectiveAi = user != null ? await AiKeyResolver.ResolveAsync(user.Id) : null;
             await LoadConversations();
             await BuildSystemPrompt();
+
+            // CLEANUP-04 — load UnitSystem for display-time conversion.
+            if (_profile != null)
+                _unitSystem = _profile.UnitSystem;
+
             StateHasChanged();
+        }
+
+        if (firstRender)
+        {
+            // CLEANUP-04 — read per-canvas unit-mode from localStorage (prerender-safe).
+            try
+            {
+                var stored = await JsRuntime.InvokeAsync<string?>("localStorage.getItem", "cookbot_units_canvas");
+                if (stored == "original" || stored == "converted")
+                {
+                    _unitMode = stored;
+                    StateHasChanged();
+                }
+            }
+            catch (InvalidOperationException) { /* prerender */ }
         }
     }
 
@@ -1029,9 +1063,22 @@ else
                                 : "width:28px;height:28px;border-radius:14px;background:var(--cream-2);display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--ink-2);flex-shrink:0;";
                             <div style="display:flex;gap:16px;padding:12px 0;border-bottom:1px solid var(--line);">
                                 <span class="num" style="@numStyle">@(stepIdx + 1)</span>
-                                <span style="font-size:14px;line-height:1.55;color:var(--ink-2);">
-                                    @CookBot.Application.Services.RecipeStepTextFormatter.ToPlainText(cs.Text)
-                                </span>
+                                <div>
+                                    <span style="font-size:14px;line-height:1.55;color:var(--ink-2);">
+                                        @CookBot.Application.Services.RecipeStepTextFormatter.ToPlainText(cs.Text)
+                                    </span>
+                                    @* CLEANUP-04 — per-step temperature display. *@
+                                    @if (cs.Temperature != null)
+                                    {
+                                        var tempDisplay = _unitMode == "converted" && _unitSystem.HasValue
+                                            ? UnitDisplayService.FormatTemperature(cs.Temperature, _unitSystem.Value)
+                                            : $"{cs.Temperature.Value}°{cs.Temperature.Unit}";
+                                        <div style="margin-top:5px;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-3);font-weight:500;">
+                                            <Icon Name="@Icon.Names.Flame" Size="12" />
+                                            @tempDisplay
+                                        </div>
+                                    }
+                                </div>
                             </div>
                             contentIndex++;
                         }
@@ -1096,14 +1143,32 @@ else
         </p>
     };
 
-    private static string FormatIngredientQuantity(IngredientEntry ing)
+    // CLEANUP-04 — no longer static: routes through RecipeUnitDisplayService in converted mode.
+    private string FormatIngredientQuantity(IngredientEntry ing)
     {
         // Compact display: "1.5 cup", "8 fillet", "to taste" (when amount is 0 with no unit)
         if (ing.Amount <= 0 && string.IsNullOrEmpty(ing.Unit)) return "—";
+
+        // CLEANUP-04 — converted path: FormatIngredientAmount handles FractionFormatter internally.
+        if (_unitMode == "converted" && _unitSystem.HasValue && !string.IsNullOrWhiteSpace(ing.Unit))
+            return UnitDisplayService.FormatIngredientAmount(ing.Amount, ing.Unit, _unitSystem.Value);
+
+        // Original path — unchanged formatting.
         var amount = ing.Amount % 1 == 0
             ? ((int)ing.Amount).ToString(System.Globalization.CultureInfo.InvariantCulture)
             : ing.Amount.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         return string.IsNullOrEmpty(ing.Unit) ? amount : $"{amount} {ing.Unit}";
+    }
+
+    // CLEANUP-04 — per-canvas unit toggle. Flips between converted and original.
+    private async Task ToggleCanvasUnitMode()
+    {
+        _unitMode = _unitMode == "converted" ? "original" : "converted";
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("localStorage.setItem", "cookbot_units_canvas", _unitMode);
+        }
+        catch (InvalidOperationException) { /* prerender */ }
     }
 
     private static string ConvRowStyle(bool active) =>

@@ -55,6 +55,17 @@ window.cookbot.applyDefaults = function () {
   }
 };
 
+// CLEANUP-04 — per-recipe unit toggle helper.
+// Reads the stored unit mode for a given recipeId (or "canvas" for AiChat).
+// Key: cookbot_units_<id>  Values: "converted" | "original"  Default: "converted"
+window.cookbot.getUnitMode = function (recipeId) {
+  try {
+    var stored = localStorage.getItem("cookbot_units_" + recipeId);
+    if (stored === "converted" || stored === "original") return stored;
+  } catch (e) { /* ignore — privacy mode / prerender */ }
+  return "converted";
+};
+
 window.cookbot.hardReloadTo = function (href) {
   // Force a full document reload to a target URL. Used by the user-switcher so
   // the SignalR circuit is torn down and rebuilt with the new user's scope.

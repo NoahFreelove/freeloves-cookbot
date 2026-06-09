@@ -10,13 +10,13 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 ## Current State
 
-**Shipped milestones:** v1.2 UI Redesign (2026-04-27, tag `v1.2`). Earlier: v1.0 (pre-GSD) + v1.1 Phases 1+2 (Canonical Format + AI Structured Output, 2026-04-25/26, no tag — rolled into v1.2 release).
+**Shipped milestones:** **v1.3 Production-Ready & Format Maturity (2026-06-05, tag `v1.3`)** — Phases 8–11, 39 plans. v1.2 UI Redesign (2026-04-27, tag `v1.2`). Earlier: v1.0 (pre-GSD) + v1.1 Phases 1+2 (Canonical Format + AI Structured Output, 2026-04-25/26, no tag — rolled into v1.2 release).
 
 **App today (post-Phase 10):** Self-hosted Blazor Server cooking & baking tracker on .NET 10 + SQLite. Custom Razor component system (no MudBlazor) matching the Claude Design handoff — warm cream / cocoa ink / dialed-back orange accent (terracotta + sage variants now selectable), Inter typography, custom outline icons, striped photo placeholders, tabular numerals across 9 surfaces. AI-assisted recipe generation via Anthropic Claude using token-level constrained-decoding structured output, 2-retry repair loop, secret redaction, prompt-injection defense, optional per-user custom system-prompt template, raw-edit fallback when JSON parsing fails, and a 30-day AI usage widget (tokens + cost) on Profile. Multi-user with optional password (PBKDF2-HMAC-SHA256), session-scoped current user, trusted-LAN posture. Canonical versioned `RecipeDocument` round-trips through AI generation, manual editing, cooking mode, JSON export, and `.cookbook.json` import. Smart pantry-match algorithm (D-44 exp-decay × D-45 dietary filter × D-46 configurable knobs) drives Home dashboard suggestions.
 
-**Current milestone (v1.3) — Phase 10 complete (2026-05-17).** Phases 8 (Format Foundation), 9 (Photos + Prod-Ready Infrastructure), and 10 (QOL, Polish & Consumer Surfaces) all shipped. 12 v1.3 requirements satisfied in Phase 10 (QOL-01..07 + POLISH-01..05) bringing the v1.3 milestone to a code-complete state pending human UAT.
+**v1.3 SHIPPED (2026-06-05, tag `v1.3`).** Phases 8 (Format Foundation), 9 (Photos + Prod-Ready Infrastructure), 10 (QOL, Polish & Consumer Surfaces), and 11 (UAT Cleanup + Automated UAT Harness) all complete and verified. Phase 10 UAT is fully green (6 pass; Test 4 honest validation-fail deferral). Phase 11 fixed the four UAT-surfaced backlog items (999.2–999.5) and shipped a reusable Playwright browser-UAT harness at `tests/uat-harness/` (`npm test`). Next milestone TBD via `/gsd-new-milestone`.
 
-## Current Milestone: v1.3 Production-Ready & Format Maturity
+## Shipped Milestone: v1.3 Production-Ready & Format Maturity ✅ (archived → `milestones/v1.3-ROADMAP.md`)
 
 **Goal:** Make CookBot shippable for other self-hosters while landing the deferred format/QOL/polish work — one v3 schema bump carries photos + description + per-step temperature, a new prod-ready track ships Docker + encryption + telemetry + deploy docs, and the v1.2 carry-forward tech-debt list closes.
 
@@ -84,15 +84,19 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 - ✓ MudBlazor wholesale removed — repo-wide `grep "Mud[A-Z]"` returns zero hits; package + `AddMudServices()` + `@using MudBlazor` + 4 providers + static assets + `DesignSandbox` all deleted — v1.2 Phase 7 (MIG-01..03)
 - ✓ RecipeMade log entity + `IRecipeMadeService` — wires RV-04 last-cook callout, Recipe View made-count, and Home recently-cooked grid — v1.2 Phase 7 post-ship slice 09
 
+**v1.3 Production-Ready & Format Maturity (shipped 2026-06-05, tag `v1.3`):**
+- ✓ Canonical `RecipeDocument` v3 — `PhotoUrl` + `Description` + per-step `Temperature` across type system, V2→V3 upcaster, EF columns, AI schema, YAML/JSON wire, and parser (SCHEMA-01..12) — v1.3 Phase 8
+- ✓ Format cleanup — `LegacyRecipeProjector` deleted behind null-canonical boot guard, `TagsJson`→relational `RecipeTag`, byte-stable prompt-snapshot test (Verify.Xunit), README "Recipe Format" section (CLEAN-01..04) — v1.3 Phase 8
+- ✓ Recipe hero photos — file upload + paste-URL, magic-byte validation, scheme allowlist, 12 MB limits at all three Blazor boundaries, one-shot `onerror` fallback (PHOTO-01..14) — v1.3 Phase 9
+- ✓ Production-ready infra — Docker + compose with persistent volumes, encrypt-at-rest AI keys (Data Protection, idempotent re-encryption), per-call token-cost telemetry, `/healthz`, README install/config/backup/upgrade (PROD-01..21) — v1.3 Phase 9
+- ✓ QOL + polish — scored pantry-match (deterministic, indexed), AiChat raw-edit recovery dialog, accent picker, Profile prompt editor + 30-day token-cost widget, cookbook reparenting, pantry quick-add, moon glyph, TopBar RightSlot, live timer tick (QOL-01..07, POLISH-01..05) — v1.3 Phase 10
+- ✓ UAT cleanup + automated UAT harness — RecipeView inline-Edit clip, responsive ≤720px, sidebar Profile clip/bg, unit-system display conversion (CLEANUP-01..04) + reusable Playwright/chromium browser-UAT harness at `tests/uat-harness/` (UATAUTO-01) — v1.3 Phase 11
+
 ### Active
 
-<!-- v1.3 Production-Ready & Format Maturity. REQ-IDs land when REQUIREMENTS.md is authored (next step in `/gsd-new-milestone`). The buckets below are the planning frame. -->
+<!-- Next milestone not yet defined. Run `/gsd-new-milestone` to gather context → research → requirements → roadmap. The v1.4+ candidates live under Carry-forward below. -->
 
-- **Schema v3 + Photos** — recipe photos (file upload + paste-URL, single hero), `Recipe.Description` column, per-step temperature, V2→V3 upcaster, AI schema update
-- **Format cleanup** — `LegacyRecipeProjector` deletion, tags-relational, prompt snapshot test, README format section
-- **QOL** — smart pantry-match, AiChat raw-edit hardening, accent variant picker, Profile-side AI prompt editor
-- **Small-stuff polish** — cookbook reparenting on edit, pantry per-row quick-add, moon glyph, TopBar RightSlot, Home live JS tick
-- **Prod-ready (self-hosters)** — Dockerfile + compose, encrypt-at-rest API key, token-cost telemetry, deploy guide + README rewrite
+- _Next milestone (v1.4+) not yet defined — run `/gsd-new-milestone`. Candidate scope is in **Carry-forward** below._
 
 ### Carry-forward (deferred to v1.4+)
 
@@ -198,4 +202,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state (users, feedback, metrics)
 
 ---
-*Last updated: 2026-05-17 — v1.3 Phase 10 (QOL, Polish & Consumer Surfaces) complete: 14 plans across 5 waves, 12 requirements (QOL-01..07 + POLISH-01..05) satisfied at code level, 7 human UAT items pending in `10-HUMAN-UAT.md`. v1.3 milestone now code-complete pending UAT walkthrough and ship tag. Earlier: 2026-05-15 — v1.3 milestone started; 2026-05-15 — v1.2 UI Redesign milestone shipped and closed (tag `v1.2`); 2026-04-27 — v1.2 milestone started; v1.1 paused after Phase 2.*
+*Last updated: 2026-06-05 — v1.3 Production-Ready & Format Maturity SHIPPED (tag `v1.3`): Phases 8–11, 39 plans. Phase 11 closed the four Phase-10-UAT-surfaced backlog items (999.2–999.5 → CLEANUP-01..04) and shipped a reusable Playwright browser-UAT harness (`tests/uat-harness/`); Phase 10 UAT fully green (6 pass, Test 4 honest deferral); Phase 11 verified 5/5. Earlier: 2026-05-17 — v1.3 Phase 10 complete; 2026-05-15 — v1.3 started + v1.2 shipped (tag `v1.2`); v1.1 paused after Phase 2.*

@@ -1,0 +1,12 @@
+{
+  "name": "cookbot-uat-harness",
+  "version": "1.0.0",
+  "description": "Playwright/Node browser-UAT harness for FreelovesCookBot — Phase 10 Tests 5 & 7.",
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.55.1"
+  }
+}

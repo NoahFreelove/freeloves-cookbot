@@ -3,11 +3,14 @@
 @using CookBot.Application.DTOs
 @using CookBot.Application.Recipes
 @using CookBot.Application.Services
+@using CookBot.Domain.Enums
 @using CookBot.Domain.Interfaces
+@using CookBot.Domain.Recipes
 @using CookBot.Infrastructure.Data
 @using CookBot.Web.Components.Atoms
 @using CookBot.Web.Components.Pages.RecipeEditorParts
 @using Markdig
+@using System.Text.Json
 @using System.Text.RegularExpressions
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject IJSRuntime JS
@@ -20,6 +23,8 @@
 @inject PromptBuilderService PromptBuilder
 @inject ICbToastService Toast
 @inject IRecipeMadeService RecipeMadeService
+@inject RecipeUnitDisplayService UnitDisplayService
+@inject JsonRecipeSerializer RecipeSerializer
 @implements IAsyncDisposable
 
 <PageTitle>CookBot - Cooking Mode</PageTitle>
@@ -156,6 +161,22 @@
                                                     Ingredients="@_recipeIngredientsParsed"
                                                     OnIngredientChipClick="ScrollToIngredient" />
                             </div>
+                            @* CLEANUP-04 — per-step temperature from canonical doc. Ordinal-alignment
+                               guard: _canonicalContentSteps is only populated when EF count == canonical count. *@
+                            @if (_canonicalContentSteps.Count > 0 && _currentStepIndex < _canonicalContentSteps.Count)
+                            {
+                                var canonicalTemp = _canonicalContentSteps[_currentStepIndex].Temperature;
+                                @if (canonicalTemp != null)
+                                {
+                                    var tempDisplay = _unitMode == "converted" && _unitSystem.HasValue
+                                        ? UnitDisplayService.FormatTemperature(canonicalTemp, _unitSystem.Value)
+                                        : $"{canonicalTemp.Value}°{canonicalTemp.Unit}";
+                                    <div style="margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: rgba(255,255,255,0.75); font-weight: 500;">
+                                        <Icon Name="@Icon.Names.Flame" Size="14" />
+                                        @tempDisplay
+                                    </div>
+                                }
+                            }
 
                             @* AI assist is also reachable from the timer hero so the user
                                doesn't have to pause the timer to ask for help. Hidden when
@@ -194,6 +215,22 @@
                                                     Ingredients="@_recipeIngredientsParsed"
                                                     OnIngredientChipClick="ScrollToIngredient" />
                             </div>
+                            @* CLEANUP-04 — per-step temperature from canonical doc. Ordinal-alignment
+                               guard: _canonicalContentSteps only populated when EF count == canonical count. *@
+                            @if (_canonicalContentSteps.Count > 0 && _currentStepIndex < _canonicalContentSteps.Count)
+                            {
+                                var canonicalTemp = _canonicalContentSteps[_currentStepIndex].Temperature;
+                                @if (canonicalTemp != null)
+                                {
+                                    var tempDisplay = _unitMode == "converted" && _unitSystem.HasValue
+                                        ? UnitDisplayService.FormatTemperature(canonicalTemp, _unitSystem.Value)
+                                        : $"{canonicalTemp.Value}°{canonicalTemp.Unit}";
+                                    <div style="margin-top: 16px; display: inline-flex; align-items: center; gap: 6px; font-size: 17px; color: rgba(255,255,255,0.75); font-weight: 500;">
+                                        <Icon Name="@Icon.Names.Flame" Size="16" />
+                                        @tempDisplay
+                                    </div>
+                                }
+                            }
                             <div style="display: flex; gap: 10px; margin-top: 36px; flex-wrap: wrap;">
                                 @if (defaultStepTimer != null)
                                 {
@@ -280,9 +317,17 @@
 
             @* Right rail — always-on ingredients *@
             <aside style="background: rgba(255,255,255,0.04); border-left: 1px solid rgba(255,255,255,0.06); padding: 32px 28px; overflow-y: auto;">
-                <div style="font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.75); margin-bottom: 14px;">
+                <div style="font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.75); margin-bottom: 10px;">
                     Ingredients
                     <span style="margin-left: 8px; color: var(--accent); text-transform: none; letter-spacing: 0;">· @scaleLabel</span>
+                </div>
+                @* CLEANUP-04 — per-recipe unit toggle. *@
+                <div style="margin-bottom: 10px;">
+                    <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                              StartIcon="@Icon.Names.Scale"
+                              OnClick="ToggleCookingUnitMode">
+                        @(_unitMode == "converted" ? "Original units" : "Converted units")
+                    </CbButton>
                 </div>
 
                 @foreach (var ri in _recipe.RecipeIngredients.OrderBy(i => i.RecipeLocalId))
@@ -299,7 +344,18 @@
                          style="@($"padding: 14px 12px; margin: 0 -12px 6px -12px; border-radius: 10px; background: {rowBg}; border: {rowBorder}; cursor: pointer; {preppedDecoration}")">
                         <div class="num"
                              style="@($"font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: {qtyColor}; font-feature-settings: 'tnum';")">
-                            @RecipeScalingService.FormatScaledAmount(ri.Amount, recipeBaseServings, _targetServings) @ri.Unit
+                            @* CLEANUP-04 — ingredient amount conversion.
+                               Converted path: ScaleAmount→FormatIngredientAmount (FractionFormatter once).
+                               Original path: FormatScaledAmount + unit as-is. *@
+                            @if (_unitMode == "converted" && _unitSystem.HasValue && !string.IsNullOrWhiteSpace(ri.Unit))
+                            {
+                                var scaledAmt = RecipeScalingService.ScaleAmount(ri.Amount, recipeBaseServings, _targetServings);
+                                @UnitDisplayService.FormatIngredientAmount(scaledAmt, ri.Unit, _unitSystem.Value)
+                            }
+                            else
+                            {
+                                @RecipeScalingService.FormatScaledAmount(ri.Amount, recipeBaseServings, _targetServings) @(ri.Unit)
+                            }
                         </div>
                         <div style="@($"font-size: 14px; color: {nameColor}; margin-top: 2px;")">
                             @ri.Ingredient.Name@(string.IsNullOrEmpty(ri.Note) ? "" : $" ({ri.Note})")
@@ -406,6 +462,15 @@ else if (_loaded)
     private UserProfile? _profile;
     private EffectiveAiCredentials? _aiCredentials;
     private bool _aiCookAssistVisible;
+
+    // CLEANUP-04 — unit display mode. Default = "converted" (user's UnitSystem).
+    // Per-recipe toggle writes cookbot_units_<recipeId> to localStorage.
+    private UnitSystem? _unitSystem;
+    private string _unitMode = "converted";
+    // Canonical doc read for step temperatures (EF RecipeStep has no temperature field).
+    private RecipeDocument? _canonicalDoc;
+    // Precomputed canonical ContentStep list for ordinal-alignment guard.
+    private List<ContentStep> _canonicalContentSteps = new();
     private bool _stepAiOpen;
     private string _stepAiQuestion = "";
     private string _stepAiReply = "";
@@ -485,6 +550,18 @@ else if (_loaded)
 
     private string BuildTimerId(StepTimer timer)
         => $"step{_currentStepIndex + 1}_{timer.Label ?? timer.Duration.ToString()}_{timer.Unit}";
+
+    // === CLEANUP-04 unit toggle ==================================================
+    // Flips between "converted" and "original"; persists to localStorage.
+    private async Task ToggleCookingUnitMode()
+    {
+        _unitMode = _unitMode == "converted" ? "original" : "converted";
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", $"cookbot_units_{RecipeId}", _unitMode);
+        }
+        catch (InvalidOperationException) { /* prerender */ }
+    }
 
     // === Servings scale formatter ================================================
     private static string FormatScaleLabel(double ratio)
@@ -644,6 +721,10 @@ else if (_loaded)
             _stepAiBusy = false;
             _stepAiOpen = false;
             _rootFocusRequested = true;
+            // CLEANUP-04 — reset unit mode + canonical doc for new recipe.
+            _unitMode = "converted";
+            _canonicalDoc = null;
+            _canonicalContentSteps = new();
         }
     }
 
@@ -726,6 +807,41 @@ else if (_loaded)
             _aiCookAssistVisible = CookBotSettingsOptions.Value.AiFeaturesEnabled
                 && (_profile?.AiEnabled ?? false)
                 && _aiCredentials != null;
+
+            // CLEANUP-04 — load user's UnitSystem for display-time conversion.
+            if (_profile != null)
+                _unitSystem = _profile.UnitSystem;
+
+            // CLEANUP-04 — canonical-first read for per-step temperatures.
+            // EF RecipeStep has no temperature field; we read Recipe.CanonicalDocumentJson here
+            // (mirrors RecipeView.razor L327-336 pattern). Display-only — never mutated.
+            if (_recipe is { CanonicalDocumentJson: { Length: > 0 } canonicalJson })
+            {
+                try
+                {
+                    _canonicalDoc = RecipeSerializer.Deserialize(canonicalJson);
+                    // ORDINAL-ALIGNMENT GUARD: precompute ContentStep list and verify count matches
+                    // _navigableSteps before relying on positional matching. If counts differ,
+                    // _canonicalContentSteps stays empty → no temperature rendered (never wrong-step temp).
+                    var canonicalContentSteps = _canonicalDoc.Steps.OfType<ContentStep>().ToList();
+                    if (canonicalContentSteps.Count == _navigableSteps.Count)
+                        _canonicalContentSteps = canonicalContentSteps;
+                    // else: counts disagree — leave _canonicalContentSteps empty (display no temp)
+                }
+                catch (JsonException)
+                {
+                    _canonicalDoc = null;
+                }
+            }
+
+            // CLEANUP-04 — read per-recipe unit-mode from localStorage (prerender-safe).
+            try
+            {
+                var stored = await JS.InvokeAsync<string?>("localStorage.getItem", $"cookbot_units_{RecipeId}");
+                if (stored == "original" || stored == "converted")
+                    _unitMode = stored;
+            }
+            catch (InvalidOperationException) { /* prerender */ }
 
             _loaded = true;
             StateHasChanged();

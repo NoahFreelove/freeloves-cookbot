@@ -5,7 +5,7 @@
 - ✅ **v1.0 (pre-GSD existing app)** — codebase mapped in `.planning/codebase/`
 - ⏸ **v1.1 Canonical Format & AI Conformance** — Phases 1–2 shipped 2026-04-25/26; Phase 3 absorbed into v1.2; Phase 4 deferred to v1.3+
 - ✅ **v1.2 UI Redesign** — Phases 5–7 shipped 2026-04-27, 16 plans, 75/75 reqs ([archive](milestones/v1.2-ROADMAP.md))
-- 📋 **v1.3 Production-Ready & Format Maturity** — Phases 8–10, 63 reqs
+- ✅ **v1.3 Production-Ready & Format Maturity** — Phases 8–11 shipped 2026-06-05, 39 plans ([archive](milestones/v1.3-ROADMAP.md))
 
 ## Phases
 
@@ -32,100 +32,17 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 </details>
 
-### 📋 v1.3 Production-Ready & Format Maturity (Phases 8–10)
+<details>
+<summary>✅ v1.3 Production-Ready & Format Maturity (Phases 8–11) — SHIPPED 2026-06-05</summary>
 
-- [x] **Phase 8: Format Foundation** — V2→V3 canonical schema bump, LegacyRecipeProjector deletion, TagsJson→RecipeTag migration, lint denylist update, parser and snapshot tests (completed 2026-05-16)
-- [x] **Phase 9: Photos + Prod-Ready Infrastructure** — File upload pipeline + paste-URL safety, Docker + compose, encrypt-at-rest API key, token-cost telemetry write path, README deploy docs (completed 2026-05-16)
-- [x] **Phase 10: QOL, Polish & Consumer Surfaces** — Smart pantry-match, AI Chat hardening, accent picker, Profile prompt editor, telemetry widget, cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick (completed 2026-05-17)
+- [x] Phase 8: Format Foundation (13/13 plans) — V2→V3 canonical schema bump, LegacyRecipeProjector deletion, TagsJson→RecipeTag, prompt-snapshot test, README format section — completed 2026-05-16
+- [x] Phase 9: Photos + Prod-Ready Infrastructure (7/7 plans) — file upload + paste-URL safety, Docker + compose, encrypt-at-rest API key, token-cost telemetry, README deploy docs — completed 2026-05-16
+- [x] Phase 10: QOL, Polish & Consumer Surfaces (14/14 plans) — scored pantry-match, AI-Chat raw-edit recovery, accent picker, prompt editor, token-cost widget, 5 polish items — completed 2026-05-17
+- [x] Phase 11: v1.3 UAT Cleanup & Automated UAT Harness (5/5 plans) — CLEANUP-01..04 (Edit clip, responsive ≤720px, sidebar, unit-system display conversion) + reusable Playwright UAT harness — completed 2026-06-05
 
-## Phase Details
+Full details: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [requirements](milestones/v1.3-REQUIREMENTS.md)
 
-### Phase 8: Format Foundation
-
-**Goal**: The canonical `RecipeDocument` advances to v3 — all three new nullable fields (PhotoUrl, Description, per-step Temperature) exist in the type system, the upcaster chain, the EF entity columns, the AI schema contract, the YAML/JSON wire format, and the parser — and the four v1.1 format-cleanup carry-forwards ship: LegacyRecipeProjector deleted, TagsJson migrated to a relational RecipeTag table, prompt snapshot regression test in place, and README format section added.
-**Depends on**: Nothing (Phase 8 is the foundation for Phases 9 and 10)
-**Requirements**: SCHEMA-01, SCHEMA-02, SCHEMA-03, SCHEMA-04, SCHEMA-05, SCHEMA-06, SCHEMA-07, SCHEMA-08, SCHEMA-09, SCHEMA-10, SCHEMA-11, SCHEMA-12, CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-04
-**Success Criteria** (what must be TRUE):
-
-  1. A v2 `.cookbook.json` imported after this phase upcasts to v3 with all three new fields null — no data loss, no throw (SCHEMA-04, C7: null-coalescing per-field in the upcaster, not a bundle-throw)
-  2. `RecipeJsonSchemaProvider` emits a JSON schema that includes `photoUrl`, `description`, and step-level `temperature` — the schema-assertion test (`SCHEMA-11`) passes as the first test written before any other schema code merges
-  3. `RecipeFormatParserTests` cover all three new fields — round-trip fixtures for null value, valid value, and all three temperature units (F/C/gas) all pass; no existing test is deleted (SCHEMA-12, H11: parser tests audited before any schema code merges)
-  4. `LegacyRecipeProjector` and `IRecipeProjector` files are deleted; `grep -r "LegacyRecipeProjector\|IRecipeProjector" src/` returns zero hits; startup null-canonical guard in `DatabaseSeeder.SeedAsync` fails loud if any row has null `CanonicalDocumentJson` (CLEAN-01)
-  5. Home pantry-match dietary filtering can use a SQL JOIN against `RecipeTag` rows — `TagsJson` is superseded (CLEAN-02); prompt-snapshot test asserts `PromptBuilderService.BuildSystemPrompt` output is byte-stable (CLEAN-03); README "Recipe Format" section documents v3 YAML/JSON with worked example (CLEAN-04)
-
-**Plans**: 13 plans in 7 waves
-
-- [x] 08-01-PLAN.md — Wave 1: Schema-assertion test FIRST (RED gate) + RecipeFormatParserTests audit (SCHEMA-11, SCHEMA-12)
-- [x] 08-02-PLAN.md — Wave 1: StepTemperature record + enum + round-trip tests (SCHEMA-03)
-- [x] 08-03-PLAN.md — Wave 2: RecipeDocument + ContentStep v3 fields + RecipeValidator per-unit rules (SCHEMA-01/02/06/07; turns Plan 01 GREEN)
-- [x] 08-04-PLAN.md — Wave 3: Migration_V2_To_V3 upcaster + CurrentVersion bump + DI registration + per-field fixture matrix (SCHEMA-04, SCHEMA-05)
-- [x] 08-05-PLAN.md — Wave 3: RecipeFormatParser + JsonRecipeSerializer round-trip + StepTemperatureJsonConverter + v3 fixtures (SCHEMA-08, SCHEMA-09, SCHEMA-12)
-- [x] 08-06-PLAN.md — Wave 3: SCHEMA-10 denylist extension + RecipeSchemaDocumentationProvider v3 example + self-checking negative-path test (SCHEMA-10)
-- [x] 08-07-PLAN.md — Wave 3: AddRecipePhotoUrlAndDescription EF migration + entity columns + dynamic backup-label fix in DatabaseSeeder (SCHEMA-01/02/05/06)
-- [x] 08-08-PLAN.md — Wave 4: AddRecipeTagTable migration with embedded backfill + entity + configuration + four callsite switchovers + RecipeTagBackfillTests (CLEAN-02)
-- [x] 08-09-PLAN.md — Wave 4: Verify.Xunit 31.12.5 + ModuleInitializer + REPLACE PromptSnapshotTests + delete legacy fixture (CLEAN-03)
-- [x] 08-12-PLAN.md — Wave 4: AddPantryMatchIndexes migration (Phase 10 perf readiness; D-31 #4)
-- [x] 08-10-PLAN.md — Wave 5: D-32 5-step LegacyRecipeProjector deletion (permanent guard FIRST, then file deletion) (CLEAN-01)
-- [x] 08-11-PLAN.md — Wave 6: DropTagsJsonColumn migration + entity/configuration/RecipeService cleanup (CLEAN-02 finalization)
-- [x] 08-13-PLAN.md — Wave 7: README "Recipe Format" inline section with v3 YAML/JSON examples + V1->V2->V3 lineage (CLEAN-04)
-
-**UI hint**: no
-
-### Phase 9: Photos + Prod-Ready Infrastructure
-
-**Goal**: Users can attach a hero photo to any recipe (file upload or paste-URL); the app is shippable to other self-hosters via Docker with persistent volumes; AI API keys are encrypted at rest with a migration path for existing plaintext keys; token-cost telemetry is written per-call; and the README has complete install/config/backup/upgrade documentation.
-**Depends on**: Phase 8 (PhotoUrl field exists on RecipeDocument v3; RecipeTag table in place for dietary filter groundwork)
-**Requirements**: PHOTO-01, PHOTO-02, PHOTO-03, PHOTO-04, PHOTO-05, PHOTO-06, PHOTO-07, PHOTO-08, PHOTO-09, PHOTO-10, PHOTO-11, PHOTO-12, PHOTO-13, PHOTO-14, PROD-01, PROD-02, PROD-03, PROD-04, PROD-05, PROD-06, PROD-07, PROD-08, PROD-09, PROD-10, PROD-11, PROD-12, PROD-13, PROD-14, PROD-15, PROD-16, PROD-17, PROD-18, PROD-19, PROD-20, PROD-21
-**Success Criteria** (what must be TRUE):
-
-  1. `wwwroot/uploads/` is in `.gitignore` as the FIRST commit of this phase — before any upload code is written (PHOTO-01, C5); uploading a JPEG via the Recipe Editor succeeds, persists a GUID filename, and shows a live `<img>` preview; uploading a 15 MB file or a non-image file (e.g. PDF) is rejected with a descriptive toast, not a silent SignalR circuit disconnect (PHOTO-02, PHOTO-03, H1: all three size limits — Kestrel, FormOptions, SignalR MaximumReceiveMessageSize — raised to 12 MB)
-  2. A paste-URL using a `javascript:` or `data:` scheme is rejected by `RecipePhotoUrlValidator`; the same validator runs on AI-emitted PhotoUrl in the structured-output return path (PHOTO-07); `<img>` tags with a broken URL fall back to `<StripedPlaceholder>` exactly once — no infinite `onerror` loop (PHOTO-08, H4)
-  3. `docker compose up` brings the app online on port 7000 reachable from the LAN; `docker stop && docker start` preserves all data and all encrypted AI keys decrypt successfully — the key ring survives a container restart (PROD-01..07, C1: key ring is on the named `/data` volume via `PersistKeysToDbContext`)
-  4. Existing plaintext `AiApiKey` rows are re-encrypted idempotently on first boot — re-running `DatabaseSeeder.SeedAsync` on already-encrypted rows is a no-op; AI key sharing works after encryption — an integration test for the share-then-resolve round-trip passes (PROD-08, PROD-09, PROD-11, C2: single shared protector scope, not per-user; C3: sentinel-prefix idempotency)
-  5. The 2-retry repair loop writes rows with `IsRetryAttempt = true`; aggregation queries surface retry rows separately so the repair loop does not double-count in cost totals (PROD-14, PROD-15, H9); per-model pricing lives in `appsettings.json`, not hardcoded (PROD-16, H10)
-
-**Plans**: 7 plans in 5 waves
-
-- [x] 09-01-PLAN.md — Wave 1: PHOTO-01 .gitignore FIRST commit + LocalRecipePhotoStorage + ImageMagicBytes + RecipePhotoUrlValidator + three 12 MB size limits + /uploads UseStaticFiles + nosniff (PHOTO-01..07)
-- [x] 09-02-PLAN.md — Wave 2: RecipePhotoComposite (D-38) + StepTemperaturePicker + RecipeEditor wiring + Description CbTextarea (D-39) + RecipeService persistence (PHOTO-08, PHOTO-09)
-- [x] 09-03-PLAN.md — Wave 2: RecipeView hero + Description lede + Home tonight/recently-cooked tiles + AiChat canvas + CookbookList collage real-photo sampler (PHOTO-08, PHOTO-10..13)
-- [x] 09-04-PLAN.md — Wave 3: DataProtection.EntityFrameworkCore 10.0.8 + CookBotDbContext IDataProtectionKeyContext + AddDataProtectionKeysTable migration + sentinel-prefix re-encryption in DatabaseSeeder + AiApiKeyResolutionService read path + EditProfile write path + SecretRedactor extension + 3 integration tests (PROD-06..11)
-- [x] 09-05-PLAN.md — Wave 4: AiUsageLog entity + AddAiUsageLog migration + AiPricing config + StructuredResult InputTokens/OutputTokens + AnthropicAiService SSE usage capture + AiRecipeGenerator consolidated write site + D-42 prompt prose + D-41 365-day cleanup + AI-return-path PhotoUrl validation (PROD-12..17, PHOTO-07)
-- [x] 09-06-PLAN.md — Wave 4: HealthChecks.EntityFrameworkCore 10.0.* + Program.cs /healthz wiring + Dockerfile (sdk:10.0→aspnet:10.0) + docker-compose.yml (restart: on-failure + healthcheck) + .dockerignore (PROD-01..05, D-43)
-- [x] 09-07-PLAN.md — Wave 5: README Install + Configuration + Backup & restore + Upgrade sections; reverse-proxy callout; PDF text-only note (D-40); cross-user telemetry disclosure (PITFALL M9) (PHOTO-14, PROD-18..21)
-
-**UI hint**: yes
-
-### Phase 10: QOL, Polish & Consumer Surfaces
-
-**Goal**: The Home "Tonight from your pantry" section uses a scored pantry-match algorithm instead of a deterministic stub; AI Chat failures surface a raw-edit recovery dialog; users can pick an accent color variant; Profile exposes the AI system prompt template editor and a rolling token-cost widget; and the five small-stuff polish items (cookbook reparenting, pantry quick-add, moon glyph, TopBar RightSlot, live timer tick) all ship.
-**Depends on**: Phase 8 (RecipeTag table for dietary pre-filter; RecipeDocument v3 for reading temperature/description in consumer surfaces), Phase 9 (AiUsageLog rows exist for the Profile widget)
-**Requirements**: QOL-01, QOL-02, QOL-03, QOL-04, QOL-05, QOL-06, QOL-07, POLISH-01, POLISH-02, POLISH-03, POLISH-04, POLISH-05
-**Success Criteria** (what must be TRUE):
-
-  1. Home "Tonight from your pantry" sort is deterministic on reload (stable sort by score desc, recipeId asc) — no result volatility; composite DB indexes on `RecipeIngredient(RecipeId, IngredientId)` and `PantryItem(UserId, IngredientId)` are in place so Home load is O(n log n), not O(n²) (QOL-01, QOL-03, H7); recipes cooked in the last 7 days score lower than fresher candidates (QOL-01 recency debounce)
-  2. When AI generation fails validation and the repair loop exhausts retries, a `RawRecipeEditorDialog` opens with the raw response in a textarea — user can attempt re-parse or copy to clipboard; no silent degraded-toast-only path remains (QOL-04)
-  3. Profile accent picker (terracotta / sage / default orange) persists across browser sessions via `localStorage`; the selection applies before first paint via `data-accent` on `<html>`; no new `UserProfile` column or EF migration is required (QOL-05)
-  4. All five polish items are closed: Recipe Editor cookbook picker routes through `RecipeService.UpdateAsync` with destination-cookbook ownership validation (POLISH-01); Pantry per-row cart icon wires to `GroceryListService.AddItemAsync` with toast on success (POLISH-02); dark-mode toggle shows Moon glyph when dark, Sun when light (POLISH-03); `RecipeView.razor` RV-05 actions reach `TopBar.RightSlot` via the new `ICbTopBarService` scoped service (POLISH-04); Home active-timer band updates every second via `setInterval` JS tick that tears down on page unload (POLISH-05)
-
-**Plans**: 14 plans in 5 waves
-
-- [x] 10-01-PLAN.md — Wave 1: Move IRecipeMadeService interface to Application layer (layering fix, QOL-01)
-- [x] 10-02-PLAN.md — Wave 2: PantryMatchOptions + PantryMatchResult DTOs + IPantryMatchService interface + appsettings + Program.cs binding (QOL-01..03)
-- [x] 10-03-PLAN.md — Wave 3: PantryMatchService impl + diet→category map + scoring/diet/sort/authz tests (QOL-01..03)
-- [x] 10-04-PLAN.md — Wave 4: Home.razor.cs swap to IPantryMatchService + EF model snapshot test for pantry-match indexes (QOL-01, QOL-03)
-- [x] 10-05-PLAN.md — Wave 2: RawRecipeEditorDialog + AiChat fallback rewiring (QOL-04)
-- [x] 10-06-PLAN.md — Wave 2: PromptBuilderService null-fallback wiring + null-fallback tests (QOL-06)
-- [x] 10-07-PLAN.md — Wave 3: EditProfile AI assistant instructions card + prompt-editor-insert.js + DefaultTemplate visibility raise (QOL-06, QOL-07)
-- [x] 10-08-PLAN.md — Wave 3: ICbTopBarService + CbTopBarService (IDisposable + NavigationManager subscription) + Program.cs registration + tests (POLISH-04)
-- [x] 10-09-PLAN.md — Wave 4: MainLayout wiring + TopBar slot class + RecipeView/RecipeEditor migrations + responsive @media CSS (POLISH-04)
-- [x] 10-10-PLAN.md — Wave 5: RecipeService.UpdateAsync newCookbookId + RecipeEditor CbSelect (POLISH-01)
-- [x] 10-11-PLAN.md — Wave 2: GroceryListService.EnsurePrimaryListAsync + AddItemAsync + PantryView cart wiring + tests (POLISH-02)
-- [x] 10-12-PLAN.md — Wave 2: Moon glyph in Icon.razor + MainLayout Sun↔Moon swap + accent picker (cookbot-shell.js + EditProfile) (POLISH-03, QOL-05)
-- [x] 10-13-PLAN.md — Wave 3: cooking-session-state.js startTickLoop + Home.razor.cs OnAfterRenderAsync hook (POLISH-05)
-- [x] 10-14-PLAN.md — Wave 4: AI usage widget on EditProfile (rolling-30d AiUsageLog read surface)
-
-**UI hint**: yes
+</details>
 
 ## Progress
 
@@ -141,6 +58,7 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 | 8. Format Foundation | v1.3 | 13/13 | Complete   | 2026-05-16 |
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 7/7 | Complete   | 2026-05-16 |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 14/14 | Complete    | 2026-05-17 |
+| 11. v1.3 UAT Cleanup & Automated UAT Harness | v1.3 | 5/5 | Complete   | 2026-06-05 |
 
 ---
 
@@ -157,67 +75,8 @@ Phase artifacts remain in `.planning/phases/01-canonical-format-foundation/` and
 
 **Actual root cause** (opposite of original hypothesis): Diagnostic traces showed `NavigationManager.LocationChanged` fires ~4ms *AFTER* the new page's `OnInitialized` returns, not before. The original D-57 auto-clear was wiping the slot the new page had just set. Fix: `SetRightSlot` now stamps the URL it was called at, and `HandleLocationChanged` preserves the slot when the destination URL matches the stamp (slot belongs to this page); clears only when URL differs (stale slot from prior page).
 
-### Phase 999.4: RecipeView responsive layout broken at narrow viewports (BACKLOG)
-
-**Goal:** Make RecipeView usable at ≤720px viewports. POLISH-04 wired the TopBar/inline-fallback toggle, but the rest of RecipeView's layout still assumes wide viewport.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-**Reproducer:** Open any `/recipes/{id}` page, resize browser to 719px. The hero `display:grid; grid-template-columns:1fr 1fr` doesn't stack — title is clipped, the hero photo placeholder compresses to a vertical strip on the right. Ingredients column overflows; method column wraps text per-word into a too-narrow strip. `<article style="max-width:1080px;padding:24px 32px 80px">` has no narrow-viewport variant.
-
-**Notes:** Likely needs `@media (max-width: 720px)` rules on the hero grid, the ingredient/method grid, and the step number grid. Or a single CSS class for "responsive recipe layout" that switches grid-template-columns to a single column below the breakpoint.
-
-**Surfaced:** Phase 10 UAT Test 7 (2026-05-22). User: "everything is squished but nothing condensed properly".
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.5: RecipeView inline-fallback action row missing Edit button (BACKLOG)
-
-**Goal:** Find out why the Edit button is absent from the inline `.recipe-actions-inline-fallback` row even though `RecipeView._topBarActions` includes it as the first CbButton in the RenderFragment.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-**Reproducer:** Open `/recipes/{id}` at ≤720px viewport. The inline fallback row shows Share / Schedule / Cook this, but Edit is absent.
-
-**Suspects to investigate:**
-- Edit may be clipped left by the row's `justify-content:flex-end` if total width exceeds container — but other buttons would also overflow then.
-- `CbButton` with `StartIcon="Pencil"` may be conditionally hidden by some auth/owner check we haven't traced.
-- The `@<text>` RenderFragment construction may be dropping the first child in some Blazor/MarkupString quirk.
-- A separate CSS rule may be `display:none`-ing buttons matching a Pencil icon pattern.
-
-**Surfaced:** Phase 10 UAT Test 7 (2026-05-22). Visible in user screenshot at narrow viewport.
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.3: Sidebar polish — Profile row clipped, body bg ends before sidebar bottom (BACKLOG)
-
-**Goal:** Fix the `.cb-shell .side` grid cell so (a) the Profile row at the sidebar bottom is fully visible (not clipped on the left), and (b) the `--cream` body background extends to the full sidebar height instead of cutting off short.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-**Reproducer:** Open any page at default desktop zoom on a typical 1080p viewport. The Profile button at the bottom of the sidebar is partially hidden (text "rofile" visible, leading icon clipped). The main column's cream background stops short of the sidebar bottom edge, exposing the body background underneath.
-
-**Notes:** Both symptoms point at the `.cb-shell { display:grid; height:100% }` rule — `height:100%` may not be inheriting correctly from the `<div class="cb-shell" style="height:100vh">` wrapper, OR the sidebar is being given an explicit height that exceeds the grid row.
-
-**Surfaced:** Phase 10 UAT Test 4 retest (2026-05-22). User screenshot showed both issues simultaneously.
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.2: Recipe amounts not in user-selected unit system (BACKLOG)
-
-**Goal:** Render `RecipeIngredient.Amount` + `Unit` (and per-step `StepTemperature`) through the user's `UserProfile.UnitSystem` preference on RecipeView, CookingMode, and the AiChat canvas.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-**Reproducer:** Set `UserProfile.UnitSystem = "imperial"` (or "metric"). Generate or view a recipe whose AI-emitted units are the other system (e.g. `400 g spaghetti`). The view displays the raw AI unit, not a converted display unit.
-
-**Notes:** This is a feature gap, not a regression. The canonical `RecipeDocument.Ingredient.Unit` is authoritative; display-side conversion would need a unit-conversion table (g↔oz, ml↔fl oz, °F↔°C, etc.) and a per-recipe-per-user toggle so the user can opt back to the original units. `UserProfile.UnitSystem` exists today and is read by `PromptBuilderService` for AI guidance, but no display-time conversion layer exists.
-
-**Surfaced:** Phase 10 UAT Test 4 retest (2026-05-22). User report: "its not displaying the units in the user selected units".
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
+> **999.2, 999.3, 999.4, 999.5 promoted to Phase 11** (2026-06-05, `/gsd-progress --next`).
+> Full reproducers, suspects, and notes preserved in
+> `phases/11-v1.3-uat-cleanup/11-BACKLOG-SOURCE.md` and summarized as Phase 11
+> success criteria above (CLEANUP-01..04). Only the resolved 999.1 record is kept here.
 

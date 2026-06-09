@@ -12,6 +12,7 @@ public static class DependencyInjection
     {
         services.AddSingleton<IRecipeFormatParser, RecipeFormatParser>();
         services.AddSingleton<IUnitConverter, UnitConversionService>();
+        services.AddSingleton<RecipeUnitDisplayService>();
         services.AddScoped<CookbookService>();
         services.AddScoped<RecipeService>();
         services.AddScoped<PantryService>();

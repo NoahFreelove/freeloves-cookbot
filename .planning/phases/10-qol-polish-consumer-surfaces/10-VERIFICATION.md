@@ -1,7 +1,8 @@
 ---
 phase: 10-qol-polish-consumer-surfaces
 verified: 2026-05-17T12:00:00Z
-status: human_needed
+status: passed
+human_verification_closed: 2026-06-05 — all human-UAT items resolved (session 2 Tests 1/2/3/6 pass; Phase 11 automated harness closed Tests 5 & 7; Test 4 happy-path verified with honest validation-fail deferral). See 10-HUMAN-UAT.md and tests/uat-harness.
 score: 12/12 must-haves verified
 overrides_applied: 0
 re_verification:
