@@ -106,6 +106,42 @@ public class RecipeUpcasterTests
         Assert.Contains("gap", ex.Message);
     }
 
+    /// <summary>
+    /// SC4 / D-12-13 — gap test covering v3→v4 explicitly: V1→V2, V2→V3 present; V3→V4 absent;
+    /// fake V4→V5 creates a 3→4 gap. Must throw at construction.
+    /// </summary>
+    [Fact]
+    public void RecipeUpcasterChain_GapInVersions_V3ToV4_ThrowsAtConstruction()
+    {
+        // V1→V2, V2→V3 present; V3→V4 absent; fake V4→V5 present — leaves 3→4 gap.
+        var fake4to5 = new FakeUpcaster(4, 5);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            new RecipeUpcasterChain(new IRecipeUpcaster[]
+            {
+                new Migration_V1_To_V2(),
+                new Migration_V2_To_V3(),
+                fake4to5
+            }));
+        Assert.Contains("gap", ex.Message);
+    }
+
+    /// <summary>
+    /// SC4 — a v4 doc passed through the full chain (V1→V2, V2→V3, V3→V4) is identity.
+    /// </summary>
+    [Fact]
+    public void UpcastToCurrent_VersionAlreadyFour_IsIdentity()
+    {
+        var chain = new RecipeUpcasterChain(new IRecipeUpcaster[]
+        {
+            new Migration_V1_To_V2(),
+            new Migration_V2_To_V3(),
+            new Migration_V3_To_V4(),
+        });
+        var node = JsonNode.Parse("""{"version":4,"name":"X","ingredients":[],"steps":[]}""")!;
+        var result = chain.UpcastToCurrent(node);
+        Assert.Equal(4, result["version"]!.GetValue<int>());
+    }
+
     private sealed class FakeUpcaster : IRecipeUpcaster
     {
         public int FromVersion { get; }

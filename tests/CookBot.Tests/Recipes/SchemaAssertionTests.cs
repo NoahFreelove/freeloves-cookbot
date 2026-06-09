@@ -202,6 +202,134 @@ public class SchemaAssertionTests
         Assert.Equal(a, b);
     }
 
+    // ─────────────────────── v4 field assertions (Phase 12 / 12-03) ───────────────────────
+
+    /// <summary>
+    /// Verifies the top-level RecipeDocument schema properties include the v4 additions
+    /// <c>equipment</c> (string array) and <c>provenance</c> (nullable object).
+    /// SC3 / FORMAT-06 / FLAG 4 — RecipeJsonSchemaProvider auto-reflects the v4 POCOs.
+    /// </summary>
+    [Fact]
+    public void GetSchema_Includes_Equipment_And_Provenance()
+    {
+        var schema = new RecipeJsonSchemaProvider().GetSchema().AsObject();
+        var props = schema["properties"]!.AsObject();
+
+        Assert.True(
+            props.ContainsKey("equipment"),
+            $"Expected 'equipment' in top-level schema properties but it was absent. Schema: {schema.ToJsonString()}");
+
+        Assert.True(
+            props.ContainsKey("provenance"),
+            $"Expected 'provenance' in top-level schema properties but it was absent. Schema: {schema.ToJsonString()}");
+    }
+
+    /// <summary>
+    /// Verifies that the <c>IngredientEntry</c> schema (within <c>ingredients.items</c>)
+    /// includes a <c>substitutions</c> property.
+    /// SC3 / FORMAT-06 — per-ingredient substitution list auto-reflected from the v4 POCO.
+    /// </summary>
+    [Fact]
+    public void GetSchema_IngredientSchema_Includes_Substitutions()
+    {
+        var schema = new RecipeJsonSchemaProvider().GetSchema().AsObject();
+        var ingredientProps = FindIngredientItemProperties(schema);
+
+        Assert.True(
+            ingredientProps.ContainsKey("substitutions"),
+            $"Expected 'substitutions' in ingredient item properties but it was absent. " +
+            $"Ingredient item properties: {ingredientProps.ToJsonString()}");
+    }
+
+    /// <summary>
+    /// Verifies that the <c>ContentStep</c> anyOf branch schema includes a
+    /// <c>donenessCue</c> property.
+    /// SC3 / FORMAT-06 — per-step doneness cue auto-reflected from the v4 POCO.
+    /// </summary>
+    [Fact]
+    public void GetSchema_ContentStep_Includes_DonenessCue()
+    {
+        var schema = new RecipeJsonSchemaProvider().GetSchema().AsObject();
+        var contentStepProps = FindContentStepProperties(schema);
+
+        Assert.True(
+            contentStepProps.ContainsKey("donenessCue"),
+            $"Expected 'donenessCue' in ContentStep properties but it was absent. " +
+            $"ContentStep branch properties: {contentStepProps.ToJsonString()}");
+    }
+
+    /// <summary>
+    /// Verifies that the new nested record subschemas (<c>IngredientSubstitution</c> and
+    /// <c>RecipeProvenance</c>) carry <c>additionalProperties: false</c>, confirming the
+    /// <see cref="RecipeJsonSchemaProvider.SetAdditionalPropertiesFalse"/> pass handled
+    /// them correctly for Anthropic strict mode (P4).
+    /// </summary>
+    [Fact]
+    public void GetSchema_AdditionalPropertiesFalse_OnIngredientSubstitutionAndProvenanceSubschemas()
+    {
+        var schema = new RecipeJsonSchemaProvider().GetSchema().AsObject();
+
+        // ── IngredientSubstitution ──────────────────────────────────
+        // Path: properties -> ingredients -> items -> properties -> substitutions -> items
+        var ingredientProps = FindIngredientItemProperties(schema);
+        Assert.True(
+            ingredientProps.ContainsKey("substitutions"),
+            $"Expected 'substitutions' in ingredient schema. Properties: {ingredientProps.ToJsonString()}");
+
+        var substitutionsSchema = ingredientProps["substitutions"]!.AsObject();
+
+        // substitutions is an array; each item should be the IngredientSubstitution object schema
+        var subItemSchema = substitutionsSchema["items"]?.AsObject()
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Expected 'items' under substitutions schema. substitutions schema: {substitutionsSchema.ToJsonString()}");
+
+        var subObjectSchema = FindObjectSubschema(subItemSchema);
+        Assert.NotNull(subObjectSchema);
+
+        var subHasAdditionalPropertiesFalse =
+            subObjectSchema!["additionalProperties"] is JsonValue subApv
+            && subApv.TryGetValue<bool>(out var subApBool)
+            && !subApBool;
+
+        Assert.True(
+            subHasAdditionalPropertiesFalse,
+            $"Expected IngredientSubstitution item subschema to carry additionalProperties:false " +
+            $"(Anthropic strict mode / P4), but got: {subObjectSchema.ToJsonString()}");
+
+        // ── RecipeProvenance ─────────────────────────────────────────
+        // Path: properties -> provenance (may be anyOf with null branch)
+        var topProps = schema["properties"]!.AsObject();
+        Assert.True(
+            topProps.ContainsKey("provenance"),
+            $"Expected 'provenance' in top-level properties. Properties: {topProps.ToJsonString()}");
+
+        var provenanceSchema = topProps["provenance"]!.AsObject();
+        var provObjectSchema = FindObjectSubschema(provenanceSchema);
+
+        // provenance may be null (RecipeProvenance?) so could be wrapped in anyOf with a null branch;
+        // if no object subschema is found, resolve via $ref before asserting.
+        if (provObjectSchema is null && provenanceSchema["$ref"] is JsonValue refVal
+            && refVal.TryGetValue<string>(out var refStr)
+            && refStr.StartsWith("#/$defs/", StringComparison.Ordinal))
+        {
+            var name = refStr["#/$defs/".Length..];
+            provObjectSchema = schema["$defs"]?[name]?.AsObject();
+            provObjectSchema = provObjectSchema is not null ? FindObjectSubschema(provObjectSchema) : null;
+        }
+
+        Assert.NotNull(provObjectSchema);
+
+        var provHasAdditionalPropertiesFalse =
+            provObjectSchema!["additionalProperties"] is JsonValue provApv
+            && provApv.TryGetValue<bool>(out var provApBool)
+            && !provApBool;
+
+        Assert.True(
+            provHasAdditionalPropertiesFalse,
+            $"Expected RecipeProvenance object subschema to carry additionalProperties:false " +
+            $"(Anthropic strict mode / P4), but got: {provObjectSchema.ToJsonString()}");
+    }
+
     // ─────────────────────────── helpers ───────────────────────────
 
     /// <summary>
@@ -322,5 +450,32 @@ public class SchemaAssertionTests
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Navigates into the schema to find the <c>IngredientEntry</c> item properties.
+    /// Path: schema["properties"]["ingredients"]["items"]["properties"].
+    /// Follows <c>$ref</c> into <c>$defs</c> if the items schema is externalized.
+    /// </summary>
+    private static JsonObject FindIngredientItemProperties(JsonObject rootSchema)
+    {
+        var ingredientsSchema = rootSchema["properties"]?["ingredients"]?.AsObject()
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Could not navigate to schema['properties']['ingredients']. Root: {rootSchema.ToJsonString()}");
+
+        var ingredientsItems = ingredientsSchema["items"]?.AsObject()
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Could not navigate to schema['properties']['ingredients']['items']. " +
+                $"Ingredients schema: {ingredientsSchema.ToJsonString()}");
+
+        // items may be a $ref (externalized by ExternalizeAnyOfBranches)
+        var resolved = ResolveRef(rootSchema, ingredientsItems);
+
+        var props = resolved?["properties"]?.AsObject()
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Could not navigate to ingredient items 'properties'. " +
+                $"Resolved items schema: {(resolved?.ToJsonString() ?? "null")}");
+
+        return props;
     }
 }

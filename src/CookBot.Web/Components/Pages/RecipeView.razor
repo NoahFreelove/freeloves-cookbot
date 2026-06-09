@@ -15,6 +15,7 @@
 @inject ICbTopBarService TopBarService
 @inject RecipeUnitDisplayService UnitDisplayService
 @inject IJSRuntime JS
+@inject RecipePhotoUrlValidator UrlValidator
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -66,6 +67,27 @@
                     <p class="recipe-lede" style="font-size:16px;color:var(--ink-2);margin:8px 0 0 0;line-height:1.5;">@_doc.Description</p>
                 }
 
+                @* Phase 12 — Provenance credit (FORMAT-04, UI-SPEC §4, D-12-08: link safety via UrlValidator) *@
+                @if (_doc.Provenance is { } prov && (prov.AuthorName != null || prov.SourceName != null))
+                {
+                    var credit = BuildProvenanceCredit(prov);
+                    <div style="margin-top:8px;">
+                        @if (_validatedSourceUrl != null)
+                        {
+                            <a href="@_validatedSourceUrl"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               style="font-size:14px;font-style:italic;color:var(--ink-3);text-decoration:underline;text-underline-offset:3px;">
+                                @credit
+                            </a>
+                        }
+                        else
+                        {
+                            <p style="font-size:14px;font-style:italic;color:var(--ink-3);margin:0;">@credit</p>
+                        }
+                    </div>
+                }
+
                 <div style="display:flex;gap:24px;margin-top:28px;padding-top:20px;border-top:1px solid var(--line);">
                     <div>
                         <div class="eyebrow" style="font-size:10px;">Active</div>
@@ -85,7 +107,6 @@
                     </div>
                     <div>
                         <div class="eyebrow" style="font-size:10px;">Made</div>
-                        @* TODO: surface made-count when RecipeMade log entity lands (FUTURE-Recently-Cooked) *@
                         <div class="num" style="font-size:22px;font-weight:600;margin-top:4px;">
                             @_madeCount<span style="font-size:13px;color:var(--ink-3);margin-left:4px;">×</span>
                         </div>
@@ -154,6 +175,22 @@
                             @(string.IsNullOrWhiteSpace(ing.Name) ? "(unnamed)" : ing.Name)@(string.IsNullOrWhiteSpace(ing.Note) ? "" : $" ({ing.Note})")
                         </span>
                     </div>
+                    @* Phase 12 — substitution sub-lines (FORMAT-01, UI-SPEC §2, D-12-04: amounts do NOT scale) *@
+                    @if (ing.Substitutions.Count > 0)
+                    {
+                        <div style="padding:4px 0 8px 0;border-bottom:1px solid var(--line);">
+                            @foreach (var sub in ing.Substitutions)
+                            {
+                                <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px;padding-left:8px;">
+                                    <span style="font-size:11px;color:var(--ink-4);flex-shrink:0;">or</span>
+                                    <span style="font-size:13px;color:var(--ink-3);line-height:1.45;">
+                                        @(sub.Name != null ? $"{FormatSubAmount(sub)} {sub.Name}".TrimStart() : sub.Note)
+                                        @if (sub.Name != null && sub.Note != null) { <span> — @sub.Note</span> }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
                 }
 
                 @if (_doc.Tags.Count > 0)
@@ -164,6 +201,27 @@
                             <CbChip Variant="CbChip.CbChipVariant.Tag" Label="@tag" />
                         }
                     </div>
+                }
+
+                @* Phase 12 — Equipment checklist (FORMAT-02, UI-SPEC §1; ephemeral state, never persisted) *@
+                @if (_doc.Equipment.Count > 0)
+                {
+                    <CbEyebrow><div style="margin-top:16px;margin-bottom:8px;">Equipment</div></CbEyebrow>
+                    <ul role="list" aria-label="Equipment list" style="list-style:none;margin:0;padding:0;">
+                        @foreach (var item in _doc.Equipment)
+                        {
+                            var captured = item;
+                            <li>
+                                <label class="cb-checkbox" style="padding:10px 0;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                    <input type="checkbox"
+                                           checked="@_checkedEquipment.Contains(captured)"
+                                           @onchange="@(() => ToggleEquipment(captured))" />
+                                    <span class="box"></span>
+                                    <span style="font-size:14px;color:var(--ink-2);@(_checkedEquipment.Contains(captured) ? "text-decoration:line-through;color:var(--ink-4);" : "")">@captured</span>
+                                </label>
+                            </li>
+                        }
+                    </ul>
                 }
             </aside>
 
@@ -210,6 +268,15 @@
                                     <div style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--ink-3);font-weight:500;">
                                         <Icon Name="@Icon.Names.Flame" Size="13" />
                                         @tempDisplay
+                                    </div>
+                                }
+                                @* Phase 12 — doneness cue (FORMAT-03, UI-SPEC §3) *@
+                                @if (!string.IsNullOrWhiteSpace(content.DonenessCue))
+                                {
+                                    <div style="margin-top:8px;display:inline-flex;align-items:center;gap:4px;
+                                                font-size:13px;color:var(--ink-3);font-weight:400;font-style:italic;line-height:1.4;">
+                                        <Icon Name="@Icon.Names.Check" Size="13" />
+                                        @content.DonenessCue
                                     </div>
                                 }
                             </div>
@@ -287,6 +354,13 @@ else if (_loaded)
     private bool _loaded;
     private int _targetServings = 1;
 
+    // Phase 12 — provenance link safety (D-12-08). Computed in OnParametersSet via UrlValidator.
+    // Null means the SourceUrl is absent, empty, or fails the http/https allowlist.
+    private string? _validatedSourceUrl;
+
+    // Phase 12 — equipment checklist ephemeral state (UI-SPEC §1; never persisted, resets on navigation).
+    private readonly HashSet<string> _checkedEquipment = new();
+
     // CLEANUP-04 — unit display mode. Default = "converted" (user's UnitSystem).
     // Per-recipe toggle writes cookbot_units_<recipeId> to localStorage.
     private UnitSystem? _unitSystem;
@@ -335,6 +409,9 @@ else if (_loaded)
             _heroPhotoFailed = false;
             // CLEANUP-04 — reset unit mode for new recipe so localStorage re-read picks it up.
             _unitMode = "converted";
+            // Phase 12 — reset provenance URL and equipment state for the new recipe.
+            _validatedSourceUrl = null;
+            _checkedEquipment.Clear();
         }
     }
 
@@ -367,6 +444,26 @@ else if (_loaded)
                     {
                         _doc = RecipeSerializer.Deserialize(json);
                         _targetServings = _doc.Servings > 0 ? _doc.Servings : 1;
+
+                        // Phase 12 — compute validated provenance source URL for link safety (D-12-08).
+                        // UrlValidator returns true + normalized URL only when the scheme is http/https.
+                        // Anything else (javascript:, data:, malformed) → _validatedSourceUrl stays null
+                        // and the provenance credit renders as plain text.
+                        // WR-02: mirror the credit-block display guard (line 71) so we only validate
+                        // the URL when the <a> element will actually render (AuthorName or SourceName present).
+                        var prov12 = _doc.Provenance;
+                        if (prov12 is { } p12 &&
+                            (p12.AuthorName != null || p12.SourceName != null) &&
+                            !string.IsNullOrWhiteSpace(p12.SourceUrl) &&
+                            UrlValidator.TryValidate(p12.SourceUrl, out var normalized, out _) &&
+                            normalized != null)
+                        {
+                            _validatedSourceUrl = normalized;
+                        }
+                        else
+                        {
+                            _validatedSourceUrl = null;
+                        }
                     }
                     catch (JsonException)
                     {
@@ -499,5 +596,34 @@ else if (_loaded)
         var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true, CloseOnEscape: true);
         await CbDialogService.ShowAsync<CookBot.Web.Components.Dialogs.ScheduleRecipeDialog>(
             $"Schedule \"{_doc?.Name ?? _recipe.Name}\"", parameters, options);
+    }
+
+    // Phase 12 — Equipment checklist toggle (UI-SPEC §1; ephemeral, never persisted).
+    private void ToggleEquipment(string item)
+    {
+        if (!_checkedEquipment.Add(item))
+            _checkedEquipment.Remove(item);
+    }
+
+    // Phase 12 — Provenance credit composition (UI-SPEC §4 copy contract).
+    private static string BuildProvenanceCredit(CookBot.Domain.Recipes.RecipeProvenance prov)
+    {
+        if (prov.SourceName != null && prov.AuthorName != null)
+            return $"Adapted from {prov.SourceName} by {prov.AuthorName}";
+        if (prov.SourceName != null)
+            return $"Adapted from {prov.SourceName}";
+        if (prov.AuthorName != null)
+            return $"By {prov.AuthorName}";
+        return string.Empty;
+    }
+
+    // Phase 12 — Substitution amount formatter (UI-SPEC §2; D-12-04: static display, NO servings scale).
+    private static string FormatSubAmount(CookBot.Domain.Recipes.IngredientSubstitution sub)
+    {
+        if (sub.Amount != null && sub.Unit != null)
+            return $"{sub.Amount} {sub.Unit}";
+        if (sub.Amount != null)
+            return $"{sub.Amount}";
+        return string.Empty;
     }
 }

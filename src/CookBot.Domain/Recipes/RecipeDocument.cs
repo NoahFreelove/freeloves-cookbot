@@ -43,6 +43,12 @@ public sealed record RecipeDocument
     [JsonPropertyName("steps")]
     public IReadOnlyList<StepNode> Steps { get; init; } = [];
 
+    [JsonPropertyName("equipment")]
+    public IReadOnlyList<string> Equipment { get; init; } = [];
+
+    [JsonPropertyName("provenance")]
+    public RecipeProvenance? Provenance { get; init; }
+
     /// <summary>Forward-compat: unknown top-level keys round-trip through serialize/deserialize (FORMAT-09).</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extras { get; init; } = new();

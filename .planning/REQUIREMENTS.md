@@ -15,13 +15,13 @@ User decisions (2026-06-05):
 
 ### Richer Recipe Format (FORMAT) — v3→v4 schema bump
 
-- [ ] **FORMAT-01**: A recipe ingredient can carry one or more substitutions (freeform note + optional structured name/amount/unit), authored in the editor and displayed on the recipe.
-- [ ] **FORMAT-02**: A recipe can carry an equipment/tools list (recipe-level `string[]`), authored in the editor and displayed on the recipe.
-- [ ] **FORMAT-03**: A recipe step can carry a per-step doneness cue (freeform `string?`, alongside the existing per-step Temperature), authored and displayed.
-- [ ] **FORMAT-04**: A recipe can carry source/provenance — `SourceUrl` and `AuthorName` (and optional "adapted from") — authored and displayed with the source link.
-- [ ] **FORMAT-05**: A v3 `.cookbook.json`/recipe upcasts to v4 with all new fields null/empty — no data loss, no throw (per-field null-coalescing, the v2→v3 pattern); `RecipeUpcasterChain.CurrentVersion` = 4.
-- [ ] **FORMAT-06**: `RecipeValidator` enforces the new fields' rules; the AI JSON schema (`RecipeJsonSchemaProvider`) includes them and the prompt-snapshot test is updated in the same change (no AI schema drift).
-- [ ] **FORMAT-07**: `RecipeFormatParser` + `JsonRecipeSerializer` round-trip all four new field groups; parser tests cover null, present, and edge fixtures; no existing v3 test deleted.
+- [x] **FORMAT-01**: A recipe ingredient can carry one or more substitutions (freeform note + optional structured name/amount/unit), authored in the editor and displayed on the recipe.
+- [x] **FORMAT-02**: A recipe can carry an equipment/tools list (recipe-level `string[]`), authored in the editor and displayed on the recipe.
+- [x] **FORMAT-03**: A recipe step can carry a per-step doneness cue (freeform `string?`, alongside the existing per-step Temperature), authored and displayed.
+- [x] **FORMAT-04**: A recipe can carry source/provenance — `SourceUrl` and `AuthorName` (and optional "adapted from") — authored and displayed with the source link.
+- [x] **FORMAT-05**: A v3 `.cookbook.json`/recipe upcasts to v4 with all new fields null/empty — no data loss, no throw (per-field null-coalescing, the v2→v3 pattern); `RecipeUpcasterChain.CurrentVersion` = 4.
+- [x] **FORMAT-06**: `RecipeValidator` enforces the new fields' rules; the AI JSON schema (`RecipeJsonSchemaProvider`) includes them and the prompt-snapshot test is updated in the same change (no AI schema drift).
+- [x] **FORMAT-07**: `RecipeFormatParser` + `JsonRecipeSerializer` round-trip all four new field groups; parser tests cover null, present, and edge fixtures; no existing v3 test deleted.
 
 ### Export & Interoperability (INTEROP) — read-only projections
 
@@ -74,13 +74,13 @@ User decisions (2026-06-05):
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| FORMAT-01 | Phase 12 | Pending |
-| FORMAT-02 | Phase 12 | Pending |
-| FORMAT-03 | Phase 12 | Pending |
-| FORMAT-04 | Phase 12 | Pending |
-| FORMAT-05 | Phase 12 | Pending |
-| FORMAT-06 | Phase 12 | Pending |
-| FORMAT-07 | Phase 12 | Pending |
+| FORMAT-01 | Phase 12 | Complete |
+| FORMAT-02 | Phase 12 | Complete |
+| FORMAT-03 | Phase 12 | Complete |
+| FORMAT-04 | Phase 12 | Complete |
+| FORMAT-05 | Phase 12 | Complete |
+| FORMAT-06 | Phase 12 | Complete |
+| FORMAT-07 | Phase 12 | Complete |
 | INTEROP-01 | Phase 13 | Pending |
 | INTEROP-02 | Phase 13 | Pending |
 | INTEROP-03 | Phase 13 | Pending |

@@ -25,6 +25,9 @@ public sealed record IngredientEntry
     [JsonPropertyName("note")]
     public string? Note { get; init; }
 
+    [JsonPropertyName("substitutions")]
+    public IReadOnlyList<IngredientSubstitution> Substitutions { get; init; } = [];
+
     /// <summary>Forward-compat: unknown ingredient-level keys round-trip per FORMAT-09.</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extras { get; init; } = new();

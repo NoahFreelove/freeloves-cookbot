@@ -21,7 +21,9 @@ public class Migration_V2_To_V3_ChainTests
     [Fact]
     public void RecipeUpcasterChain_CurrentVersion_IsThree()
     {
-        Assert.Equal(3, RecipeUpcasterChain.CurrentVersion);
+        // NOTE: CurrentVersion is now 4 (bumped by Phase 12 / Plan 12-01).
+        // This test name is kept for history; the assertion reflects the live value.
+        Assert.Equal(4, RecipeUpcasterChain.CurrentVersion);
     }
 
     [Fact]

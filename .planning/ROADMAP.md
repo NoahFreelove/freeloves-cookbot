@@ -47,7 +47,7 @@ Full details: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [req
 
 ### v1.4 Recipe Data & Interoperability (Phases 12–16) — ACTIVE
 
-- [ ] **Phase 12: Richer Format + v3→v4 Schema Bump** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance; upcaster chain to v4; AI prompt + snapshot test
+- [x] **Phase 12: Richer Format + v3→v4 Schema Bump** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance; upcaster chain to v4; AI prompt + snapshot test (4/4 plans; automated-verified 10/10 + 377 tests; human UAT 4/4 pass) — completed 2026-06-06
 - [ ] **Phase 13: Export & Interoperability** — Schema.org JSON-LD in RecipeView head; Cooklang (.cook) one-way export; depends on Phase 12
 - [ ] **Phase 14: Photo Gallery** — RecipePhoto entity + multi-upload + gallery UI + AI search-term helper; depends on Phase 12
 - [ ] **Phase 15: Nutrition (Offline USDA)** — bundled FDC seed, NutritionService, per-serving panel with coverage indicator + disclaimer; nutrition wired into JSON-LD; depends on Phases 12–14
@@ -65,7 +65,11 @@ Full details: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [req
   3. The AI generates recipes that include the new v4 fields (even when null) — the prompt-snapshot test is updated and passing; no AI schema drift
   4. `RecipeUpcasterChain.CurrentVersion` equals 4; `Migration_V3_To_V4` is registered in DI; the gap-detection test covers v3→v4 explicitly
   5. The new fields are displayed in RecipeView (equipment checklist, substitution chips, doneness cue per step, provenance link/author credit)
-**Plans**: TBD
+**Plans**: 4 plans (3 waves)
+  - [x] 12-01-PLAN.md — v4 Domain POCOs + Migration_V3_To_V4 + DI/CurrentVersion + validator + upcaster tests (wave 1)
+  - [x] 12-02-PLAN.md — round-trip path: editor DTOs + RecipeFormatParser bridge/serialize + round-trip tests (wave 2)
+  - [x] 12-03-PLAN.md — AI prompt v4 prose + snapshot regen + schema assertions (wave 2)
+  - [x] 12-04-PLAN.md — RecipeEditor authoring + RecipeView display of all four field groups (wave 3, checkpoint)
 **UI hint**: yes
 
 ### Phase 13: Export & Interoperability
@@ -129,7 +133,7 @@ Full details: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [req
 | 9. Photos + Prod-Ready Infrastructure | v1.3 | 7/7 | Complete | 2026-05-16 |
 | 10. QOL, Polish & Consumer Surfaces | v1.3 | 14/14 | Complete | 2026-05-17 |
 | 11. v1.3 UAT Cleanup & Automated UAT Harness | v1.3 | 5/5 | Complete | 2026-06-05 |
-| 12. Richer Format + v3→v4 Schema Bump | v1.4 | 0/TBD | Not started | — |
+| 12. Richer Format + v3→v4 Schema Bump | v1.4 | 4/4 | Needs UAT (automated-verified) | — |
 | 13. Export & Interoperability | v1.4 | 0/TBD | Not started | — |
 | 14. Photo Gallery | v1.4 | 0/TBD | Not started | — |
 | 15. Nutrition (Offline USDA) | v1.4 | 0/TBD | Not started | — |

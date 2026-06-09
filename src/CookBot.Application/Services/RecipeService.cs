@@ -115,7 +115,9 @@ public class RecipeService
             PhotoUrl = parsed.PhotoUrl,
             Description = parsed.Description,
             Tags = recipe.Tags.Select(t => t.Name).ToList(),
-            Ingredients = parsed.Ingredients.Select(i => new IngredientEntry { Id = i.LocalId, Name = i.Name, Amount = i.Amount, Unit = i.Unit, Note = i.Note }).ToList(),
+            Equipment = parsed.Equipment.ToList(),
+            Provenance = parsed.Provenance,
+            Ingredients = parsed.Ingredients.Select(i => new IngredientEntry { Id = i.LocalId, Name = i.Name, Amount = i.Amount, Unit = i.Unit, Note = i.Note, Substitutions = i.Substitutions.ToList() }).ToList(),
             Steps = parsed.Steps.Select<ParsedStep, StepNode>(s => s.IsSection
                 ? new SectionStep { Heading = s.Text }
                 : new ContentStep
@@ -123,6 +125,7 @@ public class RecipeService
                     Text = s.Text,
                     Timers = s.Timers?.Select(t => new TimerEntry { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList(),
                     Temperature = s.Temperature,
+                    DonenessCue = s.DonenessCue,
                 }).ToList(),
         };
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
@@ -243,7 +246,9 @@ public class RecipeService
             PhotoUrl = parsed.PhotoUrl,
             Description = parsed.Description,
             Tags = recipe.Tags.Select(t => t.Name).ToList(),
-            Ingredients = parsed.Ingredients.Select(i => new IngredientEntry { Id = i.LocalId, Name = i.Name, Amount = i.Amount, Unit = i.Unit, Note = i.Note }).ToList(),
+            Equipment = parsed.Equipment.ToList(),
+            Provenance = parsed.Provenance,
+            Ingredients = parsed.Ingredients.Select(i => new IngredientEntry { Id = i.LocalId, Name = i.Name, Amount = i.Amount, Unit = i.Unit, Note = i.Note, Substitutions = i.Substitutions.ToList() }).ToList(),
             Steps = parsed.Steps.Select<ParsedStep, StepNode>(s => s.IsSection
                 ? new SectionStep { Heading = s.Text }
                 : new ContentStep
@@ -251,6 +256,7 @@ public class RecipeService
                     Text = s.Text,
                     Timers = s.Timers?.Select(t => new TimerEntry { Duration = t.Duration, Unit = t.Unit, Label = t.Label }).ToList(),
                     Temperature = s.Temperature,
+                    DonenessCue = s.DonenessCue,
                 }).ToList(),
         };
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);

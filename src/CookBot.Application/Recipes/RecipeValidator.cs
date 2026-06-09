@@ -97,6 +97,8 @@ public sealed class RecipeValidator
         // AI-SPEC §1b enhancements (warnings, not errors — do not trigger the repair loop):
         DetectOrphanIngredients(doc, warnings);
         DetectEmptySections(doc, warnings);
+        DetectInvalidProvenanceUrl(doc, warnings);
+        DetectEmptySubstitutions(doc, warnings);
 
         return new ValidationResult(errors, warnings);
     }
@@ -131,6 +133,47 @@ public sealed class RecipeValidator
                     Path: $"/ingredients/{i}",
                     Code: "OrphanIngredient",
                     Message: $"Ingredient '{ing.Name}' (id={ing.Id}) is not referenced by any step."));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 12 / FORMAT-06 / D-12-15 / T-12-01 — checks provenance SourceUrl uses http or https.
+    /// Warning only — does not flip <see cref="ValidationResult.IsValid"/>. Inline Uri scheme
+    /// check; no constructor dependency on RecipePhotoUrlValidator (RESEARCH open question #1).
+    /// </summary>
+    private static void DetectInvalidProvenanceUrl(RecipeDocument doc, List<ValidationWarning> warnings)
+    {
+        var url = doc.Provenance?.SourceUrl;
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            warnings.Add(new ValidationWarning(
+                Path: "/provenance/sourceUrl",
+                Code: "InvalidProvenanceUrl",
+                Message: "Provenance SourceUrl must be an absolute http or https URL."));
+        }
+    }
+
+    /// <summary>
+    /// Phase 12 / FORMAT-06 / D-12-15 — surfaces substitutions that have neither a Note nor a Name.
+    /// Warning only — does not flip <see cref="ValidationResult.IsValid"/>.
+    /// </summary>
+    private static void DetectEmptySubstitutions(RecipeDocument doc, List<ValidationWarning> warnings)
+    {
+        for (var i = 0; i < doc.Ingredients.Count; i++)
+        {
+            var subs = doc.Ingredients[i].Substitutions;
+            for (var j = 0; j < subs.Count; j++)
+            {
+                if (string.IsNullOrWhiteSpace(subs[j].Note) && string.IsNullOrWhiteSpace(subs[j].Name))
+                {
+                    warnings.Add(new ValidationWarning(
+                        Path: $"/ingredients/{i}/substitutions/{j}",
+                        Code: "EmptySubstitution",
+                        Message: "Substitution has neither a Note nor a Name."));
+                }
             }
         }
     }

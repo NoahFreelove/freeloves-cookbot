@@ -132,6 +132,26 @@
                                        TemperatureChanged="OnTemperatureChanged" />
             </div>
         }
+
+        @* Phase 12 — per-step doneness cue (alongside Temperature) *@
+        @if (_kind == StepKind.Step)
+        {
+            <div style="margin-top:2px;">
+                <span style="display:inline-flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap;">
+                    <span style="color:var(--ink-3);font-size:11px;text-transform:uppercase;
+                                 letter-spacing:0.06em;font-weight:600;">
+                        Doneness
+                    </span>
+                    <input type="text"
+                           class="cb-input"
+                           value="@Step.DonenessCue"
+                           placeholder="e.g. golden brown, 165°F internal temp"
+                           aria-label="Doneness cue"
+                           style="font-size:13px;padding:4px 8px;flex:1;min-width:120px;"
+                           @oninput="@(e => OnDonenessCueInput(e))" />
+                </span>
+            </div>
+        }
     </div>
 
     @* Right: actions stack (move up / move down / delete). *@
@@ -268,6 +288,15 @@
         // same reference, so the save path picks up the new value when SaveRecipe
         // copies _steps into the ParsedRecipe DTO.
         Step.Temperature = newTemperature;
+        return Task.CompletedTask;
+    }
+
+    private Task OnDonenessCueInput(ChangeEventArgs e)
+    {
+        // Phase 12 — mutate-in-place pattern (a), same as OnTemperatureChanged.
+        // ParsedStep is a mutable class; the parent's _steps list holds the same
+        // reference, so SaveRecipe picks up the new value automatically.
+        Step.DonenessCue = e.Value as string;
         return Task.CompletedTask;
     }
 

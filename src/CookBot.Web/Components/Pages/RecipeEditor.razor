@@ -4,12 +4,14 @@
 @using CookBot.Application.Services
 @using CookBot.Domain.Entities
 @using CookBot.Domain.Interfaces
+@using CookBot.Domain.Recipes
 @using CookBot.Web.Components.Atoms
 @using CookBot.Web.Components.Pages.RecipeEditorParts
 @using Microsoft.Extensions.Options
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CookBot.Domain.Interfaces.IRecipeFormatParser Parser
 @inject CookBot.Application.Services.RecipeService RecipeService
+@inject CookBot.Application.Recipes.JsonRecipeSerializer CanonicalSerializer
 @inject CurrentUserService UserService
 @inject NavigationManager Navigation
 @inject ICbToastService Toast
@@ -120,7 +122,7 @@
                     var index = i;
                     var ing = _ingredients[index];
                     var isLast = index == _ingredients.Count - 1;
-                    <div style="display:grid;grid-template-columns:60px 70px 1fr 32px 28px;gap:0;align-items:center;border-bottom:@(isLast ? "none" : "1px solid var(--line)");">
+                    <div style="display:grid;grid-template-columns:60px 70px 1fr 32px 28px;gap:0;align-items:center;border-bottom:1px solid var(--line);">
                         <input type="text"
                                class="num"
                                value="@(ing.Amount > 0 ? FormatAmount(ing.Amount) : string.Empty)"
@@ -157,6 +159,39 @@
                                 style="background:transparent;border:0;color:var(--ink-4);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;"
                                 @onclick="@(() => RemoveIngredient(index))">
                             <Icon Name="@Icon.Names.Trash" Size="14" />
+                        </button>
+                    </div>
+                    @* Phase 12 — substitution sub-rows under each ingredient (FORMAT-01, UI-SPEC §5) *@
+                    @if (ing.Substitutions is { Count: > 0 })
+                    {
+                        @foreach (var (sub, si) in ing.Substitutions.Select((s, idx) => (s, idx)))
+                        {
+                            <div style="display:grid;grid-template-columns:1fr 24px;gap:0;
+                                        background:var(--cream-2);border-bottom:1px solid var(--line);
+                                        padding:8px 16px 8px 24px;align-items:center;">
+                                <input type="text"
+                                       class="cb-input"
+                                       value="@sub.Note"
+                                       placeholder="Substitution note (e.g. oat milk for dairy-free)"
+                                       aria-label="@($"Substitution {si + 1} for {ing.Name}")"
+                                       style="font-size:13px;padding:4px 8px;"
+                                       @oninput="@(e => OnSubstitutionNoteInput(index, si, e))" />
+                                <button type="button"
+                                        aria-label="Remove substitution"
+                                        style="background:transparent;border:0;color:var(--ink-4);cursor:pointer;
+                                               display:flex;align-items:center;justify-content:center;"
+                                        @onclick="@(() => RemoveSubstitution(index, si))">
+                                    <Icon Name="@Icon.Names.Trash" Size="13" />
+                                </button>
+                            </div>
+                        }
+                    }
+                    <div style="padding:4px 16px 8px 24px;background:var(--cream-2);border-bottom:@(isLast ? "none" : "1px solid var(--line)");">
+                        <button type="button"
+                                class="cb-btn ghost"
+                                style="font-size:12.5px;padding:4px 8px;height:24px;"
+                                @onclick="@(() => AddSubstitution(index))">
+                            <Icon Name="@Icon.Names.Plus" Size="11" /> Add substitution
                         </button>
                     </div>
                 }
@@ -299,6 +334,86 @@
                    @onkeydown="OnTagInputKeyDown" />
         </CbCard>
 
+        @* Phase 12 — Equipment card (FORMAT-02, UI-SPEC §6). Mirrors the Tags card verbatim. *@
+        <CbCard Padding="18">
+            <CbEyebrow><div style="margin-bottom:8px;">Equipment</div></CbEyebrow>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                @if (_equipment.Count == 0)
+                {
+                    <span style="font-size:12.5px;color:var(--ink-3);">No equipment yet.</span>
+                }
+                else
+                {
+                    @foreach (var item in _equipment.ToList())
+                    {
+                        var captured = item;
+                        <span class="cb-chip tag" style="cursor:default;">
+                            @captured
+                            <button type="button"
+                                    aria-label="@($"Remove {captured}")"
+                                    style="background:transparent;border:0;color:inherit;cursor:pointer;
+                                           font-size:14px;line-height:1;padding:0 0 0 4px;
+                                           display:inline-flex;align-items:center;"
+                                    @onclick="@(() => RemoveEquipment(captured))">×</button>
+                        </span>
+                    }
+                }
+            </div>
+            <input type="text"
+                   value="@_equipmentInput"
+                   placeholder="add equipment…"
+                   aria-label="Add equipment item"
+                   style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--line);
+                          background:var(--cream);font-family:inherit;font-size:13px;outline:none;"
+                   @oninput="OnEquipmentInputInput"
+                   @onkeydown="OnEquipmentInputKeyDown" />
+        </CbCard>
+
+        @* Phase 12 — Provenance card (FORMAT-04, UI-SPEC §8, D-12-09: never AI-prefilled). *@
+        <CbCard Padding="18">
+            <CbEyebrow><div style="margin-bottom:8px;">Source &amp; Credit</div></CbEyebrow>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <div>
+                    <label class="cb-label" for="provenance-source-name">Adapted from</label>
+                    <input id="provenance-source-name"
+                           type="text"
+                           class="cb-input"
+                           value="@_provSourceName"
+                           placeholder="e.g. Smitten Kitchen"
+                           aria-label="Source name (adapted from)"
+                           @oninput="@(e => _provSourceName = e.Value as string ?? string.Empty)" />
+                </div>
+                <div>
+                    <label class="cb-label" for="provenance-author">Author</label>
+                    <input id="provenance-author"
+                           type="text"
+                           class="cb-input"
+                           value="@_provAuthorName"
+                           placeholder="e.g. Deb Perelman"
+                           aria-label="Author name"
+                           @oninput="@(e => _provAuthorName = e.Value as string ?? string.Empty)" />
+                </div>
+                <div>
+                    <label class="cb-label" for="provenance-url">Source URL</label>
+                    <input id="provenance-url"
+                           type="url"
+                           class="cb-input"
+                           value="@_provSourceUrl"
+                           placeholder="https://…"
+                           aria-label="Source URL"
+                           @oninput="@(e => _provSourceUrl = e.Value as string ?? string.Empty)"
+                           @onblur="OnProvenanceUrlBlur" />
+                    @if (_provUrlWarning != null)
+                    {
+                        <div role="alert"
+                             style="font-size:12.5px;color:var(--warn);margin-top:4px;">
+                            @_provUrlWarning
+                        </div>
+                    }
+                </div>
+            </div>
+        </CbCard>
+
         @* AI suggestions — hidden when AI off (Phase 6 hard invariant) *@
         @if (_aiOn)
         {
@@ -367,6 +482,16 @@
     private int? _cookTimeMinutes;
     private List<string> _tags = new();
     private string _tagInput = string.Empty;
+
+    // Phase 12 — equipment list (FORMAT-02)
+    private List<string> _equipment = new();
+    private string _equipmentInput = string.Empty;
+
+    // Phase 12 — provenance fields (FORMAT-04; D-12-09: never AI-prefilled)
+    private string _provSourceName = string.Empty;
+    private string _provAuthorName = string.Empty;
+    private string _provSourceUrl = string.Empty;
+    private string? _provUrlWarning;
 
     private List<ParsedIngredient> _ingredients = new();
     private List<ParsedStep> _steps = new();
@@ -457,31 +582,58 @@
         // CLEAN-02 (Plan 08): read tags from relational RecipeTag collection (.Include(r => r.Tags) in load query above).
         _tags = recipe.Tags.Select(t => t.Name).ToList();
 
+        // Phase 12 — CR-02: v4 fields (Equipment, Provenance, Substitutions, DonenessCue) live
+        // only in CanonicalDocumentJson (no relational columns). Deserialize defensively; on any
+        // failure leave the new fields empty so the editor still opens for legacy recipes.
+        RecipeDocument? canonicalDoc = null;
+        if (!string.IsNullOrEmpty(recipe.CanonicalDocumentJson))
+        {
+            try { canonicalDoc = CanonicalSerializer.Deserialize(recipe.CanonicalDocumentJson); }
+            catch { /* best-effort; proceed with relational data only */ }
+        }
+
+        _equipment = canonicalDoc?.Equipment.ToList() ?? new List<string>();
+        var prov = canonicalDoc?.Provenance;
+        _provSourceName = prov?.SourceName ?? string.Empty;
+        _provAuthorName = prov?.AuthorName ?? string.Empty;
+        _provSourceUrl = prov?.SourceUrl ?? string.Empty;
+
         _ingredients = recipe.RecipeIngredients
             .OrderBy(ri => ri.RecipeLocalId)
-            .Select(ri => new ParsedIngredient
+            .Select(ri =>
             {
-                LocalId = ri.RecipeLocalId,
-                Name = ri.Ingredient.Name,
-                Amount = ri.Amount,
-                Unit = ri.Unit,
-                Note = ri.Note,
+                var canonicalIng = canonicalDoc?.Ingredients
+                    .FirstOrDefault(ci => ci.Id == ri.RecipeLocalId);
+                return new ParsedIngredient
+                {
+                    LocalId = ri.RecipeLocalId,
+                    Name = ri.Ingredient.Name,
+                    Amount = ri.Amount,
+                    Unit = ri.Unit,
+                    Note = ri.Note,
+                    Substitutions = canonicalIng?.Substitutions.ToList() ?? new List<IngredientSubstitution>(),
+                };
             }).ToList();
 
         _nextLocalId = _ingredients.Any() ? _ingredients.Max(i => i.LocalId) + 1 : 1;
 
         _steps = recipe.Steps
             .OrderBy(s => s.Order)
-            .Select(s => new ParsedStep
+            .Select((s, idx) =>
             {
-                Text = s.Text,
-                IsSection = s.IsSection,
-                Timers = s.Timers?.Select(t => new ParsedTimer
+                var canonicalStep = canonicalDoc?.Steps.ElementAtOrDefault(idx) as ContentStep;
+                return new ParsedStep
                 {
-                    Duration = t.Duration,
-                    Unit = t.Unit,
-                    Label = t.Label,
-                }).ToList() ?? new List<ParsedTimer>(),
+                    Text = s.Text,
+                    IsSection = s.IsSection,
+                    Timers = s.Timers?.Select(t => new ParsedTimer
+                    {
+                        Duration = t.Duration,
+                        Unit = t.Unit,
+                        Label = t.Label,
+                    }).ToList() ?? new List<ParsedTimer>(),
+                    DonenessCue = canonicalStep?.DonenessCue,
+                };
             }).ToList();
     }
 
@@ -514,6 +666,7 @@
                 Amount = i.Amount,
                 Unit = i.Unit,
                 Note = i.Note,
+                Substitutions = i.Substitutions.ToList(),
             }).ToList();
             _nextLocalId = _ingredients.Max(i => i.LocalId) + 1;
         }
@@ -530,8 +683,18 @@
                     Unit = t.Unit,
                     Label = t.Label,
                 }).ToList() ?? new List<ParsedTimer>(),
+                Temperature = s.Temperature,
+                DonenessCue = s.DonenessCue,
             }).ToList();
         }
+
+        // Phase 12 — FLAG 2: populate equipment + provenance from parsed recipe (FORMAT-02, FORMAT-04).
+        // Substitutions arrive on parsed.Ingredients[i].Substitutions already carried into _ingredients above.
+        _equipment = parsed.Equipment.ToList();
+        _provSourceName = parsed.Provenance?.SourceName ?? string.Empty;
+        _provAuthorName = parsed.Provenance?.AuthorName ?? string.Empty;
+        _provSourceUrl = parsed.Provenance?.SourceUrl ?? string.Empty;
+        _provUrlWarning = null;
 
         _warnings.Clear();
     }
@@ -602,6 +765,92 @@
     {
         _tags.Remove(tag);
     }
+
+    // ------------------------------------------------------------------------
+    // Equipment (Phase 12 — FORMAT-02; mirrors tag handler pattern)
+    // ------------------------------------------------------------------------
+
+    private void OnEquipmentInputInput(ChangeEventArgs e) => _equipmentInput = e.Value as string ?? string.Empty;
+
+    private void OnEquipmentInputKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == ",")
+        {
+            CommitEquipment();
+        }
+        else if (e.Key == "Backspace" && string.IsNullOrEmpty(_equipmentInput) && _equipment.Count > 0)
+        {
+            _equipment.RemoveAt(_equipment.Count - 1);
+        }
+    }
+
+    private void CommitEquipment()
+    {
+        var item = (_equipmentInput ?? string.Empty).Trim().TrimEnd(',').Trim();
+        if (item.Length > 0 && !_equipment.Contains(item, StringComparer.OrdinalIgnoreCase))
+            _equipment.Add(item);
+        _equipmentInput = string.Empty;
+    }
+
+    private void RemoveEquipment(string item)
+    {
+        _equipment.Remove(item);
+    }
+
+    // ------------------------------------------------------------------------
+    // Provenance (Phase 12 — FORMAT-04; D-12-09: never AI-prefilled; D-12-15: non-blocking warning)
+    // ------------------------------------------------------------------------
+
+    private void OnProvenanceUrlBlur()
+    {
+        if (string.IsNullOrWhiteSpace(_provSourceUrl))
+        {
+            _provUrlWarning = null;
+            return;
+        }
+        var trimmed = _provSourceUrl.Trim();
+        _provUrlWarning = Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+                          uri.Scheme is "http" or "https"
+            ? null
+            : "URL must start with http:// or https://";
+    }
+
+    // ------------------------------------------------------------------------
+    // Substitutions (Phase 12 — FORMAT-01; per-ingredient sub-rows)
+    // ------------------------------------------------------------------------
+
+    private void AddSubstitution(int ingIndex)
+    {
+        if (ingIndex < 0 || ingIndex >= _ingredients.Count) return;
+        _ingredients[ingIndex].Substitutions.Add(new IngredientSubstitution { Note = string.Empty });
+    }
+
+    private void RemoveSubstitution(int ingIndex, int subIndex)
+    {
+        if (ingIndex < 0 || ingIndex >= _ingredients.Count) return;
+        var subs = _ingredients[ingIndex].Substitutions;
+        if (subIndex >= 0 && subIndex < subs.Count)
+            subs.RemoveAt(subIndex);
+    }
+
+    private void OnSubstitutionNoteInput(int ingIndex, int subIndex, ChangeEventArgs e)
+    {
+        if (ingIndex < 0 || ingIndex >= _ingredients.Count) return;
+        var subs = _ingredients[ingIndex].Substitutions;
+        if (subIndex >= 0 && subIndex < subs.Count)
+        {
+            // IngredientSubstitution is a record with required Note; create a replacement with updated Note.
+            var old = subs[subIndex];
+            subs[subIndex] = old with { Note = e.Value as string ?? string.Empty };
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Helper
+    // ------------------------------------------------------------------------
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     // ------------------------------------------------------------------------
     // Ingredient operations (ED-02 / ED-06 — preserve immutable LocalId on reorder)
@@ -802,6 +1051,19 @@
                 Tags = _tags.ToList(),
                 Ingredients = _ingredients.ToList(),
                 Steps = _steps.ToList(),
+                // Phase 12 — FLAG 3: equipment + provenance (FORMAT-02, FORMAT-04).
+                // Substitutions already ride on _ingredients[i].Substitutions (ParsedIngredient).
+                Equipment = _equipment.ToList(),
+                Provenance = (string.IsNullOrWhiteSpace(_provSourceName) &&
+                              string.IsNullOrWhiteSpace(_provAuthorName) &&
+                              string.IsNullOrWhiteSpace(_provSourceUrl))
+                    ? null
+                    : new RecipeProvenance
+                    {
+                        SourceName = NullIfEmpty(_provSourceName),
+                        AuthorName = NullIfEmpty(_provAuthorName),
+                        SourceUrl = NullIfEmpty(_provSourceUrl),
+                    },
             };
 
             if (_isEdit && _existingRecipe != null)

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -23,6 +24,10 @@ public sealed record ContentStep : StepNode
 
     [JsonPropertyName("temperature")]
     public StepTemperature? Temperature { get; init; }
+
+    [JsonPropertyName("donenessCue")]
+    [MaxLength(512)]
+    public string? DonenessCue { get; init; }
 
     /// <summary>Forward-compat: unknown step-level keys round-trip per FORMAT-09.</summary>
     [JsonExtensionData]

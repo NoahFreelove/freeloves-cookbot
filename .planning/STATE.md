@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Recipe Data & Interoperability
-status: roadmap_ready
-last_updated: "2026-06-05T00:00:00.000Z"
-last_activity: 2026-06-05
+status: phase_complete
+stopped_at: "Phase 12 COMPLETE — automated-verified (10/10 must-haves, 377 tests) + human UAT 4/4 pass (2026-06-06); verification verified. Ready to plan Phase 13."
+last_updated: "2026-06-06T00:00:00.000Z"
+last_activity: 2026-06-06
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 4
+  completed_plans: 4
+  percent: 20
 ---
 
 # Project State
@@ -21,20 +22,20 @@ See: `.planning/PROJECT.md` (updated 2026-06-05)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-**Current focus:** v1.4 roadmap created — 5 phases (12–16), 22 requirements mapped. Ready to plan Phase 12.
+**Current focus:** Phase 13 — Export & Interoperability (next to plan)
 
 ## Current Position
 
 ```
-v1.4 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 0%
+v1.4 █████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 20%
      Phase 12  Phase 13  Phase 14  Phase 15  Phase 16
-     [NEXT]    [ ]       [ ]       [ ]       [ ]
+     [✓]       [NEXT]    [ ]       [ ]       [ ]
 ```
 
-Phase: 12 (not started — roadmap approved, ready for planning)
-Plan: —
-Status: Roadmap ready
-Last activity: 2026-06-05 — v1.4 roadmap created (5 phases, 22 reqs)
+Phase: 12 (richer-format-v3-v4-schema-bump) — ✅ COMPLETE & VERIFIED (2026-06-06)
+Plan: 4 of 4 (all executed; CR-01/CR-02/CR-03 code-review fixes + regression test)
+Status: Automated verification 10/10 must-haves + 377 tests + clean build; human UAT 4/4 pass. Verification status `verified`. Phase 12 closed.
+Last activity: 2026-06-06
 
 ## Shipped milestones
 
@@ -49,7 +50,7 @@ Last activity: 2026-06-05 — v1.4 roadmap created (5 phases, 22 reqs)
 
 | Phase | Goal | Requirements | Status |
 |-------|------|--------------|--------|
-| 12. Richer Format + v3→v4 Schema Bump | Stable v4 canonical doc with substitutions, equipment, doneness cues, provenance | FORMAT-01..07 (7 reqs) | Not started |
+| 12. Richer Format + v3→v4 Schema Bump | Stable v4 canonical doc with substitutions, equipment, doneness cues, provenance | FORMAT-01..07 (7 reqs) | ✅ Complete (2026-06-06) |
 | 13. Export & Interoperability | Schema.org JSON-LD + Cooklang one-way export | INTEROP-01..04 (4 reqs) | Not started |
 | 14. Photo Gallery | RecipePhoto entity, multi-upload, gallery UI, AI search-term helper | GALLERY-01..04 (4 reqs) | Not started |
 | 15. Nutrition (Offline USDA) | Bundled FDC seed, NutritionService, per-serving panel, JSON-LD nutrition wire | NUTR-01..06 (6 reqs) | Not started |
@@ -121,8 +122,8 @@ Phase 12–15         → Phase 16 (UAT + integration)
 
 ## Session Continuity
 
-Last session: 2026-06-05
-Stopped at: Roadmap created (all 3 planning files written)
+Last session: 2026-06-06 (resumed)
+Stopped at: Phase 12 fully verified — human UAT 4/4 pass (editor round-trip, RecipeView display, javascript: defang, substitution non-scaling). ROADMAP + STATE marked complete. Phase 12 closed.
 Resume file: None
 
-**Next:** `/gsd-plan-phase 12` — Phase 12: Richer Format + v3→v4 Schema Bump
+**Next:** Plan Phase 13 — Export & Interoperability (Schema.org JSON-LD in RecipeView + Cooklang one-way `.cook` export; INTEROP-01..04). No CONTEXT.md yet — discuss-phase optional. Note: `/gsd:secure-phase 12` never run (no SECURITY.md anywhere in project history; trusted-LAN posture; the one security item D-12-08 javascript: defang was human-verified).

@@ -141,6 +141,8 @@ public class RecipeFormatParser : IRecipeFormatParser
             PhotoUrl = recipe.PhotoUrl,
             Description = recipe.Description,
             Tags = recipe.Tags.Any() ? recipe.Tags : null,
+            Equipment = recipe.Equipment.Any() ? recipe.Equipment : null,
+            Provenance = recipe.Provenance,
             Ingredients = recipe.Ingredients.Select(i => new IngredientFrontmatter
             {
                 Id = i.LocalId,
@@ -148,6 +150,15 @@ public class RecipeFormatParser : IRecipeFormatParser
                 Amount = i.Amount,
                 Unit = i.Unit,
                 Note = i.Note,
+                Substitutions = i.Substitutions.Any()
+                    ? i.Substitutions.Select(s => new SubstitutionFrontmatter
+                    {
+                        Note = s.Note,
+                        Name = s.Name,
+                        Amount = s.Amount,
+                        Unit = s.Unit,
+                    }).ToList()
+                    : null,
             }).ToList(),
             Steps = recipe.Steps.Select(s => s.IsSection
                 ? new StepFrontmatter { Section = s.Text }
@@ -167,6 +178,7 @@ public class RecipeFormatParser : IRecipeFormatParser
                         Value = s.Temperature.Value,
                         Unit = s.Temperature.Unit.ToString().ToLowerInvariant(),
                     },
+                    DonenessCue = s.DonenessCue,
                 }
             ).ToList(),
         };
@@ -265,6 +277,8 @@ public class RecipeFormatParser : IRecipeFormatParser
         PhotoUrl = doc.PhotoUrl,
         Description = doc.Description,
         Tags = doc.Tags.ToList(),
+        Equipment = doc.Equipment.ToList(),
+        Provenance = doc.Provenance,
         Ingredients = doc.Ingredients.Select(i => new ParsedIngredient
         {
             LocalId = i.Id,
@@ -272,6 +286,7 @@ public class RecipeFormatParser : IRecipeFormatParser
             Amount = i.Amount,
             Unit = i.Unit,
             Note = i.Note,
+            Substitutions = i.Substitutions.ToList(),
         }).ToList(),
         Steps = doc.Steps.Select(s => s switch
         {
@@ -286,6 +301,7 @@ public class RecipeFormatParser : IRecipeFormatParser
                     Label = t.Label,
                 }).ToList(),
                 Temperature = c.Temperature,
+                DonenessCue = c.DonenessCue,
             },
             SectionStep sec => new ParsedStep
             {
@@ -308,6 +324,8 @@ public class RecipeFormatParser : IRecipeFormatParser
         public string? PhotoUrl { get; set; }
         public string? Description { get; set; }
         public List<string>? Tags { get; set; }
+        public List<string>? Equipment { get; set; }
+        public RecipeProvenance? Provenance { get; set; }
         public List<IngredientFrontmatter>? Ingredients { get; set; }
         public List<StepFrontmatter>? Steps { get; set; }
     }
@@ -319,6 +337,7 @@ public class RecipeFormatParser : IRecipeFormatParser
         public double Amount { get; set; }
         public string? Unit { get; set; }
         public string? Note { get; set; }
+        public List<SubstitutionFrontmatter>? Substitutions { get; set; }
     }
 
     private class StepFrontmatter
@@ -327,6 +346,7 @@ public class RecipeFormatParser : IRecipeFormatParser
         public string? Section { get; set; }
         public List<TimerFrontmatter>? Timers { get; set; }
         public TemperatureFrontmatter? Temperature { get; set; }
+        public string? DonenessCue { get; set; }
     }
 
     private class TimerFrontmatter
@@ -339,6 +359,16 @@ public class RecipeFormatParser : IRecipeFormatParser
     private class TemperatureFrontmatter
     {
         public decimal Value { get; set; }
+        public string? Unit { get; set; }
+    }
+
+    private class SubstitutionFrontmatter
+    {
+        // CR-03: non-nullable to match the domain invariant (IngredientSubstitution.Note is required string).
+        // A missing/null `note` key in YAML deserializes to string.Empty instead of null.
+        public string Note { get; set; } = string.Empty;
+        public string? Name { get; set; }
+        public double? Amount { get; set; }
         public string? Unit { get; set; }
     }
 }

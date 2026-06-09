@@ -13,6 +13,10 @@ public class ParsedRecipe
     public List<string> Tags { get; set; } = new();
     public List<ParsedIngredient> Ingredients { get; set; } = new();
     public List<ParsedStep> Steps { get; set; } = new();
+    /// <summary>Equipment / tools list (FORMAT-02). Mutable for editor; never null.</summary>
+    public List<string> Equipment { get; set; } = new();
+    /// <summary>Source / provenance metadata (FORMAT-04). Reuses Domain record directly (no ParsedProvenance parallel).</summary>
+    public RecipeProvenance? Provenance { get; set; }
 }
 
 public class ParsedStep
@@ -21,6 +25,8 @@ public class ParsedStep
     public bool IsSection { get; set; }
     public List<ParsedTimer>? Timers { get; set; }
     public StepTemperature? Temperature { get; set; }
+    /// <summary>Per-step doneness cue (FORMAT-03). Follows the Temperature nullable pattern.</summary>
+    public string? DonenessCue { get; set; }
 }
 
 public class ParsedTimer
@@ -37,6 +43,8 @@ public class ParsedIngredient
     public double Amount { get; set; }
     public string Unit { get; set; } = string.Empty;
     public string? Note { get; set; }
+    /// <summary>Per-ingredient substitution options (FORMAT-01). Mutable for editor; never null.</summary>
+    public List<IngredientSubstitution> Substitutions { get; set; } = new();
 }
 
 public interface IRecipeFormatParser

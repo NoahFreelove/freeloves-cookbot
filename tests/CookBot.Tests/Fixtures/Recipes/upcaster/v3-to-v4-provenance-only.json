@@ -1,0 +1,14 @@
+{
+  "version": 3,
+  "name": "Pizza Margherita",
+  "servings": 2,
+  "provenance": { "sourceName": "Bon Appétit", "authorName": "Sarah Jampel", "sourceUrl": "https://example.com/pizza" },
+  "tags": ["italian"],
+  "ingredients": [
+    { "id": 1, "name": "Pizza dough", "amount": 1, "unit": "ball" }
+  ],
+  "steps": [
+    { "kind": "content", "text": "Bake [pizza dough](#1).",
+      "temperature": { "value": 250, "unit": "C" } }
+  ]
+}

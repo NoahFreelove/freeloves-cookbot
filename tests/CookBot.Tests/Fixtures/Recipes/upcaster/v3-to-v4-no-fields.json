@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "name": "Simple Bread",
+  "servings": 1,
+  "tags": [],
+  "ingredients": [
+    { "id": 1, "name": "Flour", "amount": 500, "unit": "g" }
+  ],
+  "steps": [
+    { "kind": "content", "text": "Mix [flour](#1) with water." },
+    { "kind": "section", "heading": "Baking" }
+  ]
+}

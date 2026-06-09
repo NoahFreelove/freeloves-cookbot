@@ -11,7 +11,7 @@ namespace CookBot.Application.Recipes;
 public sealed class RecipeUpcasterChain
 {
     /// <summary>Latest <see cref="Domain.Recipes.RecipeDocument.Version"/> the app understands.</summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     private readonly IReadOnlyList<IRecipeUpcaster> _upcasters;
 
