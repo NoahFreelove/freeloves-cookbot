@@ -55,6 +55,7 @@ Project reference chain: `Web → Infrastructure → Application → Domain`. Th
 - Purpose: Use-case-style services and pure-logic helpers. Knows about `IRepository<T>` and `IAiService` but never about EF or HTTP.
 - Contains:
   - `Services/` — 16 service classes/static helpers (see ARCHITECTURE.md for the catalog). Includes the canonical `RecipeFormatParser.cs` and the AI prompt machinery (`PromptBuilderService.cs`, `RecipeCookingAiContext.cs`, `PantryAiPopulationService.cs`).
+  - `Recipes/` — Pure projectors and formatters over `RecipeDocument`: `JsonRecipeSerializer.cs`, `RecipeUpcasterChain.cs`, `JsonLdRecipeProjector.cs` (Phase 13 — Schema.org Recipe JSON-LD), `CooklangRecipeProjector.cs` (Phase 13 — Cooklang .cook export), `Iso8601DurationFormatter.cs` (Phase 13 — PT#H#M formatter), upcaster migrations, schema validation helpers.
   - `DTOs/CookBotSettings.cs` — host config bound from `"CookBot"` JSON section.
   - `DTOs/CookbookTransferDtos.cs` — portable cookbook export schema (`SchemaVersion = 1`).
   - `DependencyInjection.cs` — `IServiceCollection.AddApplication()`.

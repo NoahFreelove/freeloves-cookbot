@@ -37,6 +37,7 @@ import { runTest5 } from './tests/test5-reparenting.mjs';
 import { runTest7 } from './tests/test7-responsive.mjs';
 import { runTest4 } from './tests/test4-validation-fail.mjs';
 import { runConversionTest } from './tests/test-conversion.mjs';
+import { runJsonLdPrerender } from './tests/test-jsonld-prerender.mjs';
 
 // ── Chromium launch configuration ───────────────────────────────────────────
 // System snap chromium verified working: smoke test (2026-06-05) confirmed
@@ -119,6 +120,11 @@ try {
   // 8. Run Test 4 — Validation-fail fallback (deferred/skip)
   const t4 = await runTest4();
   results.push({ name: 'UAT Test 4', ...t4 });
+
+  // 9. Run the JSON-LD prerender assertion (INTEROP-01) — plain fetch against /recipes/1;
+  //    no Playwright page needed (asserts the RAW initial HTTP response, not post-hydration DOM).
+  const tj = await runJsonLdPrerender({ recipeId: 1 });
+  results.push({ name: 'UAT JSON-LD Prerender (INTEROP-01)', ...tj });
 
   await browser.close();
 

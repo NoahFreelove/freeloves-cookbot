@@ -25,10 +25,10 @@ User decisions (2026-06-05):
 
 ### Export & Interoperability (INTEROP) — read-only projections
 
-- [ ] **INTEROP-01**: A recipe page emits valid Schema.org `Recipe` JSON-LD (`<script type="application/ld+json">` in server-rendered HeadContent) passing Google Rich Results structural rules.
-- [ ] **INTEROP-02**: JSON-LD includes `name` + `image` (required) plus recommended fields mapped from the canonical doc; durations are ISO-8601 (`PT30M`); `image` is omitted (not relative) when no absolute HTTPS URL is available; `recipeCategory`/`recipeCuisine` are derived from existing tags; `aggregateRating` is never fabricated.
-- [ ] **INTEROP-03**: A user can export a single recipe to Cooklang (`.cook`) text, with ingredient chip refs mapped to `@name{amount%unit}`, cookware to `#items`, timers to `~{n%unit}`, sections to `== Section ==`; doneness/substitutions/temperature emitted as `--` comments.
-- [ ] **INTEROP-04**: The Cooklang export action is labeled **export-only** (no re-import implied); special characters (`@`, `#`, `~`) in step text are escaped/sanitized before emission.
+- [x] **INTEROP-01**: A recipe page emits valid Schema.org `Recipe` JSON-LD (`<script type="application/ld+json">` in server-rendered HeadContent) passing Google Rich Results structural rules.
+- [x] **INTEROP-02**: JSON-LD includes `name` + `image` (required) plus recommended fields mapped from the canonical doc; durations are ISO-8601 (`PT30M`); `image` is omitted (not relative) when no absolute HTTPS URL is available; `recipeCategory`/`recipeCuisine` are derived from existing tags; `aggregateRating` is never fabricated.
+- [x] **INTEROP-03**: A user can export a single recipe to Cooklang (`.cook`) text, with ingredient chip refs mapped to `@name{amount%unit}`, cookware to `#items`, timers to `~{n%unit}`, sections to `== Section ==`; doneness/substitutions/temperature emitted as `--` comments. _(Phase 13 clarification: the canonical `RecipeDocument` has only recipe-level `Equipment[]` with no inline/step-scoped cookware, and Cooklang's `#cookware` is an inline-in-step token — so recipe-level equipment exports as `>>`/`--` metadata rather than inline `#items`, to avoid fabricating step-scoping the model lacks.)_
+- [x] **INTEROP-04**: The Cooklang export action is labeled **export-only** (no re-import implied); special characters (`@`, `#`, `~`) in step text are escaped/sanitized before emission.
 
 ### Nutrition (NUTR) — offline USDA FoodData Central
 
@@ -81,10 +81,10 @@ User decisions (2026-06-05):
 | FORMAT-05 | Phase 12 | Complete |
 | FORMAT-06 | Phase 12 | Complete |
 | FORMAT-07 | Phase 12 | Complete |
-| INTEROP-01 | Phase 13 | Pending |
-| INTEROP-02 | Phase 13 | Pending |
-| INTEROP-03 | Phase 13 | Pending |
-| INTEROP-04 | Phase 13 | Pending |
+| INTEROP-01 | Phase 13 | Complete |
+| INTEROP-02 | Phase 13 | Complete |
+| INTEROP-03 | Phase 13 | Complete |
+| INTEROP-04 | Phase 13 | Complete |
 | GALLERY-01 | Phase 14 | Pending |
 | GALLERY-02 | Phase 14 | Pending |
 | GALLERY-03 | Phase 14 | Pending |

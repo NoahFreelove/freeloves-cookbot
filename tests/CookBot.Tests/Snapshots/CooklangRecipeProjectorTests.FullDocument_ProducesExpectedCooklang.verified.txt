@@ -1,0 +1,26 @@
+﻿>> servings: 8
+>> prep time: 20 min
+>> cook time: 60 min
+>> source: Family Cookbook, Grandma Rose, https://example.com/recipes/pound-cake
+-- Equipment: stand mixer
+-- Equipment: bundt pan
+
+== Cream Butter ==
+Beat butter and sugar together until light and fluffy.
+-- 72°F
+-- pale and fluffy
+== Combine ==
+Add eggs one at a time, then vanilla extract.
+Fold in all-purpose flour gradually. ~mix{2%min}
+== Bake ==
+Pour into prepared bundt pan and bake. ~{60%min}
+-- 350°F
+-- toothpick comes out clean
+
+@all-purpose flour{2%cups}
+@butter{1%cup}
+@sugar{1 1/2%cups}
+@eggs{4}
+@vanilla extract{1/2%tsp}
+
+-- Substitution (butter): dairy-free option

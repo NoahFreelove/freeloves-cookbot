@@ -6,6 +6,7 @@
 @using CookBot.Domain.Recipes
 @using CookBot.Infrastructure.Data
 @using CookBot.Web.Components.Atoms
+@using CookBot.Web.Services
 @inject CookBot.Infrastructure.Data.CookBotDbContext DbContext
 @inject CurrentUserService UserService
 @inject JsonRecipeSerializer RecipeSerializer
@@ -37,6 +38,22 @@
         from the design hides when no description is available. *@
 
 <PageTitle>CookBot - @(_doc?.Name ?? _recipe?.Name ?? "Recipe")</PageTitle>
+
+@* INTEROP-01 — Prerender JSON-LD (trusted-LAN: emitted for every recipe whose doc is
+   available at prerender time). Loaded in OnParametersSetAsync (prerender-safe, no JS interop).
+   TODO(AuthMode): gate prerendered JSON-LD per-user once server-side auth lands. *@
+@if (_jsonLd is not null)
+{
+    <HeadContent>
+        @* Emit the whole <script> tag as one raw MarkupString. Rendering it as a Razor
+           element routes the type attribute through HtmlEncoder.Default, which encodes
+           '+' → '&#x2B;' (type="application/ld&#x2B;json") — spec-decodable but non-standard,
+           and it breaks literal "application/ld+json" matching (uat-harness, naive validators).
+           _jsonLd is already HTML-safe-encoded by the projector (< > & → \u00xx), so there is
+           no </script> breakout risk in the raw payload. *@
+        @((MarkupString)("<script type=\"application/ld+json\">" + _jsonLd + "</script>"))
+    </HeadContent>
+}
 
 <UserGuard>
 @if (_doc != null && _recipe != null)
@@ -338,6 +355,11 @@ else if (_loaded)
             <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Pencil" OnClick="EditRecipe">Edit</CbButton>
             <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Share" OnClick="OpenShareDialog">Share</CbButton>
             <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Clock" OnClick="OpenScheduleDialog">Schedule</CbButton>
+            @* INTEROP-03/04 — Cooklang one-way export. "Export only · one-way" title conveys
+               no re-import path exists (INTEROP-04 SC3). Download via existing cookBotDownloadFile JS helper. *@
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Download"
+                      OnClick="ExportCooklang"
+                      title="Export only · one-way (no re-import)">Export as .cook</CbButton>
             <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Flame" OnClick="StartCooking">Cook this</CbButton>
         </text>;
         // D-57 (revised by 999.1): SetRightSlot stamps the current URL; CbTopBarService's
@@ -351,6 +373,10 @@ else if (_loaded)
 
     private CookBot.Domain.Entities.Recipe? _recipe;
     private RecipeDocument? _doc;
+    // INTEROP-01 — prerender JSON-LD projection; populated in OnParametersSetAsync
+    // (prerender-safe, no JS interop). Null when the recipe id does not exist or
+    // deserialization fails.
+    private string? _jsonLd;
     private bool _loaded;
     private int _targetServings = 1;
 
@@ -402,6 +428,7 @@ else if (_loaded)
             _initialized = false;
             _recipe = null;
             _doc = null;
+            _jsonLd = null;
             _loaded = false;
             _targetServings = 1;
             // PHOTO-10 / PITFALL H4 — reset the photo-failure flag for the new recipe so
@@ -412,6 +439,86 @@ else if (_loaded)
             // Phase 12 — reset provenance URL and equipment state for the new recipe.
             _validatedSourceUrl = null;
             _checkedEquipment.Clear();
+
+            // INTEROP-01 — prerender-safe DB read + JSON-LD projection.
+            // This runs in OnParametersSetAsync (no JS interop) so the JSON-LD block
+            // is available in the INITIAL HTTP response (prerender pass).
+            //
+            // Trusted-LAN prerender posture: at prerender time, CurrentUserService.CurrentUserId
+            // resolves to the default "Home Chef"/first user (MainLayout only restores the real
+            // user from sessionStorage in OnAfterRenderAsync). A per-user UserCanAccessRecipeAsync
+            // check here would authorize as the WRONG user and is meaningless under the current
+            // trusted-LAN posture (CLAUDE.md: "AuthMode flag reserved for future use").
+            // Therefore the prerender JSON-LD load is NOT gated on UserCanAccessRecipeAsync.
+            // TODO(AuthMode): gate prerendered JSON-LD per-user once server-side auth lands.
+            await LoadRecipeDocumentForPrerenderAsync();
+        }
+    }
+
+    /// <summary>
+    /// Prerender-safe DB read: loads the canonical RecipeDocument for JSON-LD projection.
+    /// Only EF Core reads — no JS interop. Called from OnParametersSetAsync so the JSON-LD
+    /// block is in the INITIAL HTTP response (INTEROP-01 gating fix).
+    /// Does NOT gate on UserCanAccessRecipeAsync (trusted-LAN posture; see TODO(AuthMode)).
+    /// </summary>
+    private async Task LoadRecipeDocumentForPrerenderAsync()
+    {
+        try
+        {
+            var entity = await DbContext.Recipes
+                .Include(r => r.Cookbook)
+                .FirstOrDefaultAsync(r => r.Id == RecipeId);
+
+            if (entity is not { CanonicalDocumentJson: { Length: > 0 } json })
+                return;
+
+            RecipeDocument? doc;
+            try
+            {
+                doc = RecipeSerializer.Deserialize(json);
+            }
+            catch (JsonException)
+            {
+                return; // malformed canonical JSON — no JSON-LD
+            }
+
+            if (doc is null) return;
+
+            // INTEROP-02 — resolve the absolute-HTTPS image URL at the Web layer.
+            // Only an absolute https:// URL is accepted; relative/http/local → null (image omitted).
+            string? absoluteImageUrl = null;
+            if (!string.IsNullOrWhiteSpace(doc.PhotoUrl))
+            {
+                if (UrlValidator.TryValidate(doc.PhotoUrl, out var normalized, out _) && normalized != null)
+                {
+                    // Accept only absolute https URLs; http or relative → omit (D4 / §Pattern 4).
+                    if (normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        absoluteImageUrl = normalized;
+                }
+                else
+                {
+                    // Try composing with BaseUri when PhotoUrl is relative.
+                    try
+                    {
+                        var baseUri = new Uri(Navigation.BaseUri);
+                        if (baseUri.Scheme == "https")
+                        {
+                            var composed = new Uri(baseUri, doc.PhotoUrl);
+                            if (composed.Scheme == "https")
+                                absoluteImageUrl = composed.AbsoluteUri;
+                        }
+                    }
+                    catch (UriFormatException) { /* invalid relative path — omit */ }
+                }
+            }
+
+            _jsonLd = JsonLdRecipeProjector.Project(doc, absoluteImageUrl);
+        }
+        catch (Exception)
+        {
+            // Best-effort: if the prerender load fails for any reason, _jsonLd stays null.
+            // The interactive OnAfterRenderAsync path will populate _doc and _recipe normally.
+            _jsonLd = null;
         }
     }
 
@@ -596,6 +703,19 @@ else if (_loaded)
         var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true, CloseOnEscape: true);
         await CbDialogService.ShowAsync<CookBot.Web.Components.Dialogs.ScheduleRecipeDialog>(
             $"Schedule \"{_doc?.Name ?? _recipe.Name}\"", parameters, options);
+    }
+
+    // INTEROP-03/04 — Cooklang one-way export.
+    // Projects _doc via CooklangRecipeProjector and downloads via the existing cookBotDownloadFile
+    // JS blob helper. No new endpoint, no new JS. "Export only · one-way" — no re-import path.
+    private async Task ExportCooklang()
+    {
+        if (_doc is null) return;
+        var cook = CooklangRecipeProjector.Project(_doc);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(cook);
+        var stem = CookbookDownloadHelper.SafeFileStem(_doc.Name);
+        await JS.InvokeVoidAsync("cookBotDownloadFile", $"{stem}.cook", "text/plain",
+            Convert.ToBase64String(bytes));
     }
 
     // Phase 12 — Equipment checklist toggle (UI-SPEC §1; ephemeral, never persisted).

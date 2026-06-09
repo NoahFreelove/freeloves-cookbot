@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Recipe Data & Interoperability
-status: phase_complete
-stopped_at: "Phase 12 COMPLETE — automated-verified (10/10 must-haves, 377 tests) + human UAT 4/4 pass (2026-06-06); verification verified. Ready to plan Phase 13."
-last_updated: "2026-06-06T00:00:00.000Z"
+status: ready_to_plan
+stopped_at: Phase 13 complete (3/3) — ready to discuss Phase 999.1
+last_updated: 2026-06-06T23:42:57.267Z
 last_activity: 2026-06-06
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 20
+  total_plans: 7
+  completed_plans: 62
+  percent: 17
 ---
 
 # Project State
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-05)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-**Current focus:** Phase 13 — Export & Interoperability (next to plan)
+**Current focus:** Phase 999.1 — recipeview cook button navigation race
 
 ## Current Position
 
@@ -32,9 +32,9 @@ v1.4 █████████░░░░░░░░░░░░░░░░
      [✓]       [NEXT]    [ ]       [ ]       [ ]
 ```
 
-Phase: 12 (richer-format-v3-v4-schema-bump) — ✅ COMPLETE & VERIFIED (2026-06-06)
-Plan: 4 of 4 (all executed; CR-01/CR-02/CR-03 code-review fixes + regression test)
-Status: Automated verification 10/10 must-haves + 377 tests + clean build; human UAT 4/4 pass. Verification status `verified`. Phase 12 closed.
+Phase: 999.1
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-06
 
 ## Shipped milestones
@@ -122,8 +122,8 @@ Phase 12–15         → Phase 16 (UAT + integration)
 
 ## Session Continuity
 
-Last session: 2026-06-06 (resumed)
-Stopped at: Phase 12 fully verified — human UAT 4/4 pass (editor round-trip, RecipeView display, javascript: defang, substitution non-scaling). ROADMAP + STATE marked complete. Phase 12 closed.
+Last session: 2026-06-06T21:58:02.147Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
 
 **Next:** Plan Phase 13 — Export & Interoperability (Schema.org JSON-LD in RecipeView + Cooklang one-way `.cook` export; INTEROP-01..04). No CONTEXT.md yet — discuss-phase optional. Note: `/gsd:secure-phase 12` never run (no SECURITY.md anywhere in project history; trusted-LAN posture; the one security item D-12-08 javascript: defang was human-verified).

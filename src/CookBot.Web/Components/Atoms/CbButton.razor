@@ -5,7 +5,8 @@
    Variants: Primary (cocoa fill, default), Accent (orange), Ghost (transparent + border), Subtle.
    StartIcon / EndIcon accept icon-name strings and resolve through <Icon> (Plan 05-01). *@
 
-<button type="@Type"
+<button @attributes="AdditionalAttributes"
+        type="@Type"
         class="@ClassAttr"
         style="@StyleAttr"
         disabled="@Disabled"
@@ -33,6 +34,13 @@
     [Parameter] public EventCallback OnClick { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string? Style { get; set; }
+
+    // Forward unmatched HTML attributes (title, aria-*, data-*, etc.) onto the
+    // underlying <button>. Without this, passing any attribute the component does
+    // not explicitly declare throws InvalidOperationException at render time
+    // (e.g. RecipeView's "Export as .cook" title tooltip — INTEROP-04). Additive
+    // and backward-compatible: existing callers pass no extra attributes.
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
 
     private string ClassAttr => Variant switch
     {
