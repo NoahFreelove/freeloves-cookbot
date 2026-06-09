@@ -26,6 +26,12 @@ public class CookBotSettings
     public int DatabaseBackupRetention { get; set; } = 3;
 
     /// <summary>
+    /// Maximum number of photos per recipe. Default 10 (D-14-04-cap).
+    /// Effective range: clamped to [1, 20] at runtime by <c>RecipePhotoService</c>.
+    /// </summary>
+    public int MaxPhotosPerRecipe { get; set; } = 10;
+
+    /// <summary>
     /// Phase 9 / Plan 09-05 / PROD-16 — operator-editable per-model pricing matrix used
     /// to compute <c>AiUsageLog.EstimatedCostUsd</c>. Keys are <c>CuratedModels</c> ids
     /// (claude-haiku-4-5-20251001 / claude-sonnet-4-6 / claude-opus-4-7). Null when the

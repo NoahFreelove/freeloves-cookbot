@@ -25,6 +25,9 @@ public static class DependencyInjection
         services.AddSingleton<RecipeValidator>();
         // Phase 9 / Plan 09-01 / PHOTO-07 — scheme-allowlist validator for paste-URLs and AI-emitted PhotoUrl.
         services.AddSingleton<RecipePhotoUrlValidator>();
+        // Phase 14 / Plan 14-02 / GALLERY-04 / D-14-10 — HEAD-with-405→ranged-GET image URL validator.
+        // Stateless (no DI deps) → Singleton. Caller must run RecipePhotoUrlValidator (step 1) first.
+        services.AddSingleton<PhotoUrlHeadValidator>();
         services.AddSingleton<JsonRecipeSerializer>();
         services.AddSingleton<IRecipeUpcaster, Migration_V1_To_V2>();
         services.AddSingleton<IRecipeUpcaster, Migration_V2_To_V3>();

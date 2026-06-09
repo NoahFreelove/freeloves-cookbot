@@ -49,7 +49,7 @@ Full details: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [req
 
 - [x] **Phase 12: Richer Format + v3→v4 Schema Bump** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance; upcaster chain to v4; AI prompt + snapshot test (4/4 plans; automated-verified 10/10 + 377 tests; human UAT 4/4 pass) — completed 2026-06-06
 - [x] **Phase 13: Export & Interoperability** — Schema.org JSON-LD in RecipeView head; Cooklang (.cook) one-way export; depends on Phase 12 (completed 2026-06-06)
-- [ ] **Phase 14: Photo Gallery** — RecipePhoto entity + multi-upload + gallery UI + AI search-term helper; depends on Phase 12
+- [x] **Phase 14: Photo Gallery** — RecipePhoto entity + multi-upload + gallery UI + AI search-term helper; depends on Phase 12 (completed 2026-06-07)
 - [ ] **Phase 15: Nutrition (Offline USDA)** — bundled FDC seed, NutritionService, per-serving panel with coverage indicator + disclaimer; nutrition wired into JSON-LD; depends on Phases 12–14
 - [ ] **Phase 16: UAT + Integration** — Playwright harness extended for v1.4 flows + cross-theme integration verification
 
@@ -112,7 +112,21 @@ Plans:
   3. Deleting a photo or recipe removes the corresponding file from `wwwroot/uploads/` — no orphaned files accumulate in the Docker volume; external paste-URL photos leave no local file to clean
   4. The AI photo helper suggests search terms (text only) — the AI never emits or auto-embeds an image URL; a copyright disclaimer is visible on every photo input surface; the user's pasted URL is HEAD-validated before persist
 
-**Plans**: TBD
+**Plans**: 4 plans (3 waves)
+Plans:
+**Wave 1** *(foundation, parallel — no file overlap)*
+
+- [x] 14-01-PLAN.md — RecipePhoto entity + EF config + migration with GALLERY-01 backfill + MaxPhotosPerRecipe setting + backfill/cascade test (GALLERY-01)
+- [x] 14-02-PLAN.md — PhotoUrlHeadValidator (HEAD + 405→ranged-GET image-URL gate) + DI + unit tests (GALLERY-04 HEAD path)
+
+**Wave 2** *(services, blocked on Wave 1)*
+
+- [x] 14-03-PLAN.md — RecipePhotoService (add/reorder/caption/set-primary/delete + one-primary + cap + ownership) + RecipeService PhotoUrl re-sync + DeleteAsync file cleanup + LocalRecipePhotoStorage.DeletePhysicalFile + service tests (GALLERY-02, GALLERY-03)
+
+**Wave 3** *(UI, blocked on Wave 2, checkpoint)*
+
+- [x] 14-04-PLAN.md — RecipePhotoGalleryManager (sequential upload, reorder, caption, set-hero, delete, paste-URL HEAD, gated AI helper, disclaimer) + RecipeView gallery strip + human-verify checkpoint (GALLERY-02, GALLERY-03, GALLERY-04)
+
 **UI hint**: yes
 
 ### Phase 15: Nutrition (Offline USDA)
@@ -161,7 +175,7 @@ Plans:
 | 11. v1.3 UAT Cleanup & Automated UAT Harness | v1.3 | 5/5 | Complete | 2026-06-05 |
 | 12. Richer Format + v3→v4 Schema Bump | v1.4 | 4/4 | Needs UAT (automated-verified) | — |
 | 13. Export & Interoperability | v1.4 | 3/3 | Complete    | 2026-06-06 |
-| 14. Photo Gallery | v1.4 | 0/TBD | Not started | — |
+| 14. Photo Gallery | v1.4 | 4/4 | Complete   | 2026-06-07 |
 | 15. Nutrition (Offline USDA) | v1.4 | 0/TBD | Not started | — |
 | 16. UAT + Integration | v1.4 | 0/TBD | Not started | — |
 

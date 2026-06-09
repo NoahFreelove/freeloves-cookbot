@@ -1,3 +1,4 @@
+using CookBot.Application.Services;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace CookBot.Web.Services;
@@ -32,7 +33,7 @@ namespace CookBot.Web.Services;
 /// <see cref="InvalidImageException"/>.
 /// </para>
 /// </remarks>
-public sealed class LocalRecipePhotoStorage
+public sealed class LocalRecipePhotoStorage : IRecipePhotoFileStorage
 {
     // PHOTO-03 — per-file ceiling. Three server-side limits in Program.cs are 12 MB
     // to leave headroom above this 10 MB cap (so a 10 MB file doesn't trip an outer
@@ -106,6 +107,26 @@ public sealed class LocalRecipePhotoStorage
             safeName, file.Size, ext);
 
         return $"/uploads/{safeName}";
+    }
+
+    /// <summary>
+    /// Deletes the physical file for a local <c>/uploads/{guid}.ext</c> URL.
+    /// No-op if the file does not exist (missing-file deletes are non-fatal — log and continue).
+    /// Throws <see cref="InvalidOperationException"/> on path-traversal attempt (PITFALL H2).
+    /// </summary>
+    /// <param name="url">A local URL like <c>/uploads/{guid}.ext</c>.</param>
+    public void DeletePhysicalFile(string url)
+    {
+        // Extract filename only — prevents traversal via url path segments
+        var fileName = Path.GetFileName(url);
+        var fullPath = Path.Combine(_uploadsDir, fileName);
+        AssertPathInsideUploadsDirectory(fullPath); // PITFALL H2 guard
+        if (File.Exists(fullPath))
+        {
+            File.Delete(fullPath);
+            _logger.LogInformation("Deleted photo file {FileName}", fileName);
+        }
+        // Missing file is intentionally non-fatal — caller logs if needed
     }
 
     /// <summary>

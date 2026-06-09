@@ -73,17 +73,26 @@
 <div style="max-width:1180px;margin:0 auto;padding:32px 32px 80px;display:grid;grid-template-columns:1fr 320px;gap:32px;">
     @* === Main column === *@
     <div>
-        @* Phase 9 / Plan 09-02 / D-38 — Photo composite at TOP of the editor.
-           Both inputs (paste-URL + upload) always visible inside the composite.
-           Wraps the cb-card in drag-cancel handlers so a stray drag-and-drop
-           on the surrounding margin cannot navigate the page away (legacy
-           PITFALL: dropping a URL on the editor used to wipe unsaved state). *@
+        @* Phase 14 / Plan 14-04 / GALLERY-02 — Multi-photo gallery manager replaces RecipePhotoComposite.
+           Immediate-persist model: mutations go directly through RecipePhotoService + SyncPrimaryPhotoUrlAsync.
+           Drag-cancel handlers kept on the wrapper to prevent stray drops from navigating away. *@
         <div @ondragover:preventDefault
              @ondragover:stopPropagation
              @ondrop:preventDefault
              @ondrop:stopPropagation>
-            <RecipePhotoComposite PhotoUrl="@_photoUrl"
-                                  PhotoUrlChanged="OnPhotoUrlChanged" />
+            @if (_isEdit && _existingRecipe != null && UserService.CurrentUserId.HasValue)
+            {
+                <RecipePhotoGalleryManager RecipeId="@_existingRecipe.Id"
+                                           UserId="@UserService.CurrentUserId.Value" />
+            }
+            @* For new recipes: gallery is not available until first save creates the recipe row.
+               A minimal upload affordance (the old composite) is shown so users can still set a photo URL.
+               The composite is hidden once _isEdit is true (gallery takes over). *@
+            @if (!_isEdit)
+            {
+                <RecipePhotoComposite PhotoUrl="@_photoUrl"
+                                      PhotoUrlChanged="OnPhotoUrlChanged" />
+            }
         </div>
 
         @* Title (ED-01) — borderless, design tokens *@
@@ -1068,6 +1077,15 @@
 
             if (_isEdit && _existingRecipe != null)
             {
+                // Phase 14 / Plan 14-04 — For edit mode, refresh _photoUrl from the DB so
+                // RecipeService.UpdateAsync does not overwrite the value that SyncPrimaryPhotoUrlAsync
+                // has already kept in sync via gallery mutations (D-14-01 / P15).
+                var freshPhotoUrl = await DbContext.Recipes
+                    .Where(r => r.Id == _existingRecipe.Id)
+                    .Select(r => r.PhotoUrl)
+                    .FirstOrDefaultAsync();
+                parsed.PhotoUrl = freshPhotoUrl;
+
                 // Phase 10 / Plan 10-10 / POLISH-01 — capture original CookbookId before save
                 // so we can detect a reparent and navigate to the recipe view on success.
                 var originalCookbookId = _existingRecipe.CookbookId;

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Recipe Data & Interoperability
-status: ready_to_plan
-stopped_at: Phase 13 complete (3/3) — ready to discuss Phase 999.1
-last_updated: 2026-06-06T23:42:57.267Z
-last_activity: 2026-06-06
+status: verifying
+stopped_at: Phase 14 UI-SPEC approved
+last_updated: "2026-06-07T13:20:23.566Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 7
-  completed_plans: 62
-  percent: 17
+  completed_phases: 3
+  total_plans: 11
+  completed_plans: 11
+  percent: 50
 ---
 
 # Project State
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-05)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-**Current focus:** Phase 999.1 — recipeview cook button navigation race
+**Current focus:** Phase 14 — Photo Gallery
 
 ## Current Position
 
@@ -32,10 +32,10 @@ v1.4 █████████░░░░░░░░░░░░░░░░
      [✓]       [NEXT]    [ ]       [ ]       [ ]
 ```
 
-Phase: 999.1
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-06
+Phase: 14 (Photo Gallery) — EXECUTING
+Plan: 4 of 4
+Status: Phase complete — ready for verification
+Last activity: 2026-06-07
 
 ## Shipped milestones
 
@@ -122,8 +122,8 @@ Phase 12–15         → Phase 16 (UAT + integration)
 
 ## Session Continuity
 
-Last session: 2026-06-06T21:58:02.147Z
-Stopped at: Completed 13-02-PLAN.md
+Last session: 2026-06-07T13:20:23.559Z
+Stopped at: Phase 14 UI-SPEC approved
 Resume file: None
 
 **Next:** Plan Phase 13 — Export & Interoperability (Schema.org JSON-LD in RecipeView + Cooklang one-way `.cook` export; INTEROP-01..04). No CONTEXT.md yet — discuss-phase optional. Note: `/gsd:secure-phase 12` never run (no SECURITY.md anywhere in project history; trusted-LAN posture; the one security item D-12-08 javascript: defang was human-verified).

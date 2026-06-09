@@ -5,6 +5,7 @@ using CookBot.Domain.Interfaces;
 using CookBot.Infrastructure.AI;
 using CookBot.Infrastructure.Data;
 using CookBot.Infrastructure.Data.Repositories;
+using CookBot.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +31,11 @@ public static class DependencyInjection
         // Phase 1 / D-15: pre-migration backup.
         // CLEAN-01 (Plan 10): projector DI registrations removed (D-32 step d).
         services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();
+
+        // Phase 14 / Plan 14-03 / GALLERY-02/03 — gallery CRUD service.
+        // Lives in Infrastructure (not Application) because it needs CookBotDbContext directly
+        // for ExecuteUpdateAsync / OrderBy / CountAsync that the generic IRepository<T> doesn't expose.
+        services.AddScoped<RecipePhotoService>();
 
         services.AddApplication();
 

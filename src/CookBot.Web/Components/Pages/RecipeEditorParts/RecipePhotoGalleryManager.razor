@@ -1,0 +1,624 @@
+@*  RecipePhotoGalleryManager — Phase 14 / Plan 14-04 / GALLERY-02 / GALLERY-04.
+
+    Multi-photo editor component. Immediate-persist model: every mutation (upload,
+    reorder, caption, set-hero, delete, paste-URL) is written through RecipePhotoService
+    immediately — no batch-with-save staging (RESEARCH §Open Questions #3).
+
+    Hard invariants:
+      - Multi-file upload is STRICTLY SEQUENTIAL: each file is fully awaited before the
+        next begins. GetMultipleFiles(remaining) caps count at the server-side cap. This
+        keeps every SignalR frame under the 12 MB circuit limit (P14 / D-14-05).
+      - Paste-URL: step 1 scheme allowlist (RecipePhotoUrlValidator), step 2 HTTP HEAD
+        gate (PhotoUrlHeadValidator). Both must pass before AddPhotoAsync (D-14-10).
+      - AI helper output is rendered as PLAIN TEXT only. Any http(s) URL detected via
+        Uri.TryCreate is stripped before display (P12 / D-14-07).
+      - Copyright disclaimer is always visible — never conditional, never a tooltip (D-14-09).
+      - The AI button is NOT RENDERED when _aiOn is false (not just disabled) — matches
+        RecipeEditor.razor:519-521 gate pattern.
+      - No MudBlazor, no new NuGet packages. *@
+
+@namespace CookBot.Web.Components.Pages.RecipeEditorParts
+@using CookBot.Application.DTOs
+@using CookBot.Application.Services
+@using CookBot.Domain.Entities
+@using CookBot.Domain.Interfaces
+@using CookBot.Infrastructure.Services
+@using CookBot.Web.Components.Atoms
+@using CookBot.Web.Components.Dialogs
+@using CookBot.Web.Services
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+@inject RecipePhotoService PhotoService
+@inject RecipePhotoUrlValidator UrlValidator
+@inject PhotoUrlHeadValidator HeadValidator
+@inject LocalRecipePhotoStorage PhotoStorage
+@inject IAiService AiService
+@inject AiApiKeyResolutionService AiKeyResolver
+@inject CurrentUserService UserService
+@inject IOptions<CookBotSettings> Settings
+@inject ICbToastService Toast
+@inject ICbDialogService DialogService
+
+@* ── Outer card ─────────────────────────────────────────────────────────────── *@
+<div class="cb-card" style="padding:16px;margin-bottom:18px;">
+
+    @* Header row: eyebrow + photo count chip *@
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <CbEyebrow>Photos</CbEyebrow>
+        <span class="cb-chip">
+            <span class="num">@_photos.Count / @Math.Clamp(Settings.Value.MaxPhotosPerRecipe, 1, 20)</span>
+            <span> photos</span>
+        </span>
+    </div>
+
+    @* ── Photo card grid ─────────────────────────────────────────────────────── *@
+    @if (_photos.Count > 0)
+    {
+        <div class="photo-manager-grid" role="radiogroup" aria-label="Hero photo selection">
+            @for (int i = 0; i < _photos.Count; i++)
+            {
+                var photo = _photos[i];
+                var idx = i;
+                var isFirst = idx == 0;
+                var isLast = idx == _photos.Count - 1;
+                var failed = _failedPhotoIds.Contains(photo.Id);
+
+                <div class="cb-card"
+                     style="padding:16px;display:flex;flex-direction:column;gap:8px;width:180px;">
+
+                    @* Thumbnail *@
+                    @if (!failed)
+                    {
+                        <img src="@photo.Url"
+                             alt="Photo @(idx + 1)"
+                             referrerpolicy="no-referrer"
+                             loading="lazy"
+                             @onerror="@(() => { _failedPhotoIds.Add(photo.Id); StateHasChanged(); })"
+                             style="width:120px;height:90px;object-fit:cover;border-radius:6px;display:block;@(photo.IsPrimary ? "outline:2px solid var(--accent);outline-offset:2px;" : "")" />
+                    }
+                    else
+                    {
+                        <StripedPlaceholder Width="120" Height="90" Label="photo error" />
+                    }
+
+                    @* Caption input (maxlength enforced by UpdateCaptionAsync server-side) *@
+                    <input type="text"
+                           class="cb-input"
+                           value="@(photo.Caption ?? string.Empty)"
+                           placeholder="Caption (optional)"
+                           aria-label="@($"Caption for photo {idx + 1}")"
+                           maxlength="512"
+                           @onchange="@(async (ChangeEventArgs ev) => await SaveCaptionAsync(photo.Id, ev.Value as string))" />
+
+                    @* Action button row *@
+                    <div style="display:flex;gap:8px;align-items:center;">
+
+                        @* Move up *@
+                        <button type="button"
+                                class="cb-btn ghost"
+                                style="padding:8px;min-height:36px;min-width:36px;"
+                                aria-label="Move photo up"
+                                disabled="@isFirst"
+                                @onclick="@(() => MoveUpAsync(idx))">
+                            <Icon Name="@Icon.Names.ArrowL" Size="14" Style="transform:rotate(90deg)" />
+                        </button>
+
+                        @* Move down *@
+                        <button type="button"
+                                class="cb-btn ghost"
+                                style="padding:8px;min-height:36px;min-width:36px;"
+                                aria-label="Move photo down"
+                                disabled="@isLast"
+                                @onclick="@(() => MoveDownAsync(idx))">
+                            <Icon Name="@Icon.Names.ArrowR" Size="14" Style="transform:rotate(90deg)" />
+                        </button>
+
+                        @* Set as hero — radio semantics *@
+                        <button type="button"
+                                class="@(photo.IsPrimary ? "cb-btn accent" : "cb-btn ghost")"
+                                style="padding:8px 10px;min-height:36px;font-size:12.5px;"
+                                role="radio"
+                                aria-checked="@photo.IsPrimary.ToString().ToLowerInvariant()"
+                                aria-label="Set as hero photo"
+                                disabled="@photo.IsPrimary"
+                                @onclick="@(() => SetHeroAsync(photo.Id))">
+                            @(photo.IsPrimary ? "Hero" : "Set hero")
+                        </button>
+
+                        @* Delete *@
+                        <button type="button"
+                                class="cb-btn ghost"
+                                style="padding:8px;min-height:36px;min-width:36px;"
+                                aria-label="@($"Delete photo {idx + 1}")"
+                                @onclick="@(() => DeletePhotoAsync(photo, idx))">
+                            <Icon Name="@Icon.Names.Trash" Size="14" />
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @* ── Add photos affordance ────────────────────────────────────────────────── *@
+    <div style="margin-top:12px;">
+        @{
+            var atCap = _photos.Count >= Math.Clamp(Settings.Value.MaxPhotosPerRecipe, 1, 20);
+        }
+
+        @if (atCap)
+        {
+            <label class="cb-btn ghost"
+                   style="cursor:not-allowed;display:inline-flex;align-items:center;gap:8px;font-size:14px;padding:8px 12px;pointer-events:none;opacity:0.4;">
+                <Icon Name="@Icon.Names.Plus" Size="14" /> Add photos
+            </label>
+            <span class="cb-chip" style="background:var(--warn-soft);color:var(--warn);margin-left:8px;">
+                Max @Math.Clamp(Settings.Value.MaxPhotosPerRecipe, 1, 20) photos
+            </span>
+        }
+        else
+        {
+            <label class="cb-btn ghost"
+                   style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-size:14px;padding:8px 12px;">
+                <Icon Name="@Icon.Names.Plus" Size="14" /> Add photos
+                <InputFile multiple
+                           accept="image/jpeg,image/png,image/gif,image/webp"
+                           OnChange="OnMultipleFilesPicked"
+                           style="display:none;" />
+            </label>
+        }
+
+        @* Per-file upload progress *@
+        @if (_uploadingFileName is not null)
+        {
+            <div role="status" aria-live="polite" style="font-size:12.5px;color:var(--ink-3);margin-top:8px;">
+                Uploading @_uploadingFileName&hellip;
+            </div>
+        }
+    </div>
+
+    @* ── Paste-URL input ─────────────────────────────────────────────────────── *@
+    <div style="margin-top:12px;">
+        <CbInput Type="url"
+                 Value="@_urlInput"
+                 ValueChanged="OnUrlPasted"
+                 DebounceOnInput="true"
+                 Placeholder="Or paste a photo URL (https://…)"
+                 AriaLabel="Paste photo URL" />
+
+        @if (_urlValidating)
+        {
+            <div role="status" aria-live="polite" style="font-size:12.5px;color:var(--ink-3);margin-top:4px;">
+                Validating&hellip;
+            </div>
+        }
+        else if (_urlError is not null)
+        {
+            <div role="alert" style="color:var(--warn);font-size:12.5px;line-height:1.4;margin-top:4px;">
+                @_urlError
+            </div>
+        }
+    </div>
+
+    @* ── AI search-term helper (gated — NOT rendered when _aiOn is false) ─────── *@
+    @if (_aiOn)
+    {
+        <div style="margin-top:12px;">
+            <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                      StartIcon="@Icon.Names.Spark"
+                      Disabled="@_aiLoading"
+                      OnClick="SuggestSearchTermsAsync">
+                @(_aiLoading ? "Finding search terms…" : "Suggest photo search terms")
+            </CbButton>
+
+            @if (_aiOutput is not null)
+            {
+                <div class="cb-card"
+                     role="region"
+                     aria-label="Photo search suggestions"
+                     style="padding:16px;margin-top:8px;font-size:14px;color:var(--ink-2);line-height:1.5;white-space:pre-wrap;">
+                    @_aiOutput
+                </div>
+            }
+        </div>
+    }
+
+    @* ── Copyright disclaimer — always visible, never conditional ────────────── *@
+    <div role="note"
+         aria-label="Copyright notice"
+         style="font-size:11.5px;color:var(--ink-3);line-height:1.4;margin-top:8px;">
+        Only add photos you have the right to use.
+        AI suggestions are search terms only — verify the license at the source.
+    </div>
+
+</div>
+
+@code {
+    /// <summary>The recipe to manage photos for.</summary>
+    [Parameter] public int RecipeId { get; set; }
+
+    /// <summary>Current authenticated user — needed for ownership checks in RecipePhotoService.</summary>
+    [Parameter] public int UserId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+
+    private List<RecipePhoto> _photos = new();
+
+    // One-shot error tracking per photo id; on error the broken img is replaced with a placeholder.
+    private readonly HashSet<int> _failedPhotoIds = new();
+
+    // Upload progress
+    private string? _uploadingFileName;
+
+    // Paste-URL
+    private string _urlInput = string.Empty;
+    private bool _urlValidating;
+    private string? _urlError;
+
+    // AI helper
+    private bool _aiOn;
+    private bool _aiLoading;
+    private string? _aiOutput;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPhotosAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Re-read when RecipeId changes (e.g. create→save flow).
+        await LoadPhotosAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Resolve AI gate — mirrors RecipeEditor.razor:527-530 verbatim:
+        //   host kill-switch AND per-user AiEnabled opt-in (GALLERY-04 / D-14-07).
+        // Done in OnAfterRender (interactive pass only; not needed at prerender).
+        var user = await UserService.GetCurrentUserAsync();
+        var hostOn = Settings.Value.AiFeaturesEnabled;
+        var userOn = user?.Profile?.AiEnabled ?? false;
+        var creds = await AiKeyResolver.ResolveAsync(UserId);
+        _aiOn = hostOn && userOn && creds is not null;
+        StateHasChanged();
+    }
+
+    // ── Data loading ──────────────────────────────────────────────────────────
+
+    private async Task LoadPhotosAsync()
+    {
+        if (RecipeId <= 0 || UserId <= 0) return;
+        try
+        {
+            var result = await PhotoService.GetPhotosAsync(RecipeId, UserId);
+            _photos = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Could not load photos: {ex.Message}", CbToastSeverity.Error);
+        }
+    }
+
+    // ── Multi-file upload ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sequential upload handler (P14 / D-14-05). Each file is fully awaited before the next
+    /// begins. Per-file pre-stream size check + magic-byte validation; one bad file does not abort
+    /// the batch. GetMultipleFiles(remaining) caps the batch count at the remaining server-side cap.
+    /// </summary>
+    private async Task OnMultipleFilesPicked(InputFileChangeEventArgs e)
+    {
+        var cap = Math.Clamp(Settings.Value.MaxPhotosPerRecipe, 1, 20);
+        var remaining = cap - _photos.Count;
+        if (remaining <= 0) return;
+
+        using var cts = new CancellationTokenSource();
+
+        foreach (var file in e.GetMultipleFiles(remaining))
+        {
+            // Pre-stream size check — reject before opening stream (P14 / PITFALL H1)
+            if (file.Size > 10L * 1024L * 1024L)
+            {
+                Toast.Show("File too large — 10 MB max.", CbToastSeverity.Warning);
+                continue;
+            }
+
+            _uploadingFileName = file.Name;
+            StateHasChanged();
+
+            try
+            {
+                var url = await PhotoStorage.SaveAsync(file, cts.Token);
+                await PhotoService.AddPhotoAsync(RecipeId, url, UserId);
+                await LoadPhotosAsync();
+                StateHasChanged();
+            }
+            catch (CookBot.Web.Services.InvalidImageException ex)
+            {
+                Toast.Show($"Image rejected: {ex.Message} — JPEG, PNG, GIF, WebP only.", CbToastSeverity.Warning);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Includes cap enforcement from service layer
+                Toast.Show($"Upload failed: {ex.Message}", CbToastSeverity.Warning);
+            }
+            catch (Exception ex)
+            {
+                Toast.Show($"Upload failed: {ex.Message}", CbToastSeverity.Error);
+            }
+        }
+
+        _uploadingFileName = null;
+        StateHasChanged();
+    }
+
+    // ── Paste-URL flow ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Two-step URL validation (D-14-10): scheme allowlist first (RecipePhotoUrlValidator),
+    /// then HTTP HEAD gate (PhotoUrlHeadValidator). Both must pass before AddPhotoAsync.
+    /// </summary>
+    private async Task OnUrlPasted(string? value)
+    {
+        _urlInput = value ?? string.Empty;
+        _urlError = null;
+
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        // Step 1: scheme allowlist
+        if (!UrlValidator.TryValidate(value, out var normalized, out var errorCode))
+        {
+            _urlError = errorCode switch
+            {
+                "SCHEME_NOT_ALLOWED" => "Only http and https URLs are allowed.",
+                "PROTOCOL_RELATIVE_REJECTED" => "Only http and https URLs are allowed.",
+                "MALFORMED" => "Not a valid URL.",
+                _ => "Could not use that URL.",
+            };
+            return;
+        }
+
+        // Step 2: HEAD validation
+        _urlValidating = true;
+        StateHasChanged();
+
+        PhotoUrlValidationResult result;
+        try
+        {
+            result = await HeadValidator.ValidateAsync(normalized!);
+        }
+        finally
+        {
+            _urlValidating = false;
+        }
+
+        if (!result.IsValid)
+        {
+            _urlError = result.ErrorMessage ?? "URL validation failed — check the URL and try again.";
+            StateHasChanged();
+            return;
+        }
+
+        // Accept — persist and clear input
+        try
+        {
+            await PhotoService.AddPhotoAsync(RecipeId, normalized!, UserId);
+            _urlInput = string.Empty;
+            _urlError = null;
+            await LoadPhotosAsync();
+        }
+        catch (Exception ex)
+        {
+            _urlError = ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    // ── Reorder ───────────────────────────────────────────────────────────────
+
+    private async Task MoveUpAsync(int idx)
+    {
+        if (idx <= 0) return;
+        var ids = _photos.Select(p => p.Id).ToArray();
+        (ids[idx], ids[idx - 1]) = (ids[idx - 1], ids[idx]);
+        await ReorderAsync(ids);
+    }
+
+    private async Task MoveDownAsync(int idx)
+    {
+        if (idx >= _photos.Count - 1) return;
+        var ids = _photos.Select(p => p.Id).ToArray();
+        (ids[idx], ids[idx + 1]) = (ids[idx + 1], ids[idx]);
+        await ReorderAsync(ids);
+    }
+
+    private async Task ReorderAsync(int[] orderedIds)
+    {
+        try
+        {
+            await PhotoService.ReorderAsync(RecipeId, orderedIds, UserId);
+            await LoadPhotosAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Reorder failed: {ex.Message}", CbToastSeverity.Error);
+        }
+    }
+
+    // ── Set hero ──────────────────────────────────────────────────────────────
+
+    private async Task SetHeroAsync(int photoId)
+    {
+        try
+        {
+            await PhotoService.SetPrimaryAsync(RecipeId, photoId, UserId);
+            await LoadPhotosAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Could not set hero: {ex.Message}", CbToastSeverity.Error);
+        }
+    }
+
+    // ── Caption ───────────────────────────────────────────────────────────────
+
+    private async Task SaveCaptionAsync(int photoId, string? value)
+    {
+        try
+        {
+            await PhotoService.UpdateCaptionAsync(RecipeId, photoId, value, UserId);
+            // Refresh so _photos reflects the saved caption (no full reload needed for caption display)
+            var photo = _photos.FirstOrDefault(p => p.Id == photoId);
+            if (photo is not null)
+                photo.Caption = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"Could not save caption: {ex.Message}", CbToastSeverity.Error);
+        }
+    }
+
+    // ── Delete ────────────────────────────────────────────────────────────────
+
+    private async Task DeletePhotoAsync(RecipePhoto photo, int idx)
+    {
+        var isLocal = photo.Url.StartsWith("/uploads/", StringComparison.Ordinal);
+        var body = isLocal
+            ? "This will permanently remove the photo and its file."
+            : "This will permanently remove the photo.";
+
+        var parameters = new CbDialogParameters
+        {
+            [nameof(CbConfirmDialog.Title)] = "Delete photo?",
+            [nameof(CbConfirmDialog.Body)] = body,
+            [nameof(CbConfirmDialog.ConfirmLabel)] = "Delete photo",
+            [nameof(CbConfirmDialog.CancelLabel)] = "Keep photo",
+            [nameof(CbConfirmDialog.ConfirmVariant)] = CookBot.Web.Components.Atoms.CbButton.CbButtonVariant.Accent,
+        };
+        var options = new CbDialogOptions(MaxWidth: CbDialogMaxWidth.Sm, FullWidth: true, CloseOnEscape: true);
+        var result = await DialogService.ShowAsync<CbConfirmDialog>("Delete photo?", parameters, options);
+
+        if (result.Data is true)
+        {
+            try
+            {
+                await PhotoService.DeleteAsync(RecipeId, photo.Id, UserId);
+                await LoadPhotosAsync();
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Toast.Show($"Could not delete photo: {ex.Message}", CbToastSeverity.Error);
+            }
+        }
+    }
+
+    // ── AI helper ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Calls IAiService text path with a URL-forbidding system prompt.
+    /// Output is stripped of any detected http(s) URL before display (P12 / D-14-07).
+    /// Output is component-state only — never persisted.
+    /// </summary>
+    private async Task SuggestSearchTermsAsync()
+    {
+        if (!_aiOn || _aiLoading) return;
+
+        var creds = await AiKeyResolver.ResolveAsync(UserId);
+        if (creds is null)
+        {
+            Toast.Show("No AI API key configured.", CbToastSeverity.Warning);
+            return;
+        }
+
+        _aiLoading = true;
+        _aiOutput = null;
+        StateHasChanged();
+
+        try
+        {
+            // Build a concise recipe description from photos' alt-source: the recipe is identified
+            // by RecipeId only in this component. Use a generic prompt that asks for search terms.
+            // The system prompt explicitly forbids URL emission (P12 / RESEARCH §Pattern 6).
+            const string systemPrompt =
+                "You are a photo research assistant for a cooking app. " +
+                "The user wants to find free-licensed photos for their recipe. " +
+                "Respond with: one line describing the dish visually, then 3-5 suggested photo search phrases " +
+                "(one per line, no bullet markers), then a short list of free-licensed photo sites " +
+                "(e.g. Unsplash, Pexels, Wikimedia Commons — site names only, no URLs). " +
+                "IMPORTANT: Do NOT include any image URLs, hyperlinks, or http/https addresses in your response. " +
+                "Suggest search terms only.";
+
+            // Get the photo count as context
+            var photoCount = _photos.Count;
+            var userMessage = $"I have {photoCount} photo(s) for a recipe (ID {RecipeId}). " +
+                              "Please suggest photo search terms I can use to find free-licensed images " +
+                              "that would complement this recipe.";
+
+            var messages = new List<CookBot.Domain.Interfaces.AiMessage>
+            {
+                new() { Role = "user", Content = userMessage }
+            };
+
+            var raw = await AiService.SendMessageAsync(systemPrompt, messages, creds.ApiKey, creds.ModelId, maxTokens: 512);
+            _aiOutput = StripUrls(raw);
+        }
+        catch (Exception ex)
+        {
+            Toast.Show($"AI suggestion failed: {ex.Message}", CbToastSeverity.Error);
+        }
+        finally
+        {
+            _aiLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Strips any http(s) URL from the AI output and appends the disclaimer suffix (P12).
+    /// Tokenizes on ALL whitespace (spaces, tabs, newlines) so that newline- or
+    /// tab-delimited URLs from the AI are detected and stripped (WR-05 / P12 invariant).
+    /// Uses Uri.TryCreate token-by-token to detect embedded URLs.
+    /// </summary>
+    private static string StripUrls(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+
+        // Split on all whitespace (null char[] = any whitespace delimiter) so that
+        // tab- or newline-delimited URLs are isolated as their own tokens (WR-05).
+        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var stripped = false;
+        var result = new System.Text.StringBuilder();
+
+        foreach (var word in words)
+        {
+            var trimmed = word.Trim('(', ')', '[', ']', '<', '>', '"', '\'', ',', '.');
+            if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == "http" || uri.Scheme == "https"))
+            {
+                stripped = true;
+                // Skip this token (URL removed)
+            }
+            else
+            {
+                if (result.Length > 0) result.Append(' ');
+                result.Append(word);
+            }
+        }
+
+        var output = result.ToString().Trim();
+        if (stripped)
+        {
+            output += "\n(URL removed — AI suggestions are search terms only)";
+        }
+
+        return output;
+    }
+}

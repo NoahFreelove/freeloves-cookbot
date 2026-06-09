@@ -5,6 +5,7 @@ using CookBot.Domain.Interfaces;
 using CookBot.Infrastructure.Data;
 using CookBot.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CookBot.Tests.Services;
 
@@ -42,7 +43,10 @@ public class OwnershipTests : IDisposable
         var parser = new StubRecipeFormatParser();
 
         var canonicalSerializer = new JsonRecipeSerializer();
-        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, canonicalSerializer);
+        var recipePhotoRepo = new Repository<RecipePhoto>(_db);
+        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo,
+            recipePhotoRepo, new NullPhotoFileStorage(), canonicalSerializer,
+            NullLogger<RecipeService>.Instance);
 
         var parsed = new ParsedRecipe
         {
@@ -102,7 +106,10 @@ public class OwnershipTests : IDisposable
         var parser = new StubRecipeFormatParser();
 
         var canonicalSerializer = new JsonRecipeSerializer();
-        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo, canonicalSerializer);
+        var recipePhotoRepo = new Repository<RecipePhoto>(_db);
+        var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo,
+            recipePhotoRepo, new NullPhotoFileStorage(), canonicalSerializer,
+            NullLogger<RecipeService>.Instance);
 
         // Act & Assert: user2 tries to delete recipe in user1's cookbook
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
@@ -166,5 +173,11 @@ public class OwnershipTests : IDisposable
             errors = new List<string>();
             return true;
         }
+    }
+
+    /// <summary>No-op file storage stub — tests don't exercise file I/O.</summary>
+    private class NullPhotoFileStorage : CookBot.Application.Services.IRecipePhotoFileStorage
+    {
+        public void DeletePhysicalFile(string url) { }
     }
 }

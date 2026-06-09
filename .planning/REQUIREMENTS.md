@@ -41,10 +41,10 @@ User decisions (2026-06-05):
 
 ### Photo Gallery & AI Helper (GALLERY) — continues PHOTO-01..14 from v1.3
 
-- [ ] **GALLERY-01**: A recipe supports multiple photos via a `RecipePhoto` entity (ordered, optional caption, one primary); an EF migration backfills the existing `Recipe.PhotoUrl` to a primary `RecipePhoto` row (no data loss).
-- [ ] **GALLERY-02**: A user can upload multiple photos, reorder them, set captions, and choose the primary/hero photo from the recipe editor (respecting the v1.3 12 MB / magic-byte / scheme-allowlist safeguards).
-- [ ] **GALLERY-03**: The recipe view displays the photo gallery (primary as hero); deleting a photo or recipe removes its file from disk (no orphaned files in the Docker volume).
-- [ ] **GALLERY-04**: An optional AI helper (gated by `AiFeaturesEnabled`) describes the dish and suggests photo search terms for free-licensed photo sites; the user pastes a URL that is HEAD-validated before persist. The AI never emits or auto-embeds an image URL.
+- [x] **GALLERY-01**: A recipe supports multiple photos via a `RecipePhoto` entity (ordered, optional caption, one primary); an EF migration backfills the existing `Recipe.PhotoUrl` to a primary `RecipePhoto` row (no data loss).
+- [x] **GALLERY-02**: A user can upload multiple photos, reorder them, set captions, and choose the primary/hero photo from the recipe editor (respecting the v1.3 12 MB / magic-byte / scheme-allowlist safeguards).
+- [x] **GALLERY-03**: The recipe view displays the photo gallery (primary as hero); deleting a photo or recipe removes its file from disk (no orphaned files in the Docker volume).
+- [x] **GALLERY-04**: An optional AI helper (gated by `AiFeaturesEnabled`) describes the dish and suggests photo search terms for free-licensed photo sites; the user pastes a URL that is HEAD-validated before persist. The AI never emits or auto-embeds an image URL.
 
 ### UAT Automation (UATAUTO) — continues the v1.3 harness
 
@@ -85,10 +85,10 @@ User decisions (2026-06-05):
 | INTEROP-02 | Phase 13 | Complete |
 | INTEROP-03 | Phase 13 | Complete |
 | INTEROP-04 | Phase 13 | Complete |
-| GALLERY-01 | Phase 14 | Pending |
-| GALLERY-02 | Phase 14 | Pending |
-| GALLERY-03 | Phase 14 | Pending |
-| GALLERY-04 | Phase 14 | Pending |
+| GALLERY-01 | Phase 14 | Complete |
+| GALLERY-02 | Phase 14 | Complete |
+| GALLERY-03 | Phase 14 | Complete |
+| GALLERY-04 | Phase 14 | Complete |
 | NUTR-01 | Phase 15 | Pending |
 | NUTR-02 | Phase 15 | Pending |
 | NUTR-03 | Phase 15 | Pending |

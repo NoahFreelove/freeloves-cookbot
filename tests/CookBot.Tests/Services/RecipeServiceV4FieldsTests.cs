@@ -6,6 +6,7 @@ using CookBot.Domain.Recipes;
 using CookBot.Infrastructure.Data;
 using CookBot.Infrastructure.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CookBot.Tests.Services;
 
@@ -49,6 +50,7 @@ public class RecipeServiceV4FieldsTests : IDisposable
         var ingredientRepo = new Repository<Ingredient>(_db);
         var cookbookRepo = new Repository<Cookbook>(_db);
         var recipeTagRepo = new Repository<RecipeTag>(_db);
+        var recipePhotoRepo = new Repository<RecipePhoto>(_db);
 
         _service = new RecipeService(
             new StubParser(),
@@ -56,7 +58,10 @@ public class RecipeServiceV4FieldsTests : IDisposable
             ingredientRepo,
             cookbookRepo,
             recipeTagRepo,
-            _serializer);
+            recipePhotoRepo,
+            new NullPhotoFileStorage(),
+            _serializer,
+            NullLogger<RecipeService>.Instance);
     }
 
     // ---- helper -----------------------------------------------------------------
@@ -240,5 +245,11 @@ public class RecipeServiceV4FieldsTests : IDisposable
             errors = new List<string>();
             return true;
         }
+    }
+
+    /// <summary>No-op file storage stub — tests don't exercise file I/O.</summary>
+    private class NullPhotoFileStorage : CookBot.Application.Services.IRecipePhotoFileStorage
+    {
+        public void DeletePhysicalFile(string url) { }
     }
 }

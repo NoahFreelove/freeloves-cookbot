@@ -58,6 +58,10 @@ builder.Services.AddScoped<AiApiKeyShareService>();
 builder.Services.AddScoped<CookbookTransferService>();
 builder.Services.AddScoped<CookbookPdfService>();
 builder.Services.AddScoped<LocalRecipePhotoStorage>();
+// Register the Application-layer abstraction so RecipeService / RecipePhotoService can
+// delete local files without referencing CookBot.Web directly (Clean Architecture).
+builder.Services.AddScoped<CookBot.Application.Services.IRecipePhotoFileStorage>(
+    sp => sp.GetRequiredService<LocalRecipePhotoStorage>());
 builder.Services.AddScoped<IScheduledRecipeService, ScheduledRecipeService>();
 builder.Services.AddScoped<IRecipeMadeService, RecipeMadeService>();
 builder.Services.Configure<CookBotSettings>(builder.Configuration.GetSection("CookBot"));

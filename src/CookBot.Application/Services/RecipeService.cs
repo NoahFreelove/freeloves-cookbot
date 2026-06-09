@@ -2,6 +2,7 @@ using CookBot.Application.Recipes;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
 using CookBot.Domain.Recipes;
+using Microsoft.Extensions.Logging;
 
 namespace CookBot.Application.Services;
 
@@ -12,7 +13,10 @@ public class RecipeService
     private readonly IRepository<Ingredient> _ingredientRepo;
     private readonly IRepository<Cookbook> _cookbookRepo;
     private readonly IRepository<RecipeTag> _recipeTagRepo;
+    private readonly IRepository<RecipePhoto> _recipePhotoRepo;
+    private readonly IRecipePhotoFileStorage _photoStorage;
     private readonly JsonRecipeSerializer _canonicalSerializer;
+    private readonly ILogger<RecipeService> _logger;
 
     public RecipeService(
         IRecipeFormatParser parser,
@@ -20,14 +24,20 @@ public class RecipeService
         IRepository<Ingredient> ingredientRepo,
         IRepository<Cookbook> cookbookRepo,
         IRepository<RecipeTag> recipeTagRepo,
-        JsonRecipeSerializer canonicalSerializer)
+        IRepository<RecipePhoto> recipePhotoRepo,
+        IRecipePhotoFileStorage photoStorage,
+        JsonRecipeSerializer canonicalSerializer,
+        ILogger<RecipeService> logger)
     {
         _parser = parser;
         _recipeRepo = recipeRepo;
         _ingredientRepo = ingredientRepo;
         _cookbookRepo = cookbookRepo;
         _recipeTagRepo = recipeTagRepo;
+        _recipePhotoRepo = recipePhotoRepo;
+        _photoStorage = photoStorage;
         _canonicalSerializer = canonicalSerializer;
+        _logger = logger;
     }
 
     public async Task<Recipe> CreateAsync(int cookbookId, int userId, ParsedRecipe parsed)
@@ -276,7 +286,54 @@ public class RecipeService
         if (cookbook.UserId != userId)
             throw new UnauthorizedAccessException("You do not own this cookbook.");
 
-        await _recipeRepo.DeleteAsync(recipe);
+        // D-14-11 / P13: enumerate local-path photos BEFORE cascade deletes the rows.
+        // External http(s):// URLs have no local file — only /uploads/ paths are touched.
+        var photos = await _recipePhotoRepo.FindAsync(p => p.RecipeId == recipeId);
+        foreach (var photo in photos)
+        {
+            if (photo.Url.StartsWith("/uploads/", StringComparison.Ordinal))
+            {
+                try
+                {
+                    _photoStorage.DeletePhysicalFile(photo.Url);
+                }
+                catch (Exception ex)
+                {
+                    // Non-fatal — log and continue (D-14-11: missing-file deletes are non-fatal)
+                    _logger.LogWarning(ex, "Could not delete photo file {Url} during recipe delete", photo.Url);
+                }
+            }
+        }
+
+        await _recipeRepo.DeleteAsync(recipe); // EF cascade removes RecipePhoto rows
+    }
+
+    /// <summary>
+    /// Re-syncs <c>Recipe.PhotoUrl</c> and <c>CanonicalDocumentJson</c> to the primary
+    /// <see cref="RecipePhoto"/> after every gallery mutation (D-14-01 / P15).
+    /// This is the ONLY place that writes <c>Recipe.PhotoUrl</c> / <c>CanonicalDocumentJson</c>
+    /// for gallery-driven changes — projectors and photo services never touch canonical.
+    /// </summary>
+    public async Task SyncPrimaryPhotoUrlAsync(int recipeId)
+    {
+        var recipe = await _recipeRepo.GetByIdAsync(recipeId)
+            ?? throw new InvalidOperationException("Recipe not found during photo sync.");
+
+        // Find the primary photo; fall back to lowest SortOrder if none is flagged (defensive)
+        var allPhotos = await _recipePhotoRepo.FindAsync(p => p.RecipeId == recipeId);
+        var primary = allPhotos.FirstOrDefault(p => p.IsPrimary)
+            ?? allPhotos.OrderBy(p => p.SortOrder).FirstOrDefault();
+
+        recipe.PhotoUrl = primary?.Url;
+
+        // Re-serialize canonical doc with the updated PhotoUrl (same pattern as CreateAsync/UpdateAsync)
+        // Defensive fallback: if CanonicalDocumentJson is null (pre-migration recipe), use an empty doc
+        var doc = string.IsNullOrEmpty(recipe.CanonicalDocumentJson)
+            ? new CookBot.Domain.Recipes.RecipeDocument { Version = RecipeUpcasterChain.CurrentVersion, Name = recipe.Name, Servings = recipe.Servings }
+            : _canonicalSerializer.Deserialize(recipe.CanonicalDocumentJson);
+        recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(doc with { PhotoUrl = recipe.PhotoUrl });
+
+        await _recipeRepo.UpdateAsync(recipe);
     }
 
     private async Task<Ingredient> ResolveIngredientAsync(string name)

@@ -24,4 +24,5 @@ public class Recipe
     public List<RecipeStep> Steps { get; set; } = new();
     public ICollection<RecipeIngredient> RecipeIngredients { get; set; } = new List<RecipeIngredient>();
     public ICollection<RecipeTag> Tags { get; set; } = new List<RecipeTag>();
+    public ICollection<RecipePhoto> Photos { get; set; } = new List<RecipePhoto>();
 }

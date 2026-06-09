@@ -803,3 +803,27 @@ body.dark-mode .cb-dropdown-item:focus-visible {
 @media (min-width: 721px) {
     .recipe-actions-inline-fallback { display: none !important; }
 }
+
+/* Phase 14 / Plan 14-04 / GALLERY-03 — gallery thumbnail strip in RecipeView.
+   Renders only when _photos.Count > 1 (controlled by Blazor conditional). */
+.recipe-gallery-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+.recipe-gallery-strip img {
+    height: 72px;
+    width: auto;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+/* Phase 14 / Plan 14-04 / GALLERY-02 — photo manager card grid in RecipeEditor. */
+.photo-manager-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
