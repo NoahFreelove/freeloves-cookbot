@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using CookBot.Application.Recipes;
 using CookBot.Domain.Entities;
 using CookBot.Domain.Interfaces;
@@ -14,6 +16,7 @@ public class RecipeService
     private readonly IRepository<Cookbook> _cookbookRepo;
     private readonly IRepository<RecipeTag> _recipeTagRepo;
     private readonly IRepository<RecipePhoto> _recipePhotoRepo;
+    private readonly IRepository<RecipeNutritionCache> _nutritionCacheRepo;
     private readonly IRecipePhotoFileStorage _photoStorage;
     private readonly JsonRecipeSerializer _canonicalSerializer;
     private readonly ILogger<RecipeService> _logger;
@@ -25,6 +28,7 @@ public class RecipeService
         IRepository<Cookbook> cookbookRepo,
         IRepository<RecipeTag> recipeTagRepo,
         IRepository<RecipePhoto> recipePhotoRepo,
+        IRepository<RecipeNutritionCache> nutritionCacheRepo,
         IRecipePhotoFileStorage photoStorage,
         JsonRecipeSerializer canonicalSerializer,
         ILogger<RecipeService> logger)
@@ -35,6 +39,7 @@ public class RecipeService
         _cookbookRepo = cookbookRepo;
         _recipeTagRepo = recipeTagRepo;
         _recipePhotoRepo = recipePhotoRepo;
+        _nutritionCacheRepo = nutritionCacheRepo;
         _photoStorage = photoStorage;
         _canonicalSerializer = canonicalSerializer;
         _logger = logger;
@@ -139,6 +144,12 @@ public class RecipeService
                 }).ToList(),
         };
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
+
+        // Phase 15 / NUTR-02 / SC1 — stale-mark on canonical write.
+        // On CreateAsync there is normally no cache yet (no-op), but the code
+        // path is uniform so future pre-seeded cache rows are handled correctly.
+        // CRITICAL: NEVER call the nutrition compute service here — save must not block on nutrition (P7).
+        await MarkNutritionCacheStaleIfChangedAsync(recipe);
 
         return await _recipeRepo.AddAsync(recipe);
     }
@@ -271,6 +282,10 @@ public class RecipeService
         };
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(canonicalDoc);
 
+        // Phase 15 / NUTR-02 / SC1 — stale-mark on canonical write.
+        // CRITICAL: NEVER call the nutrition compute service here — save must not block on nutrition (P7).
+        await MarkNutritionCacheStaleIfChangedAsync(recipe);
+
         await _recipeRepo.UpdateAsync(recipe);
         return recipe;
     }
@@ -333,7 +348,51 @@ public class RecipeService
             : _canonicalSerializer.Deserialize(recipe.CanonicalDocumentJson);
         recipe.CanonicalDocumentJson = _canonicalSerializer.Serialize(doc with { PhotoUrl = recipe.PhotoUrl });
 
+        // Phase 15 / NUTR-02 / SC1 — stale-mark on canonical write (photo-URL change).
+        // A photo-URL-only change is still a hash change → mark stale for correctness.
+        // CRITICAL: NEVER call the nutrition compute service here — save must not block on nutrition (P7).
+        await MarkNutritionCacheStaleIfChangedAsync(recipe);
+
         await _recipeRepo.UpdateAsync(recipe);
+    }
+
+    /// <summary>
+    /// Computes the SHA-256 hex digest of the recipe's current CanonicalDocumentJson
+    /// and marks an existing <see cref="RecipeNutritionCache"/> stale when the hash changed.
+    /// If no cache row exists, this is a cheap no-op.
+    ///
+    /// <b>NEVER calls the nutrition compute service</b> — only writes a
+    /// staleness flag via IRepository&lt;RecipeNutritionCache&gt; (SC1/P7).
+    /// </summary>
+    private async Task MarkNutritionCacheStaleIfChangedAsync(Recipe recipe)
+    {
+        var canonicalJson = recipe.CanonicalDocumentJson;
+        if (string.IsNullOrEmpty(canonicalJson))
+            return;
+
+        // BCL SHA-256 — no new NuGet package; zero-alloc HashData (BCL API, .NET 5+).
+        var newHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalJson)));
+
+        // recipe.Id == 0 when called from CreateAsync (before AddAsync assigns the PK).
+        // In that case there is no cache row yet, so the lookup is guaranteed a no-op.
+        if (recipe.Id == 0)
+            return;
+
+        var caches = await _nutritionCacheRepo.FindAsync(c => c.RecipeId == recipe.Id);
+        var cache = caches.FirstOrDefault();
+        if (cache is null)
+            return;
+
+        if (cache.CanonicalDocHash != newHash)
+        {
+            cache.IsStale           = true;
+            cache.CanonicalDocHash  = newHash;
+            // Do NOT call _nutritionCacheRepo.UpdateAsync(cache) here — that would call
+            // SaveChangesAsync on the shared DbContext and flush the in-flight recipe
+            // mutation before _recipeRepo.UpdateAsync(recipe) is called (CR-01).
+            // The cache entity is already tracked; the single SaveChangesAsync inside
+            // _recipeRepo.UpdateAsync below commits both atomically.
+        }
     }
 
     private async Task<Ingredient> ResolveIngredientAsync(string name)

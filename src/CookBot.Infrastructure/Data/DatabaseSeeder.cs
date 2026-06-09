@@ -18,6 +18,24 @@ public static class DatabaseSeeder
         public List<string> PreferredUnits { get; set; } = [];
     }
 
+    private sealed class CnfFoodSeedRow
+    {
+        public int FoodId { get; set; }
+        public string FoodDescription { get; set; } = string.Empty;
+        public string? FoodGroup { get; set; }
+        public double EnergyKcalPer100g { get; set; }
+        public double ProteinGPer100g { get; set; }
+        public double FatGPer100g { get; set; }
+        public double CarbGPer100g { get; set; }
+    }
+
+    private sealed class CnfCfSeedRow
+    {
+        public int FoodId { get; set; }
+        public string MeasureDescription { get; set; } = string.Empty;
+        public double ConversionFactorValue { get; set; }
+    }
+
     /// <summary>
     /// PROD-09 / PITFALL C3 (Phase 9 / Plan 09-04) — sentinel-prefix detection for
     /// the AI-key migration pass. Returns true iff <paramref name="value"/> looks
@@ -58,6 +76,11 @@ public static class DatabaseSeeder
 
         // Step 2: apply migrations.
         await context.Database.MigrateAsync();
+
+        // NUTR-01 / Phase 15 / Plan 15-03 — load CNF seed tables idempotently.
+        // Runs BEFORE the existing-user early-return so it executes on every first-startup
+        // regardless of whether a default user row is already present.
+        await SeedCnfDataAsync(context, contentRootPath);
 
         // D-32 step a / CLEAN-01 / D-33: permanent structural invariant.
         // Any code path that creates a Recipe without writing CanonicalDocumentJson is a bug
@@ -198,11 +221,33 @@ public static class DatabaseSeeder
         await context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Resolves a bundled seed file by walking up from the content root looking for
+    /// <c>{ancestor}/{segments}</c>. Robust across `dotnet run` (content root =
+    /// <c>src/CookBot.Web</c>, seeds two levels up at the repo root) and Docker (seeds copied beside
+    /// the content root at <c>/app/seeds</c>, matched at the first ancestor). Returns the first
+    /// existing match, or null when no seed exists above the content root (the "nutrition
+    /// unavailable" path). The search is intentionally bounded to the content root's ancestors so a
+    /// missing seed is genuinely missing — it does not fall back to the binary's base directory.
+    /// </summary>
+    private static string? ResolveSeedFile(string contentRootPath, params string[] segments)
+    {
+        for (var dir = new DirectoryInfo(contentRootPath); dir is not null; dir = dir.Parent)
+        {
+            var parts = new string[segments.Length + 1];
+            parts[0] = dir.FullName;
+            Array.Copy(segments, 0, parts, 1, segments.Length);
+            var candidate = Path.GetFullPath(Path.Combine(parts));
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+
     private static async Task<List<Ingredient>> LoadIngredientsFromSeedFile(string contentRootPath)
     {
-        var seedPath = Path.GetFullPath(Path.Combine(contentRootPath, "..", "seeds", "ingredients.json"));
+        var seedPath = ResolveSeedFile(contentRootPath, "seeds", "ingredients.json");
 
-        if (!File.Exists(seedPath))
+        if (seedPath is null)
         {
             return [];
         }
@@ -231,5 +276,73 @@ public static class DatabaseSeeder
         }
 
         return ingredients;
+    }
+
+    /// <summary>
+    /// NUTR-01 / Phase 15 / Plan 15-03 — loads the bundled CNF seed files idempotently.
+    /// <para>
+    /// Idempotent guard: returns immediately when <c>CnfFoods</c> already has rows — a second
+    /// startup does not re-seed. Mirrors the <c>context.Users.AnyAsync()</c> guard at line 120.
+    /// </para>
+    /// <para>
+    /// Missing seed file → quiet return, no startup throw (T-15-06 mitigation).
+    /// Nutrition is simply unavailable until the seed is present.
+    /// </para>
+    /// <para>
+    /// Two-pass load: foods first (SaveChanges to commit the PKs), then conversion factors
+    /// (requires CnfFood rows to exist for the FK constraint).
+    /// </para>
+    /// <para>
+    /// <c>NormalizedDescription</c> is pre-computed at seed time via <c>IngredientNormalizer.Normalize</c>
+    /// (Research Target 4) so runtime matching does not re-normalize 5 690 strings per ingredient.
+    /// Values are inserted verbatim — OGL-Canada forbids modifying nutrient values (T-15-05 mitigation).
+    /// </para>
+    /// </summary>
+    private static async Task SeedCnfDataAsync(CookBotDbContext context, string contentRootPath)
+    {
+        // Idempotent guard — mirrors the context.Users.AnyAsync() early-return pattern.
+        if (await context.CnfFoods.AnyAsync()) return;
+
+        // ── Pass 1: CNF foods ──────────────────────────────────────────────────────────────
+        var foodsPath = ResolveSeedFile(contentRootPath, "seeds", "nutrition", "cnf_foods.json");
+        if (foodsPath is null) return; // T-15-06: quiet return — nutrition unavailable, app still boots
+
+        var foodsJson = await File.ReadAllTextAsync(foodsPath);
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var foodRows = JsonSerializer.Deserialize<List<CnfFoodSeedRow>>(foodsJson, options) ?? [];
+
+        foreach (var row in foodRows)
+        {
+            context.CnfFoods.Add(new CnfFood
+            {
+                FoodId              = row.FoodId,
+                FoodDescription     = row.FoodDescription,
+                NormalizedDescription = IngredientNormalizer.Normalize(row.FoodDescription),
+                FoodGroup           = row.FoodGroup,
+                EnergyKcalPer100g   = row.EnergyKcalPer100g,  // verbatim — OGL-Canada
+                ProteinGPer100g     = row.ProteinGPer100g,
+                FatGPer100g         = row.FatGPer100g,
+                CarbGPer100g        = row.CarbGPer100g,
+            });
+        }
+        await context.SaveChangesAsync();
+
+        // ── Pass 2: conversion factors (after CnfFood PKs are committed) ──────────────────
+        var cfPath = ResolveSeedFile(contentRootPath, "seeds", "nutrition", "cnf_conversion_factors.json");
+        if (cfPath is null) return; // missing CF file — foods loaded, factors unavailable
+
+        var cfJson = await File.ReadAllTextAsync(cfPath);
+        var cfRows = JsonSerializer.Deserialize<List<CnfCfSeedRow>>(cfJson, options) ?? [];
+
+        foreach (var cf in cfRows)
+        {
+            context.CnfConversionFactors.Add(new CnfConversionFactor
+            {
+                FoodId                = cf.FoodId,
+                MeasureDescription    = cf.MeasureDescription,
+                ConversionFactorValue = cf.ConversionFactorValue, // verbatim — OGL-Canada
+            });
+        }
+        await context.SaveChangesAsync();
     }
 }

@@ -3,6 +3,7 @@ using System;
 using CookBot.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CookBot.Infrastructure.Migrations
 {
     [DbContext(typeof(CookBotDbContext))]
-    partial class CookBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260608030954_AddNutritionTables")]
+    partial class AddNutritionTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
@@ -581,10 +584,6 @@ namespace CookBot.Infrastructure.Migrations
 
                     b.Property<double>("TotalProteinG")
                         .HasColumnType("REAL");
-
-                    b.Property<Guid>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("TEXT");
 
                     b.HasKey("RecipeId");
 

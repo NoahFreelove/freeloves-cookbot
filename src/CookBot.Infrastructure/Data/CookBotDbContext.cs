@@ -32,6 +32,10 @@ public class CookBotDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
     // GALLERY-01 / Phase 14 / Plan 14-01 — multi-photo gallery backing store.
     public DbSet<RecipePhoto> RecipePhotos => Set<RecipePhoto>();
+    // NUTR-01 / Phase 15 / Plan 15-03 — CNF seed tables (read-only after seed) + nutrition cache.
+    public DbSet<CnfFood> CnfFoods => Set<CnfFood>();
+    public DbSet<CnfConversionFactor> CnfConversionFactors => Set<CnfConversionFactor>();
+    public DbSet<RecipeNutritionCache> RecipeNutritionCaches => Set<RecipeNutritionCache>();
     // PROD-14 / Phase 9 / Plan 09-05 — token-cost telemetry log row written by AiRecipeGenerator.
     public DbSet<AiUsageLog> AiUsageLogs => Set<AiUsageLog>();
     // PROD-06: Data Protection key ring storage (Microsoft.AspNetCore.DataProtection.EntityFrameworkCore).

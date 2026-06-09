@@ -13,6 +13,9 @@ public static class DependencyInjection
         services.AddSingleton<IRecipeFormatParser, RecipeFormatParser>();
         services.AddSingleton<IUnitConverter, UnitConversionService>();
         services.AddSingleton<RecipeUnitDisplayService>();
+        // Phase 15 / NUTR-03 — curated density fallback (stateless). Returns null for unknowns;
+        // never substitutes water density (1.0 g/mL). SC3 flour anchor: 0.507 g/mL → ~120 g/cup.
+        services.AddSingleton<IngredientDensityProvider>();
         services.AddScoped<CookbookService>();
         services.AddScoped<RecipeService>();
         services.AddScoped<PantryService>();

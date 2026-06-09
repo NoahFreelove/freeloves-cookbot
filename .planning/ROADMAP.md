@@ -50,7 +50,7 @@ Full details: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [req
 - [x] **Phase 12: Richer Format + v3→v4 Schema Bump** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance; upcaster chain to v4; AI prompt + snapshot test (4/4 plans; automated-verified 10/10 + 377 tests; human UAT 4/4 pass) — completed 2026-06-06
 - [x] **Phase 13: Export & Interoperability** — Schema.org JSON-LD in RecipeView head; Cooklang (.cook) one-way export; depends on Phase 12 (completed 2026-06-06)
 - [x] **Phase 14: Photo Gallery** — RecipePhoto entity + multi-upload + gallery UI + AI search-term helper; depends on Phase 12 (completed 2026-06-07)
-- [ ] **Phase 15: Nutrition (Offline USDA)** — bundled FDC seed, NutritionService, per-serving panel with coverage indicator + disclaimer; nutrition wired into JSON-LD; depends on Phases 12–14
+- [x] **Phase 15: Nutrition (Offline CNF)** — bundled Canadian Nutrient File seed, NutritionService, per-serving panel with coverage indicator + Health Canada attribution disclaimer; nutrition wired into JSON-LD; depends on Phases 12–14 (completed 2026-06-08)
 - [ ] **Phase 16: UAT + Integration** — Playwright harness extended for v1.4 flows + cross-theme integration verification
 
 ## Phase Details
@@ -129,20 +129,42 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 15: Nutrition (Offline USDA)
+### Phase 15: Nutrition (Offline CNF — Canadian Nutrient File)
 
-**Goal**: Every recipe can show an estimated calorie and macro panel computed entirely offline from USDA FoodData Central Foundation Foods data — with explicit coverage indicators and a mandatory disclaimer, never blocking the recipe save path
+**Data source** (decided 2026-06-07, pre-Phase-15): **Canadian Nutrient File (CNF)** from Health Canada — NOT USDA FDC. User is Canadian (`UnitSystem=Canadian`). CNF is the offline relational-CSV bulk download (~5,993 foods, per-100 g, bilingual) under the **Open Government Licence – Canada** (redistribution allowed; *requires* Health Canada attribution; nutrient values must not be modified — per-serving re-expression is allowed). CNF ships household-measure→gram **Conversion Factors**, which replace most of the external density table. USDA FDC optionally retained as a gap-fill fallback. See PROJECT.md Key Decisions / STATE.md Key v1.4 Decisions.
+
+**Goal**: Every recipe can show an estimated calorie and macro panel computed entirely offline from Canadian Nutrient File data — with explicit coverage indicators and a mandatory disclaimer, never blocking the recipe save path
 **Depends on**: Phases 12, 13, 14 (NUTR-06 wires `nutrition.calories` into the JSON-LD block already laid in Phase 13; photo gallery hero feeds `image` in the same block)
 **Requirements**: NUTR-01, NUTR-02, NUTR-03, NUTR-04, NUTR-05, NUTR-06
 **Success Criteria** (what must be TRUE):
 
-  1. Nutrition is computed fully offline — the USDA Foundation Foods seed is bundled in SQLite; no API key is required, no runtime external calls are made; "Calculate nutrition" CTA triggers computation only on explicit user action, never blocking recipe save
-  2. Ingredients that could not be matched show "--" (not zero) with their names listed explicitly; low-confidence volume→mass conversions (non-water density) show "≈" and the matched food description + FDC food ID are visible to the user
-  3. "1 cup all-purpose flour" resolves via the ingredient-specific density lookup (not water density) to approximately 455 kcal — the density table is covered by unit tests for at least 20 common cooking ingredients
-  4. Every nutrition panel carries a non-dismissable "Estimated nutrition — not suitable for medical dietary planning. Data: USDA FoodData Central" disclaimer; the heading reads "Estimated nutrition," never "Calories"
+  1. Nutrition is computed fully offline — the Canadian Nutrient File seed is bundled in SQLite; no API key is required, no runtime external calls are made; "Calculate nutrition" CTA triggers computation only on explicit user action, never blocking recipe save
+  2. Ingredients that could not be matched show "--" (not zero) with their names listed explicitly; low-confidence volume→mass conversions (where no CNF conversion factor applies) show "≈" and the matched CNF food description + CNF food code are visible to the user
+  3. "1 cup all-purpose flour" resolves via the CNF conversion factor (or, when CNF has no factor, an ingredient-specific fallback density — not water density) to approximately 455 kcal — conversions covered by unit tests for at least 20 common cooking ingredients
+  4. Every nutrition panel carries a non-dismissable "Estimated nutrition — not suitable for medical dietary planning. Data: Health Canada, Canadian Nutrient File (2015)." disclaimer (satisfies the OGL-Canada attribution requirement); the heading reads "Estimated nutrition," never "Calories"
   5. When nutrition data exists, `nutrition.calories` (and protein/carbs/fat) appear in the recipe's Schema.org JSON-LD output; when absent, the field is omitted cleanly
 
-**Plans**: TBD
+**Plans**: 7 plans (4 waves)
+Plans:
+**Wave 1** *(foundation, parallel — no file overlap)*
+
+- [x] 15-01-PLAN.md — Offline CNF seed build script + bundled seeds/nutrition/*.json (NUTR-01 data)
+- [x] 15-02-PLAN.md — Domain entities (CnfFood/CnfConversionFactor/RecipeNutritionCache) + NutritionInfoDto + shared IngredientNormalizer (NUTR-01/02/06)
+- [x] 15-04-PLAN.md — IngredientDensityProvider curated g/mL table + DI + >=20-ingredient tests (NUTR-03)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [x] 15-03-PLAN.md — EF configs + DbContext DbSets + AddNutritionTables migration + idempotent seed load (NUTR-01)
+- [x] 15-06-PLAN.md — JsonLdRecipeProjector nutrition param + present/absent golden tests (NUTR-06)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [x] 15-05-PLAN.md — NutritionService matcher + CNF-factor/density compute + cache + DI + RecipeService stale-mark + flour-anchor/unmatched/stale tests (NUTR-02/03/04)
+
+**Wave 4** *(blocked on Wave 3, checkpoint)*
+
+- [x] 15-07-PLAN.md — RecipeView 5-state nutrition panel + CTA + coverage + disclaimer + JSON-LD wiring + human-verify (NUTR-04/05/06)
+
 **UI hint**: yes
 
 ### Phase 16: UAT + Integration
@@ -176,7 +198,7 @@ Plans:
 | 12. Richer Format + v3→v4 Schema Bump | v1.4 | 4/4 | Needs UAT (automated-verified) | — |
 | 13. Export & Interoperability | v1.4 | 3/3 | Complete    | 2026-06-06 |
 | 14. Photo Gallery | v1.4 | 4/4 | Complete   | 2026-06-07 |
-| 15. Nutrition (Offline USDA) | v1.4 | 0/TBD | Not started | — |
+| 15. Nutrition (Offline CNF) | v1.4 | 7/7 | Complete   | 2026-06-08 |
 | 16. UAT + Integration | v1.4 | 0/TBD | Not started | — |
 
 ---

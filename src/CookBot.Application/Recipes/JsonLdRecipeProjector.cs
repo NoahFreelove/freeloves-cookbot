@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CookBot.Application.DTOs;
 using CookBot.Application.Services;
 using CookBot.Domain.Recipes;
 
@@ -66,7 +67,15 @@ public static class JsonLdRecipeProjector
     /// An absolute HTTPS image URL resolved at the Web layer (via NavigationManager + RecipePhotoUrlValidator),
     /// or null. The image property is omitted entirely when null — the projector never derives the URL itself.
     /// </param>
-    public static string Project(RecipeDocument doc, string? absoluteImageUrl)
+    /// <param name="nutrition">
+    /// Optional per-serving nutrition value object (NUTR-06 / SC5 / D-15-13 / Phase 15).
+    /// When non-null, emits a Schema.org <c>NutritionInformation</c> object with per-serving
+    /// <c>calories</c>, <c>proteinContent</c>, <c>carbohydrateContent</c>, and <c>fatContent</c>.
+    /// When null (default), the <c>nutrition</c> key is omitted entirely — the absent path
+    /// is byte-identical to the Phase 13 baseline. The projector stays pure; the Web layer
+    /// (<c>RecipeView</c>) constructs this from <c>RecipeNutritionCache</c> and passes it in.
+    /// </param>
+    public static string Project(RecipeDocument doc, string? absoluteImageUrl, NutritionInfoDto? nutrition = null)
     {
         // Keywords: ALL tags always go to keywords (comma-joined).
         var keywords = doc.Tags.Count > 0 ? string.Join(", ", doc.Tags) : null;
@@ -140,6 +149,17 @@ public static class JsonLdRecipeProjector
         if (recipeIngredient is not null)        model["recipeIngredient"] = recipeIngredient;
         if (recipeInstructions.Count > 0)        model["recipeInstructions"] = recipeInstructions;
         if (author is not null)                  model["author"] = author;
+        if (nutrition is not null)
+        {
+            model["nutrition"] = new Dictionary<string, string>
+            {
+                ["@type"]               = "NutritionInformation",
+                ["calories"]            = $"{nutrition.CaloriesPerServing:0} calories",
+                ["proteinContent"]      = $"{nutrition.ProteinGPerServing:0.#} g",
+                ["carbohydrateContent"] = $"{nutrition.CarbGPerServing:0.#} g",
+                ["fatContent"]          = $"{nutrition.FatGPerServing:0.#} g",
+            };
+        }
         // NEVER emit: aggregateRating, review, datePublished
 
         return JsonSerializer.Serialize(model, LdOptions);

@@ -44,8 +44,9 @@ public class OwnershipTests : IDisposable
 
         var canonicalSerializer = new JsonRecipeSerializer();
         var recipePhotoRepo = new Repository<RecipePhoto>(_db);
+        var nutritionCacheRepo = new Repository<RecipeNutritionCache>(_db);
         var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo,
-            recipePhotoRepo, new NullPhotoFileStorage(), canonicalSerializer,
+            recipePhotoRepo, nutritionCacheRepo, new NullPhotoFileStorage(), canonicalSerializer,
             NullLogger<RecipeService>.Instance);
 
         var parsed = new ParsedRecipe
@@ -107,8 +108,9 @@ public class OwnershipTests : IDisposable
 
         var canonicalSerializer = new JsonRecipeSerializer();
         var recipePhotoRepo = new Repository<RecipePhoto>(_db);
+        var nutritionCacheRepo = new Repository<RecipeNutritionCache>(_db);
         var service = new RecipeService(parser, recipeRepo, ingredientRepo, cookbookRepo, recipeTagRepo,
-            recipePhotoRepo, new NullPhotoFileStorage(), canonicalSerializer,
+            recipePhotoRepo, nutritionCacheRepo, new NullPhotoFileStorage(), canonicalSerializer,
             NullLogger<RecipeService>.Instance);
 
         // Act & Assert: user2 tries to delete recipe in user1's cookbook

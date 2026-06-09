@@ -37,6 +37,12 @@ public static class DependencyInjection
         // for ExecuteUpdateAsync / OrderBy / CountAsync that the generic IRepository<T> doesn't expose.
         services.AddScoped<RecipePhotoService>();
 
+        // Phase 15 / NUTR-02..04 — offline nutrition compute engine.
+        // Scoped: depends on the Scoped CookBotDbContext.
+        // Lives in Infrastructure (not Application) because it injects CookBotDbContext directly
+        // for bulk CNF food load (AsNoTracking) — mirrors the RecipePhotoService precedent.
+        services.AddScoped<INutritionService, NutritionService>();
+
         services.AddApplication();
 
         return services;

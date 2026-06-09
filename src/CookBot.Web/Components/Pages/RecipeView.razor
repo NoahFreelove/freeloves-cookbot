@@ -1,5 +1,6 @@
 @page "/recipes/{RecipeId:int}"
 @using System.Text.Json
+@using CookBot.Application.DTOs
 @using CookBot.Application.Recipes
 @using CookBot.Application.Services
 @using CookBot.Domain.Entities
@@ -20,6 +21,7 @@
 @inject RecipeUnitDisplayService UnitDisplayService
 @inject IJSRuntime JS
 @inject RecipePhotoUrlValidator UrlValidator
+@inject INutritionService NutritionSvc
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -356,6 +358,206 @@
                 }
             </div>
         </div>
+
+        @* Phase 15 / NUTR-04/05 — 5-state nutrition panel (UI-SPEC §State Machine).
+           Placement: inside recipe-article, after recipe-body-grid, margin-top:48px (2xl). *@
+        <section aria-label="Estimated nutrition" style="margin-top:48px;">
+            <CbCard Padding="24">
+                @if (_nutritionError)
+                {
+                    @* ── State 5: Error ──────────────────────────────────────────────── *@
+                    <CbEyebrow><div style="margin-bottom:8px;">Estimated nutrition</div></CbEyebrow>
+                    <div role="status" aria-live="polite"
+                         style="display:flex;align-items:center;gap:8px;
+                                background:var(--error-soft);border-radius:var(--t-radius-sm);
+                                padding:8px 16px;margin-top:8px;font-size:14px;color:var(--error);">
+                        Nutrition calculation failed — try again.
+                    </div>
+                    <div style="margin-top:16px;">
+                        <CbButton Variant="CbButton.CbButtonVariant.Accent" OnClick="CalculateNutrition">
+                            Try again
+                        </CbButton>
+                    </div>
+                }
+                else if (_nutritionCache == null || _nutritionCalculating)
+                {
+                    @* ── State 1 (null cache) or State 4 (calculating) ───────────────── *@
+                    <CbEyebrow><div style="margin-bottom:8px;">Estimated nutrition</div></CbEyebrow>
+                    <p style="font-size:14px;color:var(--ink-3);margin:0 0 12px 0;">Nutrition not yet calculated.</p>
+                    <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                              Disabled="@_nutritionCalculating"
+                              OnClick="CalculateNutrition">
+                        @if (_nutritionCalculating)
+                        {
+                            <span class="cb-pulse">Calculating…</span>
+                        }
+                        else
+                        {
+                            <text>Calculate nutrition</text>
+                        }
+                    </CbButton>
+                }
+                else
+                {
+                    @* ── State 2 (IsStale=false) or State 3 (IsStale=true) ────────────── *@
+                    var cache = _nutritionCache!;
+                    var matches = ParsePerIngredientMatches(cache.PerIngredientMatchJson);
+                    var visibleRows = _showAllMatches
+                        ? matches
+                        : matches.Where(m => m.Confidence == "UNMATCHED" || m.Confidence == "MEDIUM").ToList();
+                    // WR-05: Use cache.MatchedIngredients as the single source of truth for
+                    // the matched count (energy-bearing matches).  The previous panel-local
+                    // Count(m.Confidence != "UNMATCHED") differed from the service definition
+                    // (which also requires EnergyKcal.HasValue), so the toggle-button count
+                    // could diverge from the headline number.  Using the cached field keeps
+                    // both the "Matched N of total" headline and "Show all N matches" button
+                    // consistent with what NutritionService actually counted.
+                    var matchedCount = cache.MatchedIngredients;
+
+                    @* 2a. Panel header row *@
+                    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                        <CbEyebrow>Estimated nutrition</CbEyebrow>
+                        @* Per-serving / Total segmented toggle *@
+                        <div role="radiogroup"
+                             aria-label="Nutrition display mode"
+                             style="display:flex;border:1px solid var(--line-strong);border-radius:999px;padding:4px;gap:4px;"
+                             @onkeydown="HandleToggleKeyDown">
+                            <button role="radio"
+                                    aria-checked="@(_nutritionPerServing ? "true" : "false")"
+                                    class="@(_nutritionPerServing ? "cb-btn accent" : "cb-btn subtle")"
+                                    style="height:32px;padding:0 16px;font-size:14px;font-weight:400;"
+                                    @onclick="@(() => { _nutritionPerServing = true; StateHasChanged(); })">
+                                Per serving
+                            </button>
+                            <button role="radio"
+                                    aria-checked="@(!_nutritionPerServing ? "true" : "false")"
+                                    class="@(!_nutritionPerServing ? "cb-btn accent" : "cb-btn subtle")"
+                                    style="height:32px;padding:0 16px;font-size:14px;font-weight:400;"
+                                    @onclick="@(() => { _nutritionPerServing = false; StateHasChanged(); })">
+                                Total
+                            </button>
+                        </div>
+                    </div>
+
+                    @* State 3 stale banner (between header row and macro row) *@
+                    @if (cache.IsStale)
+                    {
+                        <div role="status" aria-live="polite"
+                             style="display:flex;align-items:center;gap:8px;
+                                    background:var(--warn-soft);border-radius:var(--t-radius-sm);
+                                    padding:8px 16px;margin-top:8px;font-size:14px;color:var(--warn);">
+                            <Icon Name="@Icon.Names.Clock" Size="14" />
+                            Recipe has changed — values may be outdated.
+                            <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                                      style="margin-left:auto;"
+                                      OnClick="CalculateNutrition">
+                                Recalculate nutrition
+                            </CbButton>
+                        </div>
+                    }
+
+                    @* 2b. Macro stat row (4-up grid; 2-col at <=720px) *@
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:16px;
+                                @(cache.IsStale ? "opacity:0.7;" : "")">
+                        @{
+                            double energy  = _nutritionPerServing ? cache.PerServingEnergyKcal : cache.TotalEnergyKcal;
+                            double protein = _nutritionPerServing ? cache.PerServingProteinG    : cache.TotalProteinG;
+                            double carbs   = _nutritionPerServing ? cache.PerServingCarbG       : cache.TotalCarbG;
+                            double fat     = _nutritionPerServing ? cache.PerServingFatG        : cache.TotalFatG;
+                        }
+                        <div>
+                            <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">@energy.ToString("0")</div>
+                            <div style="font-size:12.5px;color:var(--ink-3);font-weight:400;">kcal · Energy</div>
+                        </div>
+                        <div>
+                            <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">@protein.ToString("0.#")</div>
+                            <div style="font-size:12.5px;color:var(--ink-3);font-weight:400;">g · Protein</div>
+                        </div>
+                        <div>
+                            <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">@carbs.ToString("0.#")</div>
+                            <div style="font-size:12.5px;color:var(--ink-3);font-weight:400;">g · Carbs</div>
+                        </div>
+                        <div>
+                            <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">@fat.ToString("0.#")</div>
+                            <div style="font-size:12.5px;color:var(--ink-3);font-weight:400;">g · Fat</div>
+                        </div>
+                    </div>
+
+                    @* 2c. Horizontal rule *@
+                    <hr class="cb-rule" style="margin:16px 0;" />
+
+                    @* 2d. Coverage summary *@
+                    <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px;">
+                        Matched @cache.MatchedIngredients of @cache.TotalIngredients ingredients
+                    </div>
+
+                    @* 2e. Coverage list *@
+                    @foreach (var row in visibleRows)
+                    {
+                        <div style="display:flex;align-items:baseline;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);">
+                            @if (row.Confidence == "HIGH")
+                            {
+                                <span class="cb-chip cb-badge cb-badge-in-stock" style="flex-shrink:0;">HIGH</span>
+                            }
+                            else if (row.Confidence == "MEDIUM")
+                            {
+                                <span class="cb-chip cb-badge cb-badge-low" style="flex-shrink:0;">≈</span>
+                            }
+                            else
+                            {
+                                <span class="cb-chip cb-badge cb-badge-out" style="flex-shrink:0;">—</span>
+                            }
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:14px;color:var(--ink-2);">@row.Name</div>
+                                @if (row.Confidence != "UNMATCHED" && row.CnfFoodDescription != null)
+                                {
+                                    <div style="font-size:12.5px;color:var(--ink-4);">@row.CnfFoodDescription [@row.CnfFoodId]</div>
+                                }
+                            </div>
+                            <div class="num" style="font-size:14px;color:@(row.Confidence == "UNMATCHED" ? "var(--ink-4)" : "var(--ink-2)");">
+                                @if (row.Confidence == "UNMATCHED")
+                                {
+                                    <text>--</text>
+                                }
+                                else if (row.Confidence == "MEDIUM")
+                                {
+                                    <text>≈@(row.EnergyKcal.HasValue ? row.EnergyKcal.Value.ToString("0") : "--")</text>
+                                }
+                                else
+                                {
+                                    <text>@(row.EnergyKcal.HasValue ? row.EnergyKcal.Value.ToString("0") : "--")</text>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (matchedCount > 0)
+                    {
+                        <div style="margin-top:8px;">
+                            <button class="cb-btn ghost"
+                                    style="font-size:12.5px;"
+                                    @onclick="@(() => { _showAllMatches = !_showAllMatches; StateHasChanged(); })">
+                                @if (_showAllMatches)
+                                {
+                                    <text>Hide matched</text>
+                                }
+                                else
+                                {
+                                    <text>Show all @matchedCount matches</text>
+                                }
+                            </button>
+                        </div>
+                    }
+                }
+
+                @* ── Nutrition disclaimer — always visible in ALL states, never conditional ──────── *@
+                <div role="note"
+                     aria-label="Nutrition data notice"
+                     style="font-size:12.5px;color:var(--ink-3);line-height:1.4;margin-top:16px;">
+                    Estimated nutrition — not suitable for medical dietary planning. Data: Health Canada, Canadian Nutrient File (2015).
+                </div>
+            </CbCard>
+        </section>
+
     </article>
 }
 else if (_loaded && _recipe != null && _doc == null)
@@ -458,6 +660,17 @@ else if (_loaded)
     private int _displayedPhotoId;
     private readonly HashSet<int> _failedPhotoIds = new();
 
+    // Phase 15 / NUTR-04 — nutrition panel state (5-state machine, UI-SPEC).
+    // _nutritionCache: null = not yet calculated; non-null = calculated (may be stale).
+    // _nutritionCalculating: State 4 (in-progress). _nutritionError: State 5 (error).
+    // _showAllMatches: toggles the coverage list between unmatched+low-confidence only and all rows.
+    // _nutritionPerServing: true = per-serving (default, D-15-15); false = total values.
+    private RecipeNutritionCache? _nutritionCache;
+    private bool _nutritionCalculating;
+    private bool _nutritionError;
+    private bool _showAllMatches;
+    private bool _nutritionPerServing = true;
+
     private string TotalTimeText
     {
         get
@@ -493,6 +706,12 @@ else if (_loaded)
             // Phase 12 — reset provenance URL and equipment state for the new recipe.
             _validatedSourceUrl = null;
             _checkedEquipment.Clear();
+            // Phase 15 — reset nutrition panel state for the new recipe.
+            _nutritionCache = null;
+            _nutritionCalculating = false;
+            _nutritionError = false;
+            _showAllMatches = false;
+            _nutritionPerServing = true;
 
             // INTEROP-01 — prerender-safe DB read + JSON-LD projection.
             // This runs in OnParametersSetAsync (no JS interop) so the JSON-LD block
@@ -566,7 +785,11 @@ else if (_loaded)
                 }
             }
 
-            _jsonLd = JsonLdRecipeProjector.Project(doc, absoluteImageUrl);
+            // Phase 15 / NUTR-06 / SC5 — at prerender time, _nutritionCache is always null
+            // (the interactive circuit hasn't run yet). The interactive path rebuilds _jsonLd
+            // with nutrition once the cache is loaded. Pass null here so the prerender JSON-LD
+            // omits nutrition (correct: no nutrition has been computed yet at this point).
+            _jsonLd = JsonLdRecipeProjector.Project(doc, absoluteImageUrl, nutrition: null);
         }
         catch (Exception)
         {
@@ -663,6 +886,66 @@ else if (_loaded)
                 var profile = await DbContext.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
                 if (profile != null)
                     _unitSystem = profile.UnitSystem;
+
+                // Phase 15 / NUTR-04 — load existing nutrition cache (best-effort; never blocks the page).
+                // On load we only READ the cache (null = not yet calculated, non-null = computed/stale).
+                // We NEVER call ComputeAsync on load — only on explicit CTA click (SC1/P7).
+                try
+                {
+                    _nutritionCache = await NutritionSvc.GetCacheAsync(RecipeId, userId);
+                }
+                catch
+                {
+                    _nutritionCache = null; // best-effort — nutrition unavailable, panel shows State 1
+                }
+
+                // Phase 15 / NUTR-06 / SC5 — rebuild JSON-LD with nutrition when a current cache exists.
+                // The prerender path produced _jsonLd without nutrition; now that we have the cache,
+                // rebuild it with per-serving NutritionInfoDto if the cache is current (IsStale=false).
+                if (_doc != null)
+                {
+                    try
+                    {
+                        NutritionInfoDto? nutritionDto = _nutritionCache is { IsStale: false }
+                            ? new NutritionInfoDto(
+                                _nutritionCache.PerServingEnergyKcal,
+                                _nutritionCache.PerServingProteinG,
+                                _nutritionCache.PerServingFatG,
+                                _nutritionCache.PerServingCarbG)
+                            : null;
+
+                        // Resolve absoluteImageUrl (same logic as LoadRecipeDocumentForPrerenderAsync).
+                        string? absoluteImageUrlForLd = null;
+                        if (!string.IsNullOrWhiteSpace(_doc.PhotoUrl))
+                        {
+                            if (UrlValidator.TryValidate(_doc.PhotoUrl, out var normUrl, out _) && normUrl != null &&
+                                normUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                            {
+                                absoluteImageUrlForLd = normUrl;
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    var baseUri = new Uri(Navigation.BaseUri);
+                                    if (baseUri.Scheme == "https")
+                                    {
+                                        var composed = new Uri(baseUri, _doc.PhotoUrl);
+                                        if (composed.Scheme == "https")
+                                            absoluteImageUrlForLd = composed.AbsoluteUri;
+                                    }
+                                }
+                                catch (UriFormatException) { /* invalid relative path — omit */ }
+                            }
+                        }
+
+                        _jsonLd = JsonLdRecipeProjector.Project(_doc, absoluteImageUrlForLd, nutritionDto);
+                    }
+                    catch
+                    {
+                        // Best-effort — keep existing _jsonLd if rebuild fails.
+                    }
+                }
             }
 
             _loaded = true;
@@ -828,5 +1111,132 @@ else if (_loaded)
         if (sub.Amount != null)
             return $"{sub.Amount}";
         return string.Empty;
+    }
+
+    // ── Phase 15 / NUTR-04 — Nutrition panel methods ────────────────────────────────
+
+    /// <summary>
+    /// CTA handler — the ONLY compute trigger (SC1/P7).
+    /// Transitions to State 4 (calculating), calls ComputeAsync, then to State 2 or 5.
+    /// Never triggered on load or save.
+    /// </summary>
+    private async Task CalculateNutrition()
+    {
+        if (!UserService.CurrentUserId.HasValue) return;
+        var userId = UserService.CurrentUserId.Value;
+
+        _nutritionCalculating = true;
+        _nutritionError = false;
+        StateHasChanged();
+
+        try
+        {
+            _nutritionCache = await NutritionSvc.ComputeAsync(RecipeId, userId);
+
+            // Phase 15 / NUTR-06 / SC5 — rebuild JSON-LD with fresh per-serving nutrition.
+            if (_doc != null)
+            {
+                try
+                {
+                    var nutritionDto = new NutritionInfoDto(
+                        _nutritionCache.PerServingEnergyKcal,
+                        _nutritionCache.PerServingProteinG,
+                        _nutritionCache.PerServingFatG,
+                        _nutritionCache.PerServingCarbG);
+
+                    string? absoluteImageUrlForLd = null;
+                    if (!string.IsNullOrWhiteSpace(_doc.PhotoUrl))
+                    {
+                        if (UrlValidator.TryValidate(_doc.PhotoUrl, out var normUrl, out _) && normUrl != null &&
+                            normUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            absoluteImageUrlForLd = normUrl;
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var baseUri = new Uri(Navigation.BaseUri);
+                                if (baseUri.Scheme == "https")
+                                {
+                                    var composed = new Uri(baseUri, _doc.PhotoUrl);
+                                    if (composed.Scheme == "https")
+                                        absoluteImageUrlForLd = composed.AbsoluteUri;
+                                }
+                            }
+                            catch (UriFormatException) { /* invalid relative path — omit */ }
+                        }
+                    }
+
+                    _jsonLd = JsonLdRecipeProjector.Project(_doc, absoluteImageUrlForLd, nutritionDto);
+                }
+                catch
+                {
+                    // Best-effort — keep existing _jsonLd if rebuild fails.
+                }
+            }
+        }
+        catch
+        {
+            _nutritionError = true;
+        }
+        finally
+        {
+            _nutritionCalculating = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Parses the PerIngredientMatchJson blob from RecipeNutritionCache into a typed list
+    /// for rendering the coverage list. Returns empty list on parse failure (best-effort).
+    /// </summary>
+    private static List<PerIngredientDisplayRow> ParsePerIngredientMatches(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            return JsonSerializer.Deserialize<List<PerIngredientDisplayRow>>(json, options) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Keyboard navigation for the per-serving / total segmented toggle (role="radiogroup").
+    /// Arrow keys move between the two options per ARIA pattern.
+    /// </summary>
+    private void HandleToggleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "ArrowLeft" or "ArrowUp" or "ArrowRight" or "ArrowDown")
+        {
+            _nutritionPerServing = !_nutritionPerServing;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Typed view model for rendering one row in the coverage list.
+    /// Maps the per-ingredient JSON schema produced by NutritionService.
+    /// </summary>
+    private sealed class PerIngredientDisplayRow
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("cnfFoodId")]
+        public int? CnfFoodId { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("cnfFoodDescription")]
+        public string? CnfFoodDescription { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("confidence")]
+        public string Confidence { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("energyKcal")]
+        public double? EnergyKcal { get; set; }
     }
 }

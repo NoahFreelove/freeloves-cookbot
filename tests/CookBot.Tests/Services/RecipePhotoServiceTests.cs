@@ -85,6 +85,7 @@ public class RecipePhotoServiceTests : IDisposable
         var cookbookRepo = new Repository<Cookbook>(_db);
         var recipeTagRepo = new Repository<RecipeTag>(_db);
         var recipePhotoRepo = new Repository<RecipePhoto>(_db);
+        var nutritionCacheRepo = new Repository<RecipeNutritionCache>(_db);
 
         _recipeService = new RecipeService(
             new StubRecipeFormatParser(),
@@ -93,6 +94,7 @@ public class RecipePhotoServiceTests : IDisposable
             cookbookRepo,
             recipeTagRepo,
             recipePhotoRepo,
+            nutritionCacheRepo,
             new NullPhotoFileStorage(),
             serializer,
             NullLogger<RecipeService>.Instance);
