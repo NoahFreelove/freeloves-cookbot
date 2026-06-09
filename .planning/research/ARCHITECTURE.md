@@ -1,682 +1,592 @@
 # Architecture Research
 
-**Domain:** v1.3 Production-Ready & Format Maturity — integration points for new capabilities into existing Clean/Onion stack
-**Researched:** 2026-05-15
-**Confidence:** HIGH (all findings drawn from direct source inspection of the live codebase + official ASP.NET Core 10 docs)
+**Domain:** v1.4 Recipe Data & Interoperability — integration of 5 new themes into existing Clean/Onion .NET 10 Blazor Server app
+**Researched:** 2026-06-05
+**Confidence:** HIGH (codebase read directly; external specs verified against official docs)
 
 ---
 
-## Integration Point Map
+## System Overview — Existing Architecture (v1.3 baseline)
 
-Every v1.3 capability is listed below with its named seam in the existing code. "New file" means a file that does not yet exist; "touch" means an existing file that must change.
-
-### Bucket 1 — Schema v3 + Photos
-
-#### RecipeDocument v3 placement
-
-**Decision:** v3 is a new `sealed record RecipeDocumentV3` in the same file, `src/CookBot.Domain/Recipes/RecipeDocument.cs`, following the same `sealed record RecipeDocument` declaration that is v2 today.
-
-v1.1 Phase 1 did not version the type name — it just replaced the monolithic entity with a single canonical record. There is no `RecipeDocumentV1.cs` / `RecipeDocumentV2.cs` pattern to mirror because the upcasting happens at the JSON-node level (`IRecipeUpcaster.Upcast(JsonNode)`) before typed deserialization, so the C# type is always the current version. The correct pattern therefore is:
-
-1. Add three new nullable properties to the **existing** `RecipeDocument` record: `PhotoUrl`, `Description`, and (on `ContentStep`) `Temperature`.
-2. Bump `RecipeUpcasterChain.CurrentVersion` from `2` to `3`.
-3. Add a new `Migration_V2_To_V3` upcaster that stamps `version: 3` and otherwise no-ops (all three fields default `null` when absent).
-
-This keeps the C# type stable — there is no `RecipeDocumentV2` alias to maintain — while the version field in the JSON column tracks the schema generation. `JsonRecipeSerializer` (which uses `WhenWritingNull`) will omit the three new nullable fields from compact storage when not set, preserving backward-compat on read.
-
-Files:
-- **Touch** `src/CookBot.Domain/Recipes/RecipeDocument.cs` — add `PhotoUrl string?`, `Description string?`
-- **Touch** `src/CookBot.Domain/Recipes/StepNode.cs` — add `Temperature int?` to `ContentStep`
-- **Touch** `src/CookBot.Application/Recipes/RecipeUpcasterChain.cs` — bump `CurrentVersion = 3`
-- **New** `src/CookBot.Application/Recipes/Migration_V2_To_V3.cs` — trivial: stamps version, no-ops on data
-- **Touch** `src/CookBot.Application/DependencyInjection.cs` — register `services.AddSingleton<IRecipeUpcaster, Migration_V2_To_V3>()`
-
-#### V2→V3 upcaster default values
-
-`Migration_V2_To_V3.Upcast(JsonNode)` must:
-- Set `obj["version"] = 3`
-- Leave `photoUrl`, `description`, and per-step `temperature` absent (not set to null JSON tokens) — the typed deserializer maps absent JSON keys to `null` for nullable C# properties, and `JsonRecipeSerializer` skips null on serialize. No explicit null-injection needed.
-
-This is simpler than `Migration_V1_To_V2`, which had to rewrite the step shape. V2→V3 is a pure stamp.
-
-#### Per-step temperature placement
-
-`Temperature` belongs on `ContentStep` as `int? Temperature` (degrees, unit unambiguous from context — the AI prompt documents the unit). It does NOT warrant a sub-record (`Temperature` value object) at v1.3; a plain nullable int is sufficient and avoids polymorphic schema complexity.
-
-`CookingMode.razor` reads steps from the canonical doc via `Recipe.CanonicalDocumentJson` → `JsonRecipeSerializer.Deserialize` → `RecipeDocument.Steps`. Temperature should render as a compact inline chip ("Preheat to 375°F") alongside the step text when non-null. A dedicated "preheat to" callout block is reserved for v1.4+ when doneness cues (FUTURE-04) arrive and a richer step metadata panel makes sense. At v1.3 the chip pattern is consistent with how timer chips appear on steps today.
-
-#### File upload storage decision
-
-**Decision: `wwwroot/uploads/` with `UseStaticFiles` middleware added in `Program.cs`.**
-
-Rationale, sourced from official ASP.NET Core 10 docs: `MapStaticAssets()` (which is what `Program.cs` already calls) only serves assets **discovered at build time** via content fingerprinting. Files written to `wwwroot/uploads/` at runtime are invisible to `MapStaticAssets` and return 404. The official guidance for runtime-uploaded files is to call `UseStaticFiles` additionally, configured with a `PhysicalFileProvider` pointing at the upload directory. The directory can be inside `wwwroot` or outside it; the URL path is configured independently.
-
-Using `wwwroot/uploads/` (inside the web root) keeps the directory relative to `ContentRootPath`, which Docker mounts as a single volume already containing the SQLite file. Storing outside `wwwroot` (e.g. `App_Data/uploads/`) would require a second volume mount for no architectural gain.
-
-The correct `Program.cs` addition, placed before `app.MapStaticAssets()`:
-
-```csharp
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(
-        Path.Combine(builder.Environment.WebRootPath, "uploads")),
-    RequestPath = "/uploads"
-});
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  CookBot.Web  (Blazor Server, InteractiveServer)                     │
+│  ┌──────────┐ ┌───────────┐ ┌──────────────┐ ┌───────────────────┐  │
+│  │RecipeView│ │RecipeEditor│ │AiChat.razor  │ │CookbookPdfService │  │
+│  │          │ │            │ │              │ │CookbookTransfer   │  │
+│  └──────────┘ └───────────┘ └──────────────┘ │LocalRecipePhoto   │  │
+│                                               │  Storage          │  │
+│                                               └───────────────────┘  │
+├─────────────────────────────────────────────────────────────────────┤
+│  CookBot.Application  (pure business logic, no DB/HTTP)              │
+│  ┌───────────────┐ ┌──────────────┐ ┌────────────────────────────┐   │
+│  │RecipeDocument │ │RecipeUpcaster│ │RecipeJsonSchemaProvider     │   │
+│  │  (Domain rec) │ │Chain v1→v2→v3│ │(Anthropic structured-output│   │
+│  │               │ │              │ │ schema, cached Lazy<>)      │   │
+│  └───────────────┘ └──────────────┘ └────────────────────────────┘   │
+│  ┌───────────────┐ ┌──────────────┐ ┌────────────────────────────┐   │
+│  │RecipeValidator│ │JsonRecipe    │ │PromptBuilderService         │   │
+│  │(semantic)     │ │Serializer    │ │AiRecipeGenerator            │   │
+│  └───────────────┘ └──────────────┘ └────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────────┤
+│  CookBot.Infrastructure  (adapters: EF Core 10 + SQLite, HTTP)       │
+│  ┌───────────────┐ ┌──────────────┐ ┌────────────────────────────┐   │
+│  │CookBotDbContext│ │Migrations    │ │AnthropicAiService          │   │
+│  │Recipe entity  │ │(forward-only,│ │(HttpClient, IAiService +   │   │
+│  │.CanonicalDoc  │ │ auto-applied)│ │ IStructuredAiService)      │   │
+│  │  Json         │ │              │ │                            │   │
+│  └───────────────┘ └──────────────┘ └────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────────┤
+│  CookBot.Domain  (pure POCOs, no framework refs)                     │
+│  ┌──────────────────────────────────────────────────────────────┐    │
+│  │ RecipeDocument (sealed record, v3)  IngredientEntry           │    │
+│  │ StepNode → ContentStep | SectionStep  StepTemperature         │    │
+│  │ TimerEntry  NutritionalInfo (stub class, unused today)        │    │
+│  └──────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-This does not conflict with the existing `MapStaticAssets()` call — they serve different content.
-
-**Upload pipeline ownership:** file write is a Web-layer responsibility. `IFormFile` / `IBrowserFile` are ASP.NET / Blazor types unavailable in Application or Domain. The write sits in a new `IRecipePhotoStorage` interface in `CookBot.Domain/Interfaces/` (keeping it abstract) with an implementation `LocalRecipePhotoStorage` in `CookBot.Web/Services/`. The interface takes a stream + content-type, returns a relative URL string (`/uploads/{filename}`).
-
-New files:
-- **New** `src/CookBot.Domain/Interfaces/IRecipePhotoStorage.cs` — `Task<string> StoreAsync(Stream content, string contentType, CancellationToken ct)`
-- **New** `src/CookBot.Web/Services/LocalRecipePhotoStorage.cs` — writes to `wwwroot/uploads/`, enforces size cap + content-type allowlist (`image/jpeg`, `image/png`, `image/webp`, `image/gif`)
-- **Touch** `src/CookBot.Web/Program.cs` — register `IRecipePhotoStorage → LocalRecipePhotoStorage` (Scoped), add `UseStaticFiles` for `/uploads`
-
-Why `IRecipePhotoStorage` in Domain rather than Application: it is a pure capability interface with no business logic. Application services can depend on it for URL-building without taking a Blazor or HTTP dependency.
-
-#### RecipeJsonSchemaProvider update for AI
-
-`RecipeJsonSchemaProvider.BuildSchema()` uses `JsonSchemaExporter` against the `RecipeDocument` type. Adding `PhotoUrl string?` and `Description string?` to `RecipeDocument`, and `Temperature int?` to `ContentStep`, means the schema is updated automatically at the next build — no manual schema editing required. The exporter reflects the C# type.
-
-One manual concern: the lint denylist in `PromptBuilderService` (Plan 01-04 from v1.1) guards against the AI emitting forbidden field aliases. `image`, `imageUrl`, and `picture` should be added to that denylist because `photoUrl` is the canonical name and the AI might hallucinate alternatives.
-
-Files:
-- **Touch** `src/CookBot.Application/Services/PromptBuilderService.cs` — add `"image"`, `"imageUrl"`, `"picture"` to lint denylist
-
-#### URL validator seam
-
-A `RecipePhotoUrlValidator` static helper in Application validates URL scheme (allow only `http`/`https`; reject `javascript:`, `data:`, `file:`). It is called in three places:
-
-1. `RecipeEditor.razor` — on input change, blocks save if invalid
-2. `RecipeService.CreateAsync` / `UpdateAsync` — before persisting (defense-in-depth)
-3. `AiRecipeGenerator` post-process — after deserialization, before returning `StructuredResult`
-
-New file:
-- **New** `src/CookBot.Application/Recipes/RecipePhotoUrlValidator.cs` — `public static bool IsAllowed(string? url)` returning `false` for non-http/https schemes or URLs exceeding 2048 chars
+**Key invariants carried from v1.3:**
+- UI reads canonical `RecipeDocument` via `Recipe.CanonicalDocumentJson` + `JsonRecipeSerializer`. Display-only layers never mutate canonical.
+- Schema bumps ride the upcaster chain (`RecipeUpcasterChain`). `RecipeUpcasterChain.CurrentVersion` is the version gate.
+- System.Text.Json only. No Newtonsoft, no NJsonSchema.
+- `RecipeJsonSchemaProvider` drives Anthropic structured-output — any schema bump requires a provider update (it reflects the POCO type at runtime via `JsonSchemaExporter`).
 
 ---
 
-### Bucket 2 — Format Cleanup
+## Theme 1: Richer Format (v3 → v4)
 
-#### LegacyRecipeProjector deletion sequence
+### What is new vs. modified
 
-`LegacyRecipeProjector` is referenced in six places today:
+**New — CookBot.Domain/Recipes/**
 
-| File | Role |
-|------|------|
-| `src/CookBot.Infrastructure/DependencyInjection.cs` | Registered as `IRecipeProjector` |
-| `src/CookBot.Application/Services/RecipeService.cs` | Injected as `IRecipeProjector _projector`; called in `CreateAsync` and `UpdateAsync` |
-| `src/CookBot.Infrastructure/Data/DatabaseSeeder.cs` | Parameter to `SeedAsync`, used to backfill `CanonicalDocumentJson` |
-| `src/CookBot.Infrastructure/Data/Migrations/Helpers/LegacyRecipeProjector.cs` | The class itself |
-| `src/CookBot.Web/Program.cs` | Passed as argument to `DatabaseSeeder.SeedAsync` |
-| `src/CookBot.Application/Recipes/IRecipeProjector.cs` | The interface |
+| New type | Where | Fields | Notes |
+|---|---|---|---|
+| `IngredientSubstitution` (record) | `IngredientEntry` | `string Name`, `string? Note` | Simple POCO |
+| `DonenessHint` (record or string alias) | `ContentStep` | `string? Doneness` — plain string (e.g., "golden brown", "internal temp 165°F") | Keep as a string; avoid a structured enum that the AI must hit exactly |
+| `EquipmentEntry` (record) | `RecipeDocument` | `string Name`, `string? Note` | Recipe-level list |
 
-Deletion order (fail-loud cutover):
-1. Audit that all `Recipe.CanonicalDocumentJson` rows are non-null (backfill completed in v1.1 Phase 1 — but add a startup assertion in `DatabaseSeeder.SeedAsync` that throws if any row still has a null canonical document).
-2. Replace the `_projector.Project(recipe)` call in `RecipeService.CreateAsync` / `UpdateAsync` with a direct `CanonicalDocumentFromParsed` constructor pattern that builds `RecipeDocument` from the in-memory `ParsedRecipe` (this is what the projector was doing anyway, minus the relational entity navigation).
-3. Remove `LegacyRecipeProjector` from `DependencyInjection.cs`, from `DatabaseSeeder.SeedAsync` signature, and from `Program.cs`.
-4. Delete files: `LegacyRecipeProjector.cs`, `IRecipeProjector.cs`.
+**Modified — existing types**
 
-After deletion, `RecipeService` no longer needs `IRecipeProjector` in its constructor.
+| Type | Change |
+|---|---|
+| `IngredientEntry` | Add `IReadOnlyList<IngredientSubstitution>? Substitutions { get; init; }` |
+| `ContentStep` | Add `string? DonenessCue { get; init; }` |
+| `RecipeDocument` | Add `IReadOnlyList<EquipmentEntry> Equipment { get; init; } = []`; add `RecipeProvenance? Provenance { get; init; }` |
 
-Files to touch: `RecipeService.cs`, `DependencyInjection.cs` (Infrastructure), `DatabaseSeeder.cs`, `Program.cs`
-Files to delete: `LegacyRecipeProjector.cs`, `IRecipeProjector.cs`
+**New — CookBot.Domain/Recipes/RecipeProvenance.cs**
 
-#### TagsJson → relational RecipeTag
+Fields: `string? SourceName`, `string? SourceUrl`, `string? OriginalAuthor`, `DateOnly? AdaptedDate`. All optional / nullable.
 
-**New entity:** `RecipeTag(int Id, int RecipeId, string Name)` with a composite unique index on `(RecipeId, Name)`.
+**New — CookBot.Application/Recipes/Migration_V3_To_V4.cs**
 
-Integration points:
-- **New** `src/CookBot.Domain/Entities/RecipeTag.cs`
-- **New** `src/CookBot.Infrastructure/Data/Configurations/RecipeTagConfiguration.cs`
-- **Touch** `src/CookBot.Infrastructure/Data/CookBotDbContext.cs` — add `DbSet<RecipeTag> RecipeTags`
-- **New** EF migration `AddRecipeTagTable` (includes data migration: reads `Recipe.TagsJson`, inserts `RecipeTag` rows, does NOT drop `TagsJson` in this migration — `TagsJson` becomes a deletion-target column, removed in the next migration after the app has run once with both columns present)
+Follows V2→V3 precedent exactly: per-field null-coalescing no-ops + stamps `version: 4`. Fields are all nullable on the new POCO properties so STJ maps absent→null automatically; guards document the contract and prevent bundle-throw (PITFALLS C7).
 
-`Recipe.Tags` (new navigation property `ICollection<RecipeTag>`) is the authoritative read path. New code must never read `Recipe.TagsJson`. The canonical doc `RecipeDocument.Tags` (which is a `IReadOnlyList<string>`) is populated from the `RecipeTag` rows at serialize time.
+**Modified — RecipeUpcasterChain.cs**
+`CurrentVersion = 4` (was 3).
 
-The `LegacyRecipeProjector` already reads `TagsJson` — this is another reason to delete it before or alongside the tags migration.
+**Modified — RecipeValidator.cs**
+- Add warning (not error) for `EquipmentEntry` with empty name.
+- Add warning for ingredient substitution where `Name` is empty.
+- `DonenessCue` is a free string — no validation rule needed beyond length.
+- `Provenance.SourceUrl` — if present, warn if not a valid http/https URL (use `Uri.TryCreate`).
 
-`RecipeService.CreateAsync` / `UpdateAsync` writes tags to `RecipeTag` rows after the migration. The canonical doc's `Tags` list is sourced from those rows.
+**Modified — RecipeJsonSchemaProvider.cs**
+No code change — the provider reflects `RecipeDocument` via `JsonSchemaExporter` at runtime, so adding the new properties to the POCO automatically updates the Anthropic structured-output schema on next startup. Verify the Anthropic `anyOf`/`additionalProperties` post-walk still behaves with the new nested types.
 
-#### Prompt snapshot test
+**Modified — RecipeSchemaDocumentationProvider.cs + PromptBuilderService.cs**
+Add human-readable documentation for the four new fields to the AI system prompt section. Equipment is recipe-level. Substitutions are per-ingredient. DonenessCue is per-step. Provenance is recipe-level optional metadata.
 
-A new xUnit test class in `tests/CookBot.Tests/Services/PromptBuilderServiceTests.cs` (the file may already exist with other tests; if not, create it). Snapshot files live in `tests/CookBot.Tests/Snapshots/` (flat, next to the test files' output). The test calls `PromptBuilderService.BuildSystemPrompt(defaultProfile, emptyPantry)` and compares the output against a committed `.txt` snapshot. Any change to the prompt requires a deliberate snapshot update (the test fails and the developer updates the file).
+**Modified — RecipeFormatParser.cs / JsonRecipeSerializer.cs**
+Serializer just works (new fields round-trip via STJ). Parser needs YAML-side mapping for any YAML wire-format representation of the new fields. Since the canonical format is JSON-first and YAML is the copy/paste surface, document YAML representations in the format spec section of the prompt.
 
-No new NuGet package is required — use a simple `File.ReadAllText` + `Assert.Equal` pattern. A helper method `UpdateSnapshot(string name, string actual)` writes the file when an env var `COOKBOT_UPDATE_SNAPSHOTS=1` is set, keeping the pattern self-documenting.
+**Modified — CookbookTransferDtos.cs**
+The `CookbookTransferRecipe` DTO inside the export file has historically been a flat shape separate from `RecipeDocument`. With v1.3, that gap should be narrowed. For v1.4, the simplest path is: let `CookbookTransferService` serialize the canonical `RecipeDocument` JSON directly as the recipe payload (rather than a bespoke flat DTO), then on import deserialize through `RecipeUpcasterChain`. This eliminates the DTO-shape divergence once and for all.
 
-New files:
-- **New** `tests/CookBot.Tests/Snapshots/BuildSystemPrompt_DefaultProfile.txt` (committed)
-- **Touch or new** `tests/CookBot.Tests/Services/PromptBuilderServiceTests.cs`
+### EF column decisions
 
----
+All four new field groups (`Equipment`, `Substitutions`, `DonenessCue`, `Provenance`) live **exclusively inside `CanonicalDocumentJson`** — no new EF columns.
 
-### Bucket 3 — QOL
+Rationale:
+- These are format-level fields consumed only by the canonical read path. No query needs to filter by equipment, substitution, or provenance.
+- Adding EF columns for display-only data would require denormalized sync logic between the column and the JSON blob — the same problem v1.3 addressed for `PhotoUrl`/`Description`, which are duplicated columns only because they feed `Recipe.PhotoUrl` for the photo display pipeline (non-canonical read path). No equivalent consumer exists for the new v4 fields.
+- `Recipe.Description` and `Recipe.PhotoUrl` remain the only bridged columns; no new ones for v4.
 
-#### Smart pantry-match
+### Data flow for schema bump
 
-The current `BuildPantryMatchesAsync` in `Home.razor.cs` (a 40-line inline method, comment-flagged `FUTURE-13`) must move into an `IPantryMatchService` in the Application layer. The interface belongs in Application because the algorithm is pure business logic — it requires pantry items, recipe ingredient data, user dietary prefs, and recent cooks (from `IRecipeMadeService`), all of which flow in as parameters with no UI or HTTP concerns.
-
-**Decision:** Extend `IPantryService` for simple add-ons but use a new `IPantryMatchService` for the scoring algorithm. The scoring algorithm is a distinct concern; mixing it into `IPantryService` would grow that class beyond its current CRUD scope.
-
-Interface:
-```csharp
-// src/CookBot.Application/Services/IPantryMatchService.cs
-public interface IPantryMatchService
-{
-    Task<IReadOnlyList<PantryMatchResult>> GetMatchesAsync(
-        int userId,
-        IList<PantryItem> pantryItems,
-        int maxResults = 3,
-        CancellationToken ct = default);
-}
-
-public sealed record PantryMatchResult(
-    int RecipeId,
-    string RecipeName,
-    int MatchedCount,
-    int TotalCount,
-    string MetaLine,
-    string? MissingIngredientName,
-    double Score);
+```
+Import / AI generation
+    ↓
+RecipeUpcasterChain.UpcastToCurrent(jsonNode)   [v3 → v4 via Migration_V3_To_V4]
+    ↓
+JsonRecipeSerializer.Deserialize<RecipeDocument>(json)
+    ↓
+RecipeValidator.Validate(doc)                   [new warnings for provenance URL, empty equipment]
+    ↓
+Recipe.CanonicalDocumentJson = serialized v4 JSON
+    ↓
+RecipeView / Editor read doc.Equipment, doc.Provenance, step.DonenessCue, ing.Substitutions
 ```
 
-Implementation `PantryMatchService` in Application (scoped) injected with `CookBotDbContext` directly — the same pattern used by `Home.razor.cs` today. The service reads `RecipeIngredients` with `Include(Ingredient)`, computes the ingredient-coverage ratio, filters by dietary prefs from `UserProfile`, boosts recently-cooked recipes slightly in rank, excludes expiring pantry items from the "covered" count.
-
-`Home.razor.cs` removes `BuildPantryMatchesAsync` and injects `IPantryMatchService` instead. `_pantryMatches` stays typed to the new record.
-
-New files:
-- **New** `src/CookBot.Application/Services/IPantryMatchService.cs` (interface + result record)
-- **New** `src/CookBot.Application/Services/PantryMatchService.cs` (implementation)
-- **Touch** `src/CookBot.Application/DependencyInjection.cs` — `AddScoped<IPantryMatchService, PantryMatchService>()`
-- **Touch** `src/CookBot.Web/Components/Pages/Home.razor.cs` — inject `IPantryMatchService`, remove `BuildPantryMatchesAsync`
-
-#### AiChat "Edit anyway" hardening
-
-The current `OpenDraftInEditor` in `AiChat.razor` (lines 717–755) already routes through `Parser.TryParse(rawJson, ...)`. The fragile path is the D-09 fallback (line 753): if parsing fails, a toast says "copy it and paste into the editor" — actionable but manual. The hardening at v1.3 routes the D-09 path to a `RawRecipeEditorDialog` instead of just a toast.
-
-The architectural seam is: `OpenDraftInEditor` → on parse failure → `CbDialogService.ShowAsync<RawRecipeEditorDialog>(rawJson)`. `RawRecipeEditorDialog` presents a textarea pre-filled with the raw JSON, a "Try to parse" button (which re-runs `Parser.TryParse` and on success opens `SaveRecipeDialog`), and a "Copy to clipboard" button. This keeps `AiChat.razor` as the entry point — no new routing surface — and avoids exposing a bypass that persists non-conforming recipes (the re-parse gate is preserved).
-
-No new service is required; this is a dialog + existing parser call.
-
-New files:
-- **New** `src/CookBot.Web/Components/Pages/RawRecipeEditorDialog.razor`
-- **Touch** `src/CookBot.Web/Components/Pages/AiChat.razor` — replace D-09 toast with dialog open
-
-#### Accent variant picker
-
-**Decision: localStorage, matching the density toggle pattern.** The density toggle (v1.2 Phase 7 / Plan 07-05) explicitly uses `localStorage` because adding a `Density` column to `UserProfile` would require a migration for a pure UI preference. The exact same reasoning applies to accent: it is a cosmetic browser preference, not a user data attribute. The existing `cookbot-shell.js` already implements `window.cookbot.setAccent(name)` (with `orange | terracotta | sage` allowlist) and `window.cookbot.applyDefaults()` restores it on load. The accent key is `cookbot_accent` (implied by the shell code structure; confirm and persist it there).
-
-What is missing: the Profile page has no UI for the picker. `EditProfile.razor` needs a new section (after the density toggle) with three accent-swatch buttons that call `await JS.InvokeVoidAsync("cookbot.setAccent", name)` and also write to `localStorage` via the existing helper.
-
-Files:
-- **Touch** `src/CookBot.Web/wwwroot/js/cookbot-shell.js` — add `localStorage.setItem("cookbot_accent", v)` to `setAccent` and restore it in `applyDefaults`
-- **Touch** `src/CookBot.Web/Components/Pages/EditProfile.razor` — add accent picker UI + JS interop
-
-No new migration. No `UserProfile` column.
-
-#### Profile-side AI prompt editor
-
-`UserProfile.AiSystemPromptTemplate` already exists (the column is present and `PromptBuilderService.ResolveTemplate` reads it). What is missing is an editor surface on `EditProfile.razor`.
-
-The editor is a `<textarea>` bound to `_aiPromptTemplate` plus a variable-insertion dropdown showing the tokens (`{{experience_level}}`, `{{unit_system}}`, `{{equipment}}`, `{{dietary_preferences}}`, `{{pantry}}`, `{{recipe_format}}`). A "Reset to default" button clears `_aiPromptTemplate` (sets to `null`), which causes `PromptBuilderService.ResolveTemplate` to use `DefaultTemplate`.
-
-The save path goes through `CurrentUserService` or directly through `CookBotDbContext.UserProfiles` (same pattern as other profile fields). No new service is needed.
-
-Files:
-- **Touch** `src/CookBot.Web/Components/Pages/EditProfile.razor` — add prompt editor section
-
 ---
 
-### Bucket 4 — Small-stuff Polish
+## Theme 2: Schema.org JSON-LD Export
 
-#### Cookbook reparenting on edit (D-26)
+### Classification
 
-`RecipeService.UpdateAsync(int recipeId, int userId, ParsedRecipe parsed)` does not accept a `cookbookId`. Reparenting requires:
+Read-only projection. No schema change to `RecipeDocument` or DB. Analogous to `CookbookPdfService` (Web layer service, accepts a `RecipeDocument`, produces a formatted output).
 
-1. Add an optional `int? newCookbookId` parameter to `UpdateAsync`.
-2. When non-null: load the new cookbook, verify `cookbook.UserId == userId` (user must own the destination), update `recipe.CookbookId`.
-3. `RecipeEditor.razor` exposes a cookbook picker (dropdown over the user's owned cookbooks) that passes `newCookbookId` on save.
+### New component: `RecipeJsonLdService`
 
-Shared cookbooks cannot be moved into (the ownership check blocks it). This is correct — if user A shares cookbook X with user B, user B cannot reparent a recipe into X.
+**Layer:** `CookBot.Web/Services/` — it has no DB access needs (the Razor page already loaded the `RecipeDocument`), so Web layer is correct. If it later needs to be testable in isolation from Blazor, move to `CookBot.Application/` and accept `RecipeDocument` directly (preferred — Application layer is the right home for format projections).
 
-Files:
-- **Touch** `src/CookBot.Application/Services/RecipeService.cs` — add `newCookbookId` param
-- **Touch** `src/CookBot.Web/Components/Pages/RecipeEditor.razor` — cookbook picker
+**Recommended layer: CookBot.Application/Recipes/JsonLdRecipeProjector.cs**
 
-#### Pantry per-row quick-add (D-37)
+Rationale: It is a pure function from `RecipeDocument` → `string` (JSON-LD), has no Blazor dependencies, and is testable with xUnit. Follow the same pattern as `RecipeSchemaDocumentationProvider`.
 
-`GroceryListService` has `GenerateFromRecipeAsync` and `GenerateAllFromRecipeAsync` but no single-item add. A new `AddItemAsync(int userId, string ingredientName, string? unit = null)` method is needed that:
-1. Resolves or creates the user's primary grocery list (first list owned by `userId`, or creates one).
-2. Appends a `GroceryListItem`.
-
-`PantryView.razor` adds a grocery-cart icon button per pantry row calling `GroceryListService.AddItemAsync`.
-
-Files:
-- **Touch** `src/CookBot.Application/Services/GroceryListService.cs` — add `AddItemAsync`
-- **Touch** `src/CookBot.Web/Components/Pages/PantryView.razor` — quick-add button per row
-
-#### Moon glyph (D-15)
-
-The dark-mode toggle in `TopBar.razor` renders `<Icon Name="@Icon.Names.Sun" Size="16" />` regardless of mode. The toggle should show the moon glyph when in light mode (indicating "click to go dark") and the sun when in dark mode. This requires:
-
-1. Adding a `Moon` constant to `Icon.Names` and an SVG path entry in `Icon.razor`.
-2. Updating `TopBar.razor` to use `IsDarkMode ? Icon.Names.Sun : Icon.Names.Moon`.
-
-The moon SVG (crescent): `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`.
-
-Files:
-- **Touch** `src/CookBot.Web/Components/Atoms/Icon.razor` — add `Moon = "moon"` constant and SVG path
-
-#### TopBar RightSlot passthrough (D-16)
-
-`TopBar.razor` already has `[Parameter] public RenderFragment? RightSlot { get; set; }` (line 80) and renders it at line 46 (`@RightSlot`). The gap is that `MainLayout.razor` does not expose a way for child pages to populate the slot.
-
-The idiomatic Blazor Server pattern for page → layout slot injection is a cascading parameter from `MainLayout` to its `@Body` subtree. `MainLayout` exposes:
-- `[Parameter] public RenderFragment? TopBarRightSlot { get; set; }` — Blazor doesn't support this directly on layout.
-- Correct approach: use a service (`ICbTopBarService`) with a `RenderFragment? RightSlot` property and `StateHasChanged` callback, registered as Scoped. `MainLayout` subscribes and passes the current `RightSlot` to `TopBar`. Pages inject the service and set `RightSlot` in `OnInitialized`.
-
-This is the same pattern used by toast services (already present as `ICbToastService`). A new `ICbTopBarService` follows that shape.
-
-New files:
-- **New** `src/CookBot.Web/Services/CbTopBarService.cs` — `RenderFragment? RightSlot`, `Action? OnChanged`
-- **Touch** `src/CookBot.Web/Program.cs` — register `AddScoped<ICbTopBarService, CbTopBarService>()`
-- **Touch** `src/CookBot.Web/Components/Layout/MainLayout.razor` — inject service, subscribe, pass `RightSlot` to `TopBar`
-
-#### Home active-timer live JS tick (D-16 / Plan 07-09 adjacent)
-
-The active-timer countdown on `Home.razor` renders a server-side `FormatTimerRemaining(t.RemainingSeconds)` at page-load time. It does not tick. The DOM element already has `id="@_activeTimerCountdownId"` and `data-started-at` / `data-duration` attributes (built for exactly this purpose — "a future enhancement could JS-tick the countdown without a re-render").
-
-The fix is a small JS addition to `cooking-timers.js` (or a new `home-timer-tick.js` — prefer the existing file to avoid an extra `<script>` tag):
-
-```js
-// Ticks the home active-timer countdown element without Blazor re-render.
-window.CookingTimers.startHomeTick = function (elementId) {
-    var el = document.getElementById(elementId);
-    if (!el) return;
-    var started = new Date(el.dataset.startedAt).getTime();
-    var duration = parseInt(el.dataset.duration, 10) * 1000;
-    setInterval(function () {
-        var remaining = Math.max(0, Math.round((started + duration - Date.now()) / 1000));
-        // format MM:SS
-        var m = Math.floor(remaining / 60), s = remaining % 60;
-        el.textContent = m.toString().padStart(2,'0') + ':' + s.toString().padStart(2,'0');
-    }, 1000);
-};
+**Method signature:**
+```csharp
+public string Project(RecipeDocument doc, string canonicalPageUrl);
 ```
 
-`Home.razor.cs` calls `JS.InvokeVoidAsync("CookingTimers.startHomeTick", _activeTimerCountdownId)` in `OnAfterRenderAsync` after `_activeTimer` is populated.
+Returns a JSON string ready for injection into `<script type="application/ld+json">`.
 
-Files:
-- **Touch** `src/CookBot.Web/wwwroot/js/cooking-timers.js` — add `startHomeTick`
-- **Touch** `src/CookBot.Web/Components/Pages/Home.razor.cs` — call `startHomeTick` after session load
+**Required Schema.org fields from RecipeDocument v4:**
 
----
+| JSON-LD property | Source in RecipeDocument | Notes |
+|---|---|---|
+| `@context` | static: `"https://schema.org"` | |
+| `@type` | static: `"Recipe"` | |
+| `name` | `doc.Name` | required by Google |
+| `image` | `doc.PhotoUrl` | required by Google; omit if null |
+| `description` | `doc.Description` | recommended |
+| `recipeYield` | `doc.Servings.ToString()` | required if nutrition present |
+| `prepTime` | ISO 8601 duration from `doc.PrepTimeMinutes` | `PT{N}M` |
+| `cookTime` | ISO 8601 duration from `doc.CookTimeMinutes` | `PT{N}M` |
+| `totalTime` | sum of prep+cook if both present | |
+| `recipeIngredient` | flatten `IngredientEntry` → `"{amount} {unit} {name}"` string array | |
+| `recipeInstructions` | `ContentStep` items → `HowToStep` array; `SectionStep` → `HowToSection` | section wraps its content steps |
+| `keywords` | `doc.Tags` joined by `, ` | |
+| `author` | `doc.Provenance.OriginalAuthor` if present | `Person` type |
+| `url` | `canonicalPageUrl` | the recipe page URL passed by caller |
 
-### Bucket 5 — Prod-Ready
-
-#### AI key encrypt-at-rest
-
-**Trust model for AiApiKeyShare:** The sharer owns the key in their `UserProfile.AiApiKey` (encrypted). The share table (`AiApiKeyShares`) contains only `OwnerUserId` / `RecipientUserId` — no key copy. `AiApiKeyResolutionService.ResolveAsync` joins the share table against the owner's decrypted key at resolution time (server-side only, same as today). The recipient never sees or stores the cleartext key. This means a single data-protection scope covers all key reads — there is no per-sharer scope or re-encryption needed.
-
-**IDataProtector integration:** ASP.NET Core `Microsoft.AspNetCore.DataProtection` is already a transitive dependency (confirmed in `obj/project.assets.json`). The wrapping is in `AiApiKeyResolutionService` and in `EditProfile.razor` save path:
-
-- On **write** (`EditProfile.razor` saves the key): `IDataProtector.Protect(plaintextKey)` → store ciphertext in `UserProfile.AiApiKey`.
-- On **read** (`AiApiKeyResolutionService.ResolveAsync`): `IDataProtector.Unprotect(ciphertext)` → pass cleartext to HTTP client.
-
-`IDataProtector` is registered in `Program.cs` via `builder.Services.AddDataProtection()`. For Docker: key ring persists to `/app/keys/` via `.PersistKeysToFileSystem(new DirectoryInfo("/app/keys/"))`. The `Program.cs` registration reads the path from `appsettings.json` (`"CookBot": { "DataProtectionKeysPath": "/app/keys/" }`) with a fallback to a dev-local path.
-
-A one-time migration is needed for existing plaintext keys: `DatabaseSeeder.SeedAsync` detects unprotected keys (heuristic: if `AiApiKey` does not start with `CfDJ8` — the DataProtection ciphertext prefix — re-encrypt it) and writes back the protected form. This is safe to run on every startup (already-protected keys pass the check without re-protection).
-
-Files:
-- **Touch** `src/CookBot.Web/Program.cs` — `builder.Services.AddDataProtection().PersistKeysToFileSystem(...)`
-- **Touch** `src/CookBot.Web/Services/AiApiKeyResolutionService.cs` — inject `IDataProtector`, call `Unprotect` before returning key
-- **Touch** `src/CookBot.Web/Components/Pages/EditProfile.razor` — inject `IDataProtector`, call `Protect` before saving
-- **Touch** `src/CookBot.Infrastructure/Data/DatabaseSeeder.cs` — re-encrypt any existing plaintext key on startup
-
-#### Dockerfile + compose
-
-**Placement:** `docker/Dockerfile` and `docker/docker-compose.yml`. Not at repo root — the existing `run.sh` is at root and is the local-dev entrypoint. Docker assets in a subdirectory avoid cluttering the root for users who do not self-host via Docker.
-
-`run.sh` is unchanged for local dev. `docker compose up` is the self-hoster path.
-
-Three persistent volumes for the compose file:
-- `./data/cookbot.db:/app/cookbot.db` (SQLite file)
-- `./data/uploads:/app/wwwroot/uploads` (recipe photos)
-- `./data/keys:/app/keys` (DataProtection key ring)
-
-The connection string in the container environment overrides to `Data Source=/app/cookbot.db`. The `WebRootPath` resolves to `/app/wwwroot` inside the container; the `UseStaticFiles` `PhysicalFileProvider` path for uploads becomes `/app/wwwroot/uploads` at runtime.
-
-Files:
-- **New** `docker/Dockerfile`
-- **New** `docker/docker-compose.yml`
-- **New** `docker/.env.example` (documents `COOKBOT_ANTHROPIC_API_KEY`, `COOKBOT_DATA_PROTECTION_KEYS_PATH`)
-
-#### Token-cost telemetry
-
-**New entity:** `AiUsageLog` in Domain.
-
-```csharp
-// src/CookBot.Domain/Entities/AiUsageLog.cs
-public class AiUsageLog
+**Emission point in RecipeView.razor:**
+```razor
+@if (_jsonLdScript is not null)
 {
-    public int Id { get; set; }
-    public int UserId { get; set; }         // who triggered the call
-    public int? KeyOwnerUserId { get; set; } // null = own key; non-null = shared key owner
-    public string ModelName { get; set; } = string.Empty;
-    public int InputTokens { get; set; }
-    public int OutputTokens { get; set; }
-    public decimal EstimatedCostUsd { get; set; }
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-
-    public User User { get; set; } = null!;
+    <HeadContent>
+        <script type="application/ld+json">@((MarkupString)_jsonLdScript)</script>
+    </HeadContent>
 }
 ```
 
-**Write point:** Inside `AnthropicAiService.SendStructuredAsync<T>` — specifically by parsing the `message_start` SSE event's `usage.input_tokens` and the `message_delta` event's `usage.output_tokens`. These fields are present in the Anthropic SSE stream but the current `SendStructuredAsync` ignores them. Both the stream loop and the `message_start` event handling need additions.
+Blazor Server's `<HeadContent>` component injects into `<head>` at render time, which is correct for SEO crawlers hitting server-rendered HTML.
 
-However, `AnthropicAiService` is in Infrastructure and cannot write directly to `CookBotDbContext` today (it is stateless / `Scoped` but does not hold a `DbContext` reference). The cleanest seam is a callback: `SendStructuredAsync` returns a `StructuredResult<T>` that is extended to carry `int InputTokens, int OutputTokens`. The caller (`AiRecipeGenerator.GenerateAsync` in Application) passes the counts up to whatever write-point is appropriate. In practice the write point is in `AiChat.razor` after `GenerateAsync` returns — it writes an `AiUsageLog` row via `CookBotDbContext`.
+**Optional download:**
+Add a "Copy JSON-LD" button on RecipeView alongside the existing export buttons. Reuse `CookbookDownloadHelper` / `download.js` interop.
 
-`StreamMessageAsync` (used for non-structured chat) similarly should surface token counts. Since it is `IAsyncEnumerable<string>` today, the cleanest addition is a new overload that also reports final usage, or a `ValueTask<(int inputTokens, int outputTokens)>` out param on a wrapper method.
+### Integration points
 
-**Aggregation surface:** A Profile widget shows per-user totals (`SUM(InputTokens)`, `SUM(OutputTokens)`, `SUM(EstimatedCostUsd)`) and the key owner sees a breakdown by `UserId` for all share recipients.
-
-Integration:
-- **New** `src/CookBot.Domain/Entities/AiUsageLog.cs`
-- **New** `src/CookBot.Infrastructure/Data/Configurations/AiUsageLogConfiguration.cs`
-- **Touch** `src/CookBot.Infrastructure/Data/CookBotDbContext.cs` — add `DbSet<AiUsageLog>`
-- **New** EF migration `AddAiUsageLog`
-- **Touch** `src/CookBot.Infrastructure/AI/AnthropicAiService.cs` — parse `message_start` / `message_delta` usage fields, include counts in `StructuredResult<T>`
-- **Touch** `src/CookBot.Application/AI/AiRecipeGenerator.cs` — surface token counts from `StructuredResult`
-- **Touch** `src/CookBot.Web/Components/Pages/AiChat.razor` — write `AiUsageLog` row after structured generate + streaming complete
-- **Touch** `src/CookBot.Web/Components/Pages/EditProfile.razor` — add telemetry summary widget
+- **New:** `JsonLdRecipeProjector.cs` in `CookBot.Application/Recipes/`
+- **Modified:** `RecipeView.razor` — inject `JsonLdRecipeProjector`, call on load, emit `<HeadContent>` script block
+- **No DB change, no new EF migration**
 
 ---
 
-## Data Flow Diagrams
+## Theme 3: Cooklang Export
 
-### File Upload → Canonical Document
+### Classification
 
-```
-RecipeEditor.razor
-  │
-  ├─ User pastes URL into CbInput  → _photoUrl (string?)
-  │    │
-  │    └─ RecipePhotoUrlValidator.IsAllowed(_photoUrl)
-  │         ├─ false → validation error chip, save blocked
-  │         └─ true  → allow
-  │
-  ├─ User selects file (IBrowserFile)
-  │    │
-  │    └─ IRecipePhotoStorage.StoreAsync(stream, contentType)
-  │         └─ LocalRecipePhotoStorage
-  │              ├─ content-type check (allow jpeg/png/webp/gif)
-  │              ├─ size cap (e.g. 10 MB)
-  │              ├─ write to wwwroot/uploads/{guid}.{ext}
-  │              └─ return "/uploads/{guid}.{ext}"
-  │
-  └─ Save → RecipeService.UpdateAsync(recipeId, userId, parsed)
-       │    (parsed.PhotoUrl = validated URL or storage URL)
-       │
-       └─ RecipeDocument { ..., PhotoUrl = parsed.PhotoUrl }
-            └─ JsonRecipeSerializer.Serialize → Recipe.CanonicalDocumentJson (DB column)
+Read-only projection from `RecipeDocument` → `.cook` text. No import, no schema change.
 
-Browser fetch:
-  /uploads/{file}
-    → UseStaticFiles PhysicalFileProvider(wwwroot/uploads)
-    → file bytes served with correct Content-Type
+### New component: `CooklangRecipeProjector.cs`
+
+**Layer:** `CookBot.Application/Recipes/` — same rationale as JSON-LD projector. Pure function.
+
+**Method signature:**
+```csharp
+public string Project(RecipeDocument doc);
 ```
 
-### Encrypt-at-Rest → AiApiKeyShare Read Path
+**Mapping strategy:**
+
+| Cooklang element | RecipeDocument source | Notes |
+|---|---|---|
+| YAML frontmatter `---` | `name`, `servings`, `prepTimeMinutes`, `cookTimeMinutes`, `tags` | Optional — Cooklang supports YAML front matter |
+| Step paragraph (blank-line separated) | `ContentStep.Text` with ingredient refs rewritten | See rewrite rule below |
+| `@ingredient{amount%unit}` | Per `ContentStep`, expand `[name](#id)` refs to `@name{amount%unit}` using ingredient list | Look up `IngredientEntry` by id |
+| `#cookware{}` | `doc.Equipment` items | Emit as a preamble comment or prepend to first step mentioning the equipment |
+| `~{duration%unit}` | `TimerEntry` in `ContentStep.Timers` | Inject inline into the step text at end of sentence |
+| `== Section ==` | `SectionStep.Heading` | Cooklang section syntax |
+| Metadata | `doc.Provenance.SourceName`, `SourceUrl` | YAML front matter keys |
+
+**Ingredient ref rewrite rule:**
+The step text contains `[flour](#2)`. Look up `IngredientEntry` with `Id == 2` in `doc.Ingredients`. Emit `@flour{2%cups}` (using the ingredient's `Amount` and `Unit`). If the same ingredient is referenced in multiple steps, Cooklang convention is to repeat the `@` annotation each time — this is correct behavior.
+
+**DonenessCue mapping:** Append as a Cooklang comment `-- doneness: {cue}` on the same step line, or inline as prose in the step text. Given Cooklang doesn't have a native doneness construct, append as `-- {DonenessCue}` comment.
+
+**Substitutions:** No Cooklang native; skip or append as `-- substitutions: {list}` comment.
+
+**Integration points:**
+
+- **New:** `CooklangRecipeProjector.cs` in `CookBot.Application/Recipes/`
+- **Modified:** `RecipeView.razor` — add "Export as .cook" button; call projector, download via `download.js`
+- **No DB change, no EF migration**
+
+---
+
+## Theme 4: Nutrition (USDA FoodData Central)
+
+This theme is the most architecturally complex because it introduces a new external HTTP dependency, a caching/persistence layer, and a new UI panel.
+
+### External API
+
+- Base URL: `https://api.nal.usda.gov/fdc/v1/`
+- Key endpoints: `GET /foods/search?query={ingredient}&dataType=Foundation,SR Legacy&pageSize=5` and `GET /food/{fdcId}`
+- Auth: `api_key` query parameter (free registration at fdc.nal.usda.gov)
+- Rate limit: 1,000 requests/hour per IP (sufficient for self-hosted single-household use)
+- License: CC0 — no attribution requirement in the UI, though citing FDC in README is appropriate
+- Key nutrient IDs: Energy/kcal = 1008, Protein = 1003, Total Fat = 1004, Carbohydrates = 1005
+
+**Preferred data type:** Foundation Foods (generic whole foods, ~8,000 entries, complete nutrient profiles) first; fall back to SR Legacy. Branded Foods are a last resort (product-specific, variable).
+
+### New Infrastructure component: `FdcClient.cs`
+
+**Layer:** `CookBot.Infrastructure/Nutrition/`
+
+Mirrors `AnthropicAiService` structurally: `HttpClient`-based, `IOptions<CookBotSettings>`-injected API key.
 
 ```
-EditProfile.razor (save)
-  → IDataProtector.Protect(plaintextKey)
-  → UserProfile.AiApiKey = ciphertext
-  → CookBotDbContext.SaveChanges()
-
-AiApiKeyResolutionService.ResolveAsync(userId)
-  → DbContext.UserProfiles.AsNoTracking() → profile
-  ├─ profile.AiApiKey (ciphertext, non-null)
-  │    └─ IDataProtector.Unprotect(ciphertext) → plaintextKey
-  │         └─ return EffectiveAiCredentials(plaintextKey, ...)
-  │
-  └─ (shared key path) join AiApiKeyShares + UserProfiles
-       → owner.AiApiKey (ciphertext)
-       → IDataProtector.Unprotect(owner.AiApiKey) → plaintextKey
-       → return EffectiveAiCredentials(plaintextKey, SharedFromUserId = ownerId, ...)
-
-AnthropicAiService.CreateHttpClient(apiKey)
-  → http.DefaultRequestHeaders.Add("x-api-key", apiKey)  ← plaintext, never persisted
+CookBotSettings additions:
+  FdcApiKey: string?      — null means nutrition feature disabled (graceful degradation)
 ```
 
-### Token-Cost Telemetry Write + Read
+**FdcClient responsibilities:**
+- `SearchFoodsAsync(string query, string[] dataTypes, int pageSize)` → `FdcSearchResult[]`
+- `GetFoodAsync(int fdcId)` → `FdcFoodDetail` with `foodNutrients` array
+- All HTTP errors surfaced as `FdcException` (never throws `HttpRequestException` directly — caller handles gracefully)
+
+**Response DTOs** (Application layer, not Infrastructure): `FdcFoodItem`, `FdcNutrient`, `FdcSearchResult`. These are thin STJ-deserialized records, no business logic.
+
+### New Application component: `NutritionService.cs`
+
+**Layer:** `CookBot.Application/Nutrition/` or `CookBot.Application/Services/`
+
+**Responsibilities:**
+1. Accept a `RecipeDocument` and resolve nutrition per ingredient
+2. For each `IngredientEntry`: call `FdcClient.SearchFoodsAsync(ingredient.Name)` → pick best match → call `FdcClient.GetFoodAsync(fdcId)` → extract nutrients 1003/1004/1005/1008
+3. Convert FDC per-100g values to the recipe quantity using `UnitConversionService` (already exists in Application)
+4. Aggregate across all ingredients → total recipe nutrients; divide by `doc.Servings` → per-serving panel
+5. Return `RecipeNutritionResult { IReadOnlyList<IngredientNutritionLine> Lines, NutritionTotals Total, NutritionTotals PerServing, IReadOnlyList<string> UnmatchedIngredients }`
+
+**Graceful degradation:** Ingredients with no FDC match go into `UnmatchedIngredients`. The panel shows "X ingredients could not be matched" with names listed. Never fail the whole request because one ingredient is ambiguous.
+
+**Unit conversion challenge:** FDC data is per 100g. Recipes use volumetric units (cups, tbsp) for non-weight ingredients. Required: a density lookup or approximation table for common ingredients (e.g., 1 cup flour ≈ 120g). `UnitConversionService` already handles weight-to-weight conversions; it needs extension for volume-to-weight density approximations for the top ~20 common ingredients. This is a known approximation, and the UI should note "estimates based on typical densities."
+
+### Caching strategy
+
+**Problem:** FDC lookups are expensive (2 HTTP calls per ingredient, rate-limited). A 10-ingredient recipe = 20 calls. Re-running nutrition for the same recipe should reuse results.
+
+**Decision: Two-level cache**
+
+| Level | What | Where | TTL |
+|---|---|---|---|
+| Per-ingredient FDC match | `(normalizedName → fdcId, nutrientsPer100g)` | New `FdcLookupCache` SQLite table | 90 days — FDC data changes infrequently |
+| Per-recipe nutrition | `(recipeId, documentHash → NutritionTotals)` | New `RecipeNutritionCache` SQLite table | Invalidated on `Recipe.UpdatedAt` change |
+
+**`FdcLookupCache` table schema:**
+```
+FdcLookupCaches
+  Id INTEGER PK
+  NormalizedIngredientName TEXT NOT NULL UNIQUE INDEX
+  FdcId INTEGER NOT NULL
+  NutrientDataJson TEXT NOT NULL   -- serialized FdcNutrient[] for the 4 macros
+  CachedAt DATETIME NOT NULL
+```
+
+**`RecipeNutritionCache` table schema:**
+```
+RecipeNutritionCaches
+  Id INTEGER PK
+  RecipeId INTEGER NOT NULL FK → Recipes
+  DocumentHash TEXT NOT NULL     -- SHA-256 of CanonicalDocumentJson; invalidation key
+  NutritionResultJson TEXT NOT NULL
+  ComputedAt DATETIME NOT NULL
+  UNIQUE (RecipeId)
+```
+
+This means: if `CanonicalDocumentJson` changes (recipe edited), `DocumentHash` changes, the cache row is stale → recompute. This is a hash comparison on read, not a trigger.
+
+**Offline behavior:** If FDC is unreachable and the ingredient is in `FdcLookupCache`, serve from cache regardless of TTL (best-effort offline). If neither cache nor network, mark as unmatched.
+
+**EF migrations:** Two new tables via EF Core migration. No changes to `Recipe` entity.
+
+### New Domain types
+
+**`CookBot.Domain/Models/NutritionalInfo.cs`** already exists as a stub (4 fields). Promote it or replace it with a richer `RecipeNutritionSummary` record that includes `PerServing` and `Total` breakdowns plus the `UnmatchedIngredients` list. Do not store `RecipeNutritionSummary` inside `RecipeDocument` (it is computed, not authored).
+
+**Should nutrition live inside RecipeDocument?** No. Nutrition is computed from the canonical document; it is not part of the recipe spec itself. Storing it in `CanonicalDocumentJson` would mean the AI needs to emit it (it shouldn't) and would invalidate the cache every time a non-nutrition field changes. Keep it entirely in `RecipeNutritionCache`.
+
+### UI: Nutrition panel on RecipeView
+
+A collapsible panel below the ingredients list:
+- "Nutrition (estimated per serving)" header with refresh button
+- On first view: "Calculate nutrition" CTA → triggers `NutritionService` → loading state → results
+- Shows: Calories, Protein, Carbs, Fat per serving + total recipe
+- Shows unmatched ingredient names with a note: "Estimates based on typical densities; may not reflect your specific ingredients"
+- FDC attribution line: "Powered by USDA FoodData Central"
+
+**Feature gate:** `CookBotSettings.FdcApiKey is null` → panel shows "Nutrition requires a USDA FDC API key (free). Add it in appsettings.json." Same pattern as AI kill switch.
+
+### Integration points
+
+| Component | Status | Notes |
+|---|---|---|
+| `FdcClient.cs` | New — `CookBot.Infrastructure/Nutrition/` | HttpClient, FDC API key from CookBotSettings |
+| `NutritionService.cs` | New — `CookBot.Application/Services/` | Orchestrates FdcClient + UnitConversionService + cache |
+| `FdcLookupCache` entity | New — `CookBot.Domain/Entities/` | Cache ingredient→FDC match |
+| `RecipeNutritionCache` entity | New — `CookBot.Domain/Entities/` | Per-recipe computed nutrition |
+| `CookBotSettings` | Modified — add `FdcApiKey: string?` | |
+| `RecipeView.razor` | Modified — add nutrition panel | |
+| EF migration | New — adds 2 tables | |
+| `UnitConversionService` | Modified — add density approximations for ~20 common ingredients | |
+
+---
+
+## Theme 5: Photo Gallery
+
+### Current state
+
+`LocalRecipePhotoStorage` saves `IBrowserFile` → `wwwroot/uploads/{guid}.ext` → returns `/uploads/path`. `Recipe.PhotoUrl` (single string column) + `RecipeDocument.PhotoUrl` (v3 canonical field). UI: single hero photo on RecipeView + RecipeEditor.
+
+### Decision: Entity table vs. canonical-doc array
+
+**Use a new `RecipePhoto` entity table, not a canonical-doc array.**
+
+Rationale:
+1. Photos are operational data (file paths, upload timestamps, ordering), not recipe format data. They do not belong in the AI-facing canonical document.
+2. The existing `Recipe.PhotoUrl` precedent is already an EF column bridge (not canonical-doc-only), set in Phase 8 specifically because photo display is a UI concern separate from the format. Multiple photos follow the same pattern.
+3. Storing photo paths in `CanonicalDocumentJson` would require the AI to emit them (it should not) and would make the canonical doc host-specific (absolute upload paths).
+4. A `RecipePhoto` table allows EF `Include()` queries, ordered display, and future operations (delete, reorder) without JSON parsing.
+
+**`RecipePhoto` entity (new — Domain layer):**
+```
+RecipePhotos
+  Id INTEGER PK
+  RecipeId INTEGER NOT NULL FK → Recipes  (cascade delete)
+  Url TEXT NOT NULL                        -- /uploads/{guid}.ext or paste URL
+  DisplayOrder INTEGER NOT NULL DEFAULT 0  -- lower = earlier in gallery
+  IsHero BIT NOT NULL DEFAULT 0           -- exactly one per recipe should be hero
+  AiGenerated BIT NOT NULL DEFAULT 0      -- reverse-image AI path flag
+  UploadedAt DATETIME NOT NULL
+```
+
+**Migration strategy for existing `Recipe.PhotoUrl`:**
+EF migration: create `RecipePhotos` table; backfill one row per recipe where `Recipe.PhotoUrl IS NOT NULL` (set as hero, `DisplayOrder = 0`); keep `Recipe.PhotoUrl` column as a read-only legacy column for backward compat but stop writing to it (soft-deprecate). Alternatively: keep writing to `Recipe.PhotoUrl` as the "hero photo URL" denormalized for the few non-gallery read paths (home dashboard thumbnail, recipe list card) to avoid N+1 queries.
+
+**Recommended: Keep `Recipe.PhotoUrl` as a denormalized hero-URL column** (already in the DB + used by pantry-match home dashboard). On every photo mutation (add/reorder/delete), sync `Recipe.PhotoUrl` to the current hero photo's `Url`. This is a two-write operation in the service layer, not a trigger.
+
+### LocalRecipePhotoStorage changes
+
+`SaveAsync` returns a URL string — no change to the method signature. The caller (`RecipeEditor`) will now call a new `RecipePhotoService.AddPhotoAsync(recipeId, url, isHero)` instead of directly setting `Recipe.PhotoUrl`.
+
+### New Application component: `RecipePhotoService.cs`
+
+**Layer:** `CookBot.Application/Services/`
+
+**Methods:**
+- `AddPhotoAsync(int recipeId, string url, int userId)` — validates ownership, creates `RecipePhoto` row, if first photo sets `IsHero = true` and syncs `Recipe.PhotoUrl`
+- `SetHeroAsync(int recipeId, int photoId, int userId)` — sets one photo as hero, clears others, syncs `Recipe.PhotoUrl`
+- `ReorderAsync(int recipeId, int[] orderedPhotoIds, int userId)` — updates `DisplayOrder` columns
+- `DeleteAsync(int recipeId, int photoId, int userId)` — deletes row + file on disk; if deleted was hero, promote next photo
+- `GetPhotosAsync(int recipeId, int userId)` → `IReadOnlyList<RecipePhoto>` ordered by `DisplayOrder`
+
+### Reverse-image AI path
+
+**What:** User clicks "Find a photo for this recipe" → system sends recipe name + description to Claude with a request to describe what the dish looks like → ??? → show result.
+
+**Clarification of "reverse-image AI":** Given CookBot is self-hosted with no image search API, the most useful interpretation is: use `AnthropicAiService` to generate a textual description of the dish, then surface image search links (Google Images, Unsplash), OR accept a URL the user pastes. A true "AI fetches an image" path requires an external image-generation API (DALL-E, Stability) which is out of scope per the "Anthropic only" constraint.
+
+**Practical design:** The "reverse-image AI" feature = Claude describes the dish in visual terms (color, texture, plating) + returns suggested search terms for the user to find a photo. The user pastes the URL they find. This keeps the feature purely within the existing Anthropic integration, costs a single API call, and doesn't add a second AI provider. Implementation: a new `IAiService.SendMessageAsync` call with a prompt like "Describe what [recipe name] looks like for a food photography search" → surfaced as a modal on RecipeEditor with suggested terms + "Paste image URL" field.
+
+### Gallery UI on RecipeView
+
+- Hero photo at top (existing behavior, extended)
+- Photo strip below hero: horizontally scrollable thumbnails, click to expand
+- Edit mode in RecipeEditor: multi-photo upload panel with drag-reorder (using HTML5 drag-and-drop, no JS framework), set-hero button, delete button
+
+### Integration points
+
+| Component | Status | Notes |
+|---|---|---|
+| `RecipePhoto` entity | New — `CookBot.Domain/Entities/` | |
+| `RecipePhotoService.cs` | New — `CookBot.Application/Services/` | CRUD + hero sync |
+| `RecipePhotoConfiguration.cs` | New — `CookBot.Infrastructure/Data/Configurations/` | EF fluent config |
+| `LocalRecipePhotoStorage` | Modified — no API change; possibly add `DeleteAsync(url)` | Needed by RecipePhotoService.DeleteAsync |
+| `Recipe.PhotoUrl` | Modified — keep as denormalized hero; sync on every photo mutation | |
+| `RecipeView.razor` | Modified — gallery strip, hero promote | |
+| `RecipeEditor.razor` | Modified — multi-upload panel, reorder, AI describe CTA | |
+| EF migration | New — adds `RecipePhotos` table + backfill from `Recipe.PhotoUrl` | |
+
+---
+
+## Dependency-Aware Build Order
+
+The dependency graph across the five themes drives the phase sequence:
 
 ```
-Write path (structured generation):
-  AiChat.razor → IAiRecipeGenerator.GenerateAsync(prompt, apiKey, modelId)
-    → AnthropicAiService.SendStructuredAsync<RecipeDocument>(...)
-         │  (SSE stream accumulation)
-         ├─ message_start event → inputTokens
-         └─ message_delta event → outputTokens
-    → StructuredResult<RecipeDocument> { ..., InputTokens, OutputTokens }
-  AiChat.razor ← GenerateAsync result
-    → DbContext.AiUsageLog.Add(new AiUsageLog {
-           UserId = currentUserId,
-           KeyOwnerUserId = credentials.SharedFromUserId,
-           ModelName = credentials.ModelId ?? "default",
-           InputTokens, OutputTokens,
-           EstimatedCostUsd = ComputeCost(modelName, inputTokens, outputTokens)
-       })
-    → DbContext.SaveChangesAsync()
-
-Write path (streaming chat):
-  AiChat.razor → IAiService.StreamMessageAsync(...)
-    → (after stream ends) → AnthropicAiService reports final usage via wrapper
-    → AiUsageLog written same as above
-
-Read path (Profile widget — own user):
-  EditProfile.razor
-    → DbContext.AiUsageLogs
-        .Where(l => l.UserId == userId)
-        .GroupBy(_ => 1)
-        .Select(g => new { TotalInput = g.Sum(l => l.InputTokens), ... })
-
-Read path (key-owner view — shared recipients):
-  EditProfile.razor (key owner section)
-    → DbContext.AiUsageLogs
-        .Where(l => l.KeyOwnerUserId == userId)
-        .GroupBy(l => l.UserId)
-        .Select(g => new { UserId = g.Key, ... })
+Phase 12: v3→v4 Schema Bump (Theme 1)
+    ↓ (all export formats read from v4 RecipeDocument)
+Phase 13: JSON-LD Export + Cooklang Export (Themes 2+3 — can bundle, both are read-only projections)
+    ↓
+Phase 14: Photo Gallery (Theme 5 — reads RecipeDocument.PhotoUrl from v4, adds RecipePhoto table)
+    ↓
+Phase 15: Nutrition — USDA FDC (Theme 4 — last; most complex, reads finalized RecipeDocument)
+    ↓
+Phase 16: UAT + Integration
 ```
 
-### Smart Pantry-Match Inputs/Outputs
+**Why this order:**
+
+1. **Schema bump first (Phase 12).** Export services (JSON-LD, Cooklang) must project the final v4 `RecipeDocument`. If exports are built against v3 and v4 adds `Equipment` / `Substitutions`, the exports would need a re-pass. Bump the schema once, then build consumers against the stable v4 shape.
+
+2. **Exports second and bundled (Phase 13).** JSON-LD and Cooklang are both pure projection services with no DB changes. They are simple, low-risk, and can be developed in a single phase with two plans each (projector + RecipeView wiring). No cross-dependency between them.
+
+3. **Photo gallery third (Phase 14).** Independent of nutrition. The `RecipePhoto` table is a new entity; its EF migration has no dependency on nutrition tables. The v4 `RecipeDocument.PhotoUrl` field is unchanged from v3 semantically (still the hero URL). Gallery builds on Phase 12's stable schema.
+
+4. **Nutrition last (Phase 15).** Most complex theme: new external HTTP client, two new cache tables, unit conversion extensions, graceful degradation logic. Benefits from a stable RecipeDocument v4 to read from. Isolated from photo and export concerns.
+
+5. **UAT in Phase 16.** Reuse the Playwright harness shipped in v1.3 Phase 11 (`tests/uat-harness/`).
+
+---
+
+## Component Boundary Summary
 
 ```
-Home.razor.cs.LoadDashboardAsync(userId)
-  → PantryService.GetAllUserAccessibleItemsAsync(userId)
-       → allPantryItems (IList<PantryItem>)
-  → IPantryMatchService.GetMatchesAsync(userId, allPantryItems)
-       │  (inside PantryMatchService)
-       ├─ CookBotDbContext.Recipes
-       │    .Include(RecipeIngredients).ThenInclude(Ingredient)
-       │    .Where(accessible to userId)
-       │    → recipes
-       │
-       ├─ UserProfile.DietaryPreferencesJson → dietary filter set
-       │
-       ├─ IRecipeMadeService.GetRecentForUserAsync(userId, 30)
-       │    → recentCookIds (for recency boost)
-       │
-       └─ Score each recipe:
-            coverageRatio = matchedIngredients / totalIngredients
-            recencyBoost  = recentCookIds.Contains(recipe.Id) ? 0.05 : 0
-            score = coverageRatio + recencyBoost
-            filter: score >= 0.6
-            sort desc by score, then by name
-            take maxResults (3)
-       → IReadOnlyList<PantryMatchResult>
-  → _pantryMatches (Home.razor.cs field, bound to markup)
+┌─────────────────────────────────────────────────────────────────────┐
+│  CookBot.Web (new/modified for v1.4)                                 │
+│  RecipeView.razor — JSON-LD HeadContent + gallery + nutrition panel  │
+│  RecipeEditor.razor — multi-photo upload + AI describe CTA           │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ DI injection
+┌──────────────────────────▼──────────────────────────────────────────┐
+│  CookBot.Application (new for v1.4)                                  │
+│  Recipes/JsonLdRecipeProjector.cs        (new)                       │
+│  Recipes/CooklangRecipeProjector.cs      (new)                       │
+│  Recipes/Migration_V3_To_V4.cs           (new)                       │
+│  Services/NutritionService.cs            (new)                       │
+│  Services/RecipePhotoService.cs          (new)                       │
+│  Recipes/RecipeUpcasterChain.cs          (modified — CurrentVersion=4)│
+│  Recipes/RecipeValidator.cs              (modified — new v4 warnings) │
+│  Services/PromptBuilderService.cs        (modified — v4 AI prompt)   │
+│  Services/UnitConversionService.cs       (modified — density table)  │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────────┐
+│  CookBot.Infrastructure (new for v1.4)                               │
+│  Nutrition/FdcClient.cs                  (new)                       │
+│  Data/Configurations/RecipePhotoConfig   (new)                       │
+│  Data/Configurations/FdcLookupCacheConfig (new)                      │
+│  Data/Configurations/RecipeNutritionCacheConfig (new)                │
+│  Migrations/AddRecipePhotosTable         (new)                       │
+│  Migrations/AddNutritionCacheTables      (new)                       │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────────┐
+│  CookBot.Domain (new for v1.4)                                       │
+│  Recipes/IngredientSubstitution.cs       (new)                       │
+│  Recipes/EquipmentEntry.cs               (new)                       │
+│  Recipes/RecipeProvenance.cs             (new)                       │
+│  Recipes/IngredientEntry.cs              (modified — add Substitutions)│
+│  Recipes/StepNode.cs (ContentStep)       (modified — add DonenessCue)│
+│  Recipes/RecipeDocument.cs               (modified — add Equipment, Provenance)│
+│  Entities/RecipePhoto.cs                 (new)                       │
+│  Entities/FdcLookupCache.cs              (new)                       │
+│  Entities/RecipeNutritionCache.cs        (new)                       │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Build Order (Foundation → Consumer)
+## Canonical-First / Display-Only Invariant Compliance
 
-Dependencies determine shipping order within v1.3. The table below names the phase each bucket maps to.
-
-| Order | Bucket / Feature | Depends On | Phase |
-|-------|-----------------|------------|-------|
-| 1 | Schema v3 (`RecipeDocument` + `ContentStep` + `Migration_V2_To_V3`) | Nothing | Phase 8 |
-| 2 | EF migrations: `AddRecipePhotoUrl`, `AddRecipeDescription`, `AddRecipeTagTable`, `AddAiUsageLog` | Schema v3 types exist | Phase 8 |
-| 3 | `LegacyRecipeProjector` deletion + `RecipeService` rebuild | v3 upcaster registered; all rows have `CanonicalDocumentJson` | Phase 8 |
-| 4 | `RecipePhotoUrlValidator`, `IRecipePhotoStorage` / `LocalRecipePhotoStorage`, `UseStaticFiles` registration | Schema v3 (PhotoUrl field) | Phase 8/9 |
-| 5 | Encrypt-at-rest (`AddDataProtection`, `AiApiKeyResolutionService` wrap, `DatabaseSeeder` re-encrypt) | `Program.cs` DI, existing key storage | Phase 9 |
-| 6 | Token-cost telemetry (`AiUsageLog` entity, `AnthropicAiService` SSE parse, `AiChat` write, `EditProfile` widget) | `AiUsageLog` migration (step 2) | Phase 9 |
-| 7 | Dockerfile + compose | encrypt-at-rest (keys volume), uploads volume, DB volume | Phase 9 |
-| 8 | Smart pantry-match (`IPantryMatchService`, `PantryMatchService`) | `RecipeMade` entity (already exists), `UserProfile` dietary prefs | Phase 10 |
-| 9 | AiChat "Edit anyway" hardening (`RawRecipeEditorDialog`) | Nothing (UI only) | Phase 10 |
-| 10 | Prompt snapshot test | `PromptBuilderService` stable (unchanged at this point) | Phase 10 |
-| 11 | Accent picker UI, moon glyph, TopBar RightSlot service, Home live tick | Nothing (UI / JS) | Phase 10 |
-| 12 | Cookbook reparenting, pantry quick-add, Profile AI prompt editor | `RecipeService.UpdateAsync` ext for reparent; `GroceryListService.AddItemAsync` | Phase 10 |
-
-**Foundation phases (8–9) must ship before consumer phases (10).** Within each phase, items within the same phase can be parallelized at the plan level.
-
----
-
-## Cross-Cutting Concerns
-
-### DatabaseSeeder touch points
-
-`DatabaseSeeder.SeedAsync` must be touched for:
-1. Plaintext-key re-encryption (Bucket 5 encrypt-at-rest) — detect and re-protect existing keys.
-2. Canonical-doc null assertion (Bucket 2 LegacyRecipeProjector deletion guard) — throw if any `Recipe.CanonicalDocumentJson` is null.
-3. Schema v3 backfill — `RecipeUpcasterChain.UpcastToCurrent` is already called at startup for any v1/v2 doc in the DB column; no explicit seeder change needed beyond bumping `CurrentVersion`.
-
-### Program.cs registration touch points
-
-`Program.cs` must be touched for:
-1. `UseStaticFiles` for `/uploads` (Bucket 1 file storage).
-2. `AddDataProtection().PersistKeysToFileSystem(...)` (Bucket 5 encrypt-at-rest).
-3. `AddScoped<IRecipePhotoStorage, LocalRecipePhotoStorage>()`.
-4. `AddScoped<IPantryMatchService, PantryMatchService>()`.
-5. `AddScoped<ICbTopBarService, CbTopBarService>()`.
-
-### AI-off contract compliance
-
-Every new AI surface must check both `CookBotSettings.AiFeaturesEnabled` and `UserProfile.AiEnabled`. The telemetry widget on Profile does not require these checks — it shows historical data, not live AI calls. The `PantryMatchService` is not an AI surface. The `RawRecipeEditorDialog` is not a new AI surface (it processes an already-returned AI response). No new AI gates are required for Buckets 2, 3 (non-AI QOL), 4, or the Docker/telemetry parts of Bucket 5.
-
-### Canonical-first invariant compliance
-
-New code must never read from `Recipe.IngredientsJson`, `Recipe.StepsJson`, `Recipe.IngredientRefs`, or `Recipe.TagsJson` (the last of which is being deleted in Bucket 2). After the `RecipeTag` migration, `Tags` reads from the `RecipeTag` table. After `LegacyRecipeProjector` deletion, `RecipeService` builds `RecipeDocument` from `ParsedRecipe` (already canonical format) rather than from entity navigation.
+| Theme | Invariant honored | How |
+|---|---|---|
+| Richer format (v4) | YES | New fields live in `CanonicalDocumentJson`; no display layer reads raw JSON; all reads go through `JsonRecipeSerializer.Deserialize` |
+| JSON-LD export | YES | Pure projection from `RecipeDocument`; `<script>` tag in `<head>` is read-only; no DB write |
+| Cooklang export | YES | Pure projection; download only |
+| Nutrition | YES | `RecipeNutritionCache` is a separate table; never merged back into `CanonicalDocumentJson`; nutrition panel is display-only |
+| Photo gallery | YES | `RecipePhoto` table is operational data, not format data; `Recipe.PhotoUrl` hero sync is write-through on mutation, not a read-path concern |
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern: Putting upload write in Application layer
+### Anti-Pattern 1: Storing nutrition inside RecipeDocument
 
-**What people do:** Define `IRecipePhotoStorage` in Application and implement it there using `System.IO.File`.
-**Why it's wrong:** Application must remain free of I/O framework concerns. More critically, the Blazor `IBrowserFile` abstraction (which provides the stream) is a `Microsoft.AspNetCore.Components.Forms` type — unavailable in Application. The write must happen in Web layer code that has access to Blazor's file input result before converting to a plain `Stream`.
-**Do this instead:** Interface in Domain (pure contract), implementation in `CookBot.Web/Services/`, registration in `Program.cs`. Pages call the interface.
+**What:** Adding `nutrition: { ... }` to the v4 schema so the AI can emit macros.
+**Why wrong:** The AI does not know FDC data; it would hallucinate nutritional values. Nutrition is computed, not authored. It would bloat `CanonicalDocumentJson`, pollute the AI prompt schema, and break the cache invalidation model.
+**Instead:** Compute via `NutritionService` and cache in `RecipeNutritionCache`. Display via panel; never feed back to AI.
 
-### Anti-Pattern: Encrypting the shared-key copy
+### Anti-Pattern 2: Putting photo paths in CanonicalDocumentJson
 
-**What people do:** Store an encrypted copy of the key in the `AiApiKeyShares` table so each recipient's key survives the owner removing their key.
-**Why it's wrong:** This changes the trust model — now the DB has N copies of the key, each potentially rotatable independently, and a revoked share does not revoke access to the already-stored ciphertext.
-**Do this instead:** `AiApiKeyShares` contains only user-ID references. Encryption sits on `UserProfile.AiApiKey`. Resolution always reads the owner's encrypted key live — a revoked share or deleted key is immediately effective.
+**What:** Storing `photos: ["/uploads/abc.jpg", "/uploads/def.jpg"]` in the canonical doc.
+**Why wrong:** Photo paths are host-specific operational state, not recipe format data. They would travel in `.cookbook.json` exports and break on import (path doesn't exist on the recipient's host). The AI would receive the array and potentially hallucinate paths.
+**Instead:** `RecipePhoto` entity table. On export, omit or strip photo URLs (or export with a flag noting "photos not included").
 
-### Anti-Pattern: Registering DataProtector as Singleton with Scoped consumers
+### Anti-Pattern 3: Bundle-throw in Migration_V3_To_V4
 
-**What people do:** `services.AddSingleton<IDataProtector>(sp => sp.GetRequiredService<IDataProtectionProvider>().CreateProtector("AiApiKey"))`.
-**Why it's wrong:** `IDataProtector` itself is fine as singleton. However `AiApiKeyResolutionService` is `Scoped` and `EditProfile.razor` is a Blazor component (circuit-scoped). Inject `IDataProtectionProvider` and call `CreateProtector` once per service instance — `IDataProtectionProvider` is registered Singleton by `AddDataProtection()`.
-**Do this instead:** Inject `IDataProtectionProvider` into `AiApiKeyResolutionService` and call `.CreateProtector("CookBot.AiApiKey")` in the constructor.
+**What:** Handling all four new field groups (Equipment, Substitutions, DonenessCue, Provenance) in a single branching if/else block.
+**Why wrong:** If any single field's guard throws, the entire upcaster fails. PITFALLS C7 from v1.3: "never bundle-throw."
+**Instead:** Four independent no-op guards, each independently gated. Stamps `version: 4` only at the end.
 
-### Anti-Pattern: MapStaticAssets for runtime uploads
+### Anti-Pattern 4: Blocking FDC API calls on the UI render path
 
-**What people do:** Write uploaded files to `wwwroot/uploads/` and expect `MapStaticAssets()` to serve them.
-**Why it's wrong:** `MapStaticAssets` fingerprints assets at **build time**. Files written at runtime are invisible to it and return 404 (confirmed by ASP.NET Core 10 official docs and community reports).
-**Do this instead:** Add a `UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(...), RequestPath = "/uploads" })` call before `MapStaticAssets()`.
+**What:** Calling `NutritionService.ComputeAsync` inside `OnInitializedAsync` on RecipeView.
+**Why wrong:** FDC calls can take 2–10 seconds per ingredient. The page would hang.
+**Instead:** Render the page immediately with a "Calculate nutrition" CTA. Trigger computation only on explicit user action. Show a spinner during computation. Cache results.
 
-### Anti-Pattern: Inline token counting in the Razor page
+### Anti-Pattern 5: Single `HttpClient` per call in FdcClient
 
-**What people do:** Parse the Anthropic response JSON in `AiChat.razor` to extract `usage.input_tokens`.
-**Why it's wrong:** The SSE events are already consumed and discarded by `AnthropicAiService` before `AiChat` sees the result. `AiChat` only receives the final `StructuredResult<T>`.
-**Do this instead:** Extend `StructuredResult<T>` with `InputTokens` and `OutputTokens` fields populated inside `SendStructuredAsync` by parsing `message_start` and `message_delta` SSE events. Bubble up through `AiRecipeGenerator.GenerateAsync` to the caller.
+**What:** `new HttpClient()` per FDC request (same footgun as the pre-v1.3 `AnthropicAiService`).
+**Why wrong:** Socket exhaustion under load; DNS not refreshed.
+**Instead:** Register `FdcClient` with `IHttpClientFactory` via named client in `DependencyInjection.cs`. The `AnthropicAiService` has this exact technical debt (`Concern 16` in CONCERNS.md) — FdcClient should not repeat it.
 
 ---
 
-## New vs. Modified Files — Complete List
+## Integration Points Summary
 
-### New files
+### External Services
 
-```
-src/CookBot.Domain/Entities/RecipeTag.cs
-src/CookBot.Domain/Entities/AiUsageLog.cs
-src/CookBot.Domain/Interfaces/IRecipePhotoStorage.cs
-src/CookBot.Application/Recipes/Migration_V2_To_V3.cs
-src/CookBot.Application/Recipes/RecipePhotoUrlValidator.cs
-src/CookBot.Application/Services/IPantryMatchService.cs
-src/CookBot.Application/Services/PantryMatchService.cs
-src/CookBot.Infrastructure/Data/Configurations/RecipeTagConfiguration.cs
-src/CookBot.Infrastructure/Data/Configurations/AiUsageLogConfiguration.cs
-src/CookBot.Infrastructure/Migrations/{timestamp}_AddRecipePhotoUrl.cs
-src/CookBot.Infrastructure/Migrations/{timestamp}_AddRecipeTagTable.cs
-src/CookBot.Infrastructure/Migrations/{timestamp}_AddAiUsageLog.cs
-src/CookBot.Web/Services/LocalRecipePhotoStorage.cs
-src/CookBot.Web/Services/CbTopBarService.cs
-src/CookBot.Web/Components/Pages/RawRecipeEditorDialog.razor
-docker/Dockerfile
-docker/docker-compose.yml
-docker/.env.example
-tests/CookBot.Tests/Snapshots/BuildSystemPrompt_DefaultProfile.txt
-```
+| Service | Integration Pattern | Notes |
+|---|---|---|
+| USDA FoodData Central | `FdcClient` (Infrastructure) — REST/JSON via named `HttpClient` | Free API key required; CC0 data; 1000 req/hr |
+| Anthropic Claude (vision) | Reuse existing `AnthropicAiService.SendMessageAsync` | Pass image description prompt; no new client |
+| Schema.org | Static string constants in `JsonLdRecipeProjector` | No HTTP call; pure projection |
+| Cooklang | Pure text generation; no external dependency | |
 
-### Modified files
+### Internal Boundaries
 
-```
-src/CookBot.Domain/Recipes/RecipeDocument.cs          — add PhotoUrl, Description
-src/CookBot.Domain/Recipes/StepNode.cs                — add Temperature to ContentStep
-src/CookBot.Application/Recipes/RecipeUpcasterChain.cs — bump CurrentVersion = 3
-src/CookBot.Application/DependencyInjection.cs         — register Migration_V2_To_V3, IPantryMatchService
-src/CookBot.Application/Services/PromptBuilderService.cs — lint denylist additions
-src/CookBot.Application/Services/RecipeService.cs      — remove IRecipeProjector; add newCookbookId; add GroceryListService.AddItemAsync
-src/CookBot.Application/Services/GroceryListService.cs — add AddItemAsync
-src/CookBot.Application/AI/AiRecipeGenerator.cs        — surface InputTokens/OutputTokens
-src/CookBot.Infrastructure/DependencyInjection.cs      — remove LegacyRecipeProjector registrations
-src/CookBot.Infrastructure/Data/CookBotDbContext.cs    — add RecipeTags, AiUsageLogs DbSets
-src/CookBot.Infrastructure/Data/DatabaseSeeder.cs      — null-canonical guard, key re-encryption
-src/CookBot.Infrastructure/AI/AnthropicAiService.cs    — parse usage SSE events, extend StructuredResult
-src/CookBot.Web/Program.cs                             — UseStaticFiles, AddDataProtection, new registrations
-src/CookBot.Web/Services/AiApiKeyResolutionService.cs  — IDataProtector.Unprotect on read
-src/CookBot.Web/Components/Pages/AiChat.razor          — write AiUsageLog, open RawRecipeEditorDialog
-src/CookBot.Web/Components/Pages/RecipeEditor.razor    — PhotoUrl input, cookbook picker
-src/CookBot.Web/Components/Pages/EditProfile.razor     — accent picker, AI prompt editor, telemetry widget
-src/CookBot.Web/Components/Pages/PantryView.razor      — quick-add button
-src/CookBot.Web/Components/Pages/Home.razor.cs         — inject IPantryMatchService, JS tick call
-src/CookBot.Web/Components/Layout/MainLayout.razor     — ICbTopBarService integration
-src/CookBot.Web/Components/Layout/TopBar.razor         — moon glyph conditional
-src/CookBot.Web/Components/Atoms/Icon.razor            — Moon icon constant + SVG path
-src/CookBot.Web/wwwroot/js/cookbot-shell.js            — persist cookbot_accent to localStorage
-src/CookBot.Web/wwwroot/js/cooking-timers.js           — startHomeTick helper
-tests/CookBot.Tests/Services/PromptBuilderServiceTests.cs — snapshot test
-```
-
-### Deleted files
-
-```
-src/CookBot.Infrastructure/Data/Migrations/Helpers/LegacyRecipeProjector.cs
-src/CookBot.Application/Recipes/IRecipeProjector.cs
-```
+| Boundary | Communication | Notes |
+|---|---|---|
+| NutritionService ↔ FdcClient | Direct DI injection (Application → Infrastructure via interface `IFdcClient`) | Define `IFdcClient` in Application layer, implement in Infrastructure — same Clean Arch pattern as `IAiService` |
+| RecipePhotoService ↔ LocalRecipePhotoStorage | Direct injection (Application → Web is a layer inversion — move `LocalRecipePhotoStorage` to Application, or define `IRecipePhotoStorage` interface in Application with implementation in Web/Infrastructure) | Current `LocalRecipePhotoStorage` is in `CookBot.Web` and has Blazor's `IWebHostEnvironment` dependency. Either: keep it in Web and call from Razor pages (not service), or extract `IRecipePhotoStorage` interface into Application and implement in Infrastructure using `IWebHostEnvironment` from DI |
+| JsonLdRecipeProjector ↔ RecipeView | Injected Application service; called on page load | No async needed — pure CPU computation |
+| CooklangProjector ↔ RecipeView | Same; triggered on button click | |
 
 ---
 
 ## Sources
 
-- ASP.NET Core 10 Static Files docs — `MapStaticAssets` vs `UseStaticFiles` for runtime-uploaded files: [https://learn.microsoft.com/en-us/aspnet/core/fundamentals/static-files?view=aspnetcore-10.0](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/static-files?view=aspnetcore-10.0)
-- Direct source inspection: all findings above derived from reading the live codebase files at `src/` (HIGH confidence — no inference from training data)
+- Existing codebase read directly: `RecipeDocument.cs`, `StepNode.cs`, `IngredientEntry.cs`, `Migration_V2_To_V3.cs`, `RecipeUpcasterChain.cs`, `RecipeValidator.cs`, `RecipeJsonSchemaProvider.cs`, `LocalRecipePhotoStorage.cs`, `AnthropicAiService.cs`, `.planning/PROJECT.md`, `.planning/codebase/ARCHITECTURE.md`
+- [USDA FoodData Central API Guide](https://fdc.nal.usda.gov/api-guide/) — endpoints, rate limits, data types, CC0 license
+- [FDC OpenAPI Specification](https://fdc.nal.usda.gov/api-spec/fdc_api.html) — nutrient IDs and request/response shapes
+- [Google Search: Recipe Structured Data](https://developers.google.com/search/docs/appearance/structured-data/recipe) — required/recommended JSON-LD properties, nutrition shape
+- [Schema.org Recipe type](https://schema.org/Recipe) — canonical type definition
+- [Cooklang Specification](https://cooklang.org/docs/spec/) — grammar for .cook files: `@ingredient`, `#cookware`, `~timer`, section syntax, YAML front matter
+- [Anthropic Vision Documentation](https://docs.claude.com/en/docs/build-with-claude/vision) — image input methods (URL vs base64), supported formats
 
 ---
 
-*Architecture research for: FreelovesCookBot v1.3 Production-Ready & Format Maturity*
-*Researched: 2026-05-15*
+*Architecture research for: CookBot v1.4 Recipe Data & Interoperability*
+*Researched: 2026-06-05*

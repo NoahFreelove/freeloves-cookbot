@@ -1,625 +1,397 @@
-# Pitfalls Research — v1.3 Production-Ready & Format Maturity
+# Pitfalls Research
 
-**Domain:** Self-hosted Blazor Server (.NET 10) cooking app — adding file upload, V3 schema bump, encrypt-at-rest, Dockerfile, smart pantry algorithm, and token-cost telemetry to an existing single-process app.
-**Researched:** 2026-05-15
-**Confidence:** HIGH (all pitfalls grounded in actual source code at the cited paths; no generic advice included)
-**Scope:** Pitfalls specific to ADDING the five v1.3 feature buckets to THIS codebase. The prior `PITFALLS.md` (2026-04-25) covered v1.1/v1.2 format-consolidation concerns and is superseded for v1.3 planning purposes by this document.
+**Domain:** Recipe app — schema evolution, external nutrition API, SEO markup export, one-way format export, photo galleries with AI assist
+**Researched:** 2026-06-05
+**Confidence:** HIGH (schema bump, photo storage — based on existing codebase evidence); MEDIUM (USDA FDC, Schema.org, Cooklang — based on official docs + codebase context); MEDIUM (AI photo legal risk — based on legal research)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause data loss, security incidents, or rewrites if shipped.
-
-### Pitfall C1: `IDataProtector` key ring lost on container restart — all encrypted API keys become unreadable
+### Pitfall 1: Forgetting to register Migration_V3_To_V4 in DI — chain gap at runtime, not at test time
 
 **What goes wrong:**
-`UserProfile.AiApiKey` will be encrypted with ASP.NET Core Data Protection (`IDataProtector`). By default, the key ring is stored in `%LOCALAPPDATA%/ASP.NET/DataProtection-Keys` on the host. In a Docker container, that directory lives inside the writable container layer — it is destroyed on every `docker stop && docker start` (NOT just `docker rm`). After restart, the app cannot decrypt any `AiApiKey` row in the database. Every user's AI features silently break; they get `CryptographicException` caught somewhere inside `AiApiKeyResolutionService.ResolveAsync`, which returns `null`, which makes the app behave as if no key is configured — but the plaintext key is gone, not just unusable.
+`RecipeUpcasterChain` validates for gaps at *construction time*, meaning the gap-detection test only runs when `AddApplication()` wires up the DI container. Any callsite that constructs `RecipeUpcasterChain` directly (a test helper, a standalone migration tool, a console seed script) with only the V1→V2 and V2→V3 upcasters and forgets the new V3→V4 one will throw `InvalidOperationException: Upcaster chain has a gap: 3 -> ?` at boot — not during development. The symptom in production is a startup crash, not a silent wrong-version read.
 
 **Why it happens:**
-Developers test encryption in the development environment where the key ring persists across restarts. Docker volume mounts are configured for `cookbot.db` and `uploads/` but not for the key-ring directory. This is the single most common ASP.NET Core + Docker production failure.
+The DI registration in `DependencyInjection.cs` adds upcasters via `services.AddSingleton<IRecipeUpcaster, Migration_V3_To_V4>()` — if that line is omitted, the chain is structurally incomplete. Developers writing the new migration file remember the class but forget to register it. Tests that construct the chain directly with `new IRecipeUpcaster[]{ new Migration_V1_To_V2(), new Migration_V2_To_V3() }` will also miss the new step if the test fixture is not updated in the same PR.
 
 **How to avoid:**
-- Mount the key ring directory to a named Docker volume: `docker-compose.yml` must have a volume entry for `/root/.aspnet/DataProtection-Keys` (or wherever `PersistKeysToFileSystem` is pointed).
-- In `Program.cs`, call `builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo("/data/keys"))` and set `/data/keys` as a volume mount beside `/data/cookbot.db`.
-- The Dockerfile `VOLUME` instruction is NOT sufficient — it creates an anonymous volume that is also ephemeral. Explicit named volumes in `docker-compose.yml` are required.
-- Add a startup diagnostic: on first launch, if `AiApiKey` rows exist but none can be decrypted, log a clear message: "Data Protection key ring not found. If you are restoring a backup, ensure the key ring volume is also restored."
-- Test: `docker-compose up`, configure a key, `docker-compose stop`, `docker-compose start` (not `down`), verify key resolves correctly.
+- Write `Migration_V3_To_V4_ChainTests` (parallel to the existing `Migration_V2_To_V3_ChainTests`) as part of the Phase that introduces v4. The test must include V3→V4 in the chain or it will fail immediately.
+- Add a `SchemaAssertionTests`-style invariant: `Assert.Equal(RecipeUpcasterChain.CurrentVersion, _chain.UpcastToCurrent(minimalV1Node)["version"].GetValue<int>())` using a chain built from DI rather than `new`.
+- The `RecipeUpcasterChain.CurrentVersion` constant lives next to the chain class — bump it to 4 in the same commit that adds `Migration_V3_To_V4`, so a missing registration fails the constant-vs-chain-end assertion immediately.
 
 **Warning signs:**
-- `AiApiKeyResolutionService.ResolveAsync` returns `null` for users who have a key set.
-- AI features stop working after container restart without `docker rm`.
-- `CryptographicException` appears in server output.
+- App crashes at startup with `InvalidOperationException: Upcaster chain has a gap`.
+- Test run includes `Migration_V2_To_V3_ChainTests` but no `Migration_V3_To_V4_ChainTests`.
+- `grep -r "IRecipeUpcaster" src/CookBot.Application/DependencyInjection.cs` does not show a line for `Migration_V3_To_V4`.
 
-**Phase to address:** Phase 12 (Prod-ready — Dockerfile + docker-compose). Must be resolved before the Docker chapter ships. The key-ring volume must appear in `docker-compose.yml` on day one — retrofitting it requires users to re-enter their keys.
+**Phase to address:**
+The richer-format schema bump phase (Phase 12 or wherever v4 lands). The DI registration and the gap-detection test must be in the same plan as the `Migration_V3_To_V4` class file.
 
 ---
 
-### Pitfall C2: Key sharing uses owner's `IDataProtector` scope — recipient decryption path is never exercised
+### Pitfall 2: Bundle-throw in the V3→V4 upcaster — one absent field aborts the other fields
 
 **What goes wrong:**
-The current key-sharing flow (`AiApiKeyResolutionService.ResolveAsync`, lines 42-66) reads `p.AiApiKey` from the *owner's* `UserProfile` row and returns it to the *recipient's* AI call. If `AiApiKey` is encrypted with a per-user purpose string (`IDataProtector.CreateProtector($"user-{ownerUserId}")`) — a natural design choice to add per-user key isolation — then the decrypt call must use the owner's purpose, not the recipient's. If the protector is scoped to the *calling user*, decryption fails silently and the recipient gets no key.
+If `Migration_V3_To_V4.Upcast()` writes all new fields in a single block without independent guards, a recipe missing one of the new v4 fields (e.g., `substitutions` absent because it was authored before v4) will crash the whole upcast. This was explicitly defended against in `Migration_V2_To_V3` — the comments cite `PITFALLS C7 — never bundle-throw` and each guard is `if (obj["field"] is null) { /* no-op */ }`. A copy-paste of that pattern without understanding why it exists will produce a bundled upcast that throws for partial v3 docs.
 
 **Why it happens:**
-The design of `IDataProtector.CreateProtector("purpose")` encourages per-user scoping for isolation. But in a sharing model, the resolution path reads another user's row and must decrypt it with the owner's context, which requires the resolution code to know the owner's ID at decrypt time.
+The new v4 fields (substitutions list, equipment list, per-step doneness cues, source/provenance) are all nullable/optional. A developer who writes `obj["substitutions"] = JsonSerializer.SerializeToNode(...)` without checking for pre-existing presence will silently overwrite any value already set by a forward-compat `RecipeDocument.Extras` round-trip. Another common failure: doing a `.AsArray()` call on `obj["substitutions"]` when the field is absent throws `InvalidOperationException`.
 
 **How to avoid:**
-- Use a **single shared purpose string** for all API key encryption: `IDataProtector.CreateProtector("AiApiKey")`. No per-user scoping. The key ring itself is protected at the host level (the volume mount); per-row isolation is not needed.
-- Alternatively, use a purpose that includes the ownerUserId and pass that explicitly into the decryption call site inside `ResolveAsync`.
-- Write an integration test that: seeds two users (owner, recipient), sets owner's key via the encrypted path, creates a share, resolves key as recipient — asserts non-null result.
+- Follow the exact pattern in `Migration_V2_To_V3`: one `if (obj["field"] is null) { /* no-op */ }` guard per new field, with no shared state between guards.
+- The v4 fixture set must include at least: a v3 doc with none of the new fields, a v3 doc with only `substitutions` set, a v3 doc with only `equipment` set, and a doc with all new fields set — each must upcast to v4 without throwing.
+- The `Upcast_NoTemperature_ContentStepTemperatureIsNull`-style test has a direct parallel for each new field: assert the field is absent on output if absent on input.
 
 **Warning signs:**
-- Recipient's AI calls return "No key configured" even though the owner's key is set and the share exists.
-- `AiApiKeyResolutionService.ResolveAsync` returns null from the share path but not the own-key path.
+- `Migration_V3_To_V4.Upcast()` accesses a new field's array/object without a null check.
+- Fixture test matrix has fewer than 4 combinations for the new fields.
+- Code review sees `obj["substitutions"].AsArray()` rather than `obj["substitutions"] as JsonArray`.
 
-**Phase to address:** Phase 11 (Encrypt-at-rest). The sharing round-trip test must be part of the phase acceptance criteria.
+**Phase to address:**
+The richer-format schema bump phase. Treat as non-negotiable: the fixture matrix and independent-guard pattern are the acceptance criteria.
 
 ---
 
-### Pitfall C3: Existing plaintext keys not migrated — mixed plaintext/ciphertext state in DB
+### Pitfall 3: AI schema drift — the model still emits v3 fields after the schema bump to v4
 
 **What goes wrong:**
-If encryption is added via an EF Core `ValueConverter` on `UserProfile.AiApiKey`, the converter encrypts on write and decrypts on read. Existing rows in `cookbot.db` have plaintext keys. On first read after the migration, the converter attempts to decrypt a plaintext string — `IDataProtector.Unprotect` throws `CryptographicException` on non-ciphertext input. The unhandled exception in `AiApiKeyResolutionService.ResolveAsync` propagates as `null` (if caught) or crashes the circuit (if uncaught). Either way, every existing user's AI features break immediately on upgrade.
+`RecipeJsonSchemaProvider` generates the Anthropic structured-output schema from `RecipeDocument` via `JsonSchemaExporter`. After the v4 bump, new fields (`substitutions`, `equipment`, `doneness`, `source`) appear in the exported schema. However, the `AiRecipeGenerator` caches the schema lazily (`_schema = new Lazy<JsonNode>(BuildSchema)`). If the app hot-reloads without a full restart (dev only, unlikely in prod), or if a test uses the pre-v4 schema snapshot, the AI will be constrained to emit v3-shaped output and the new fields will be empty on every AI-generated recipe.
+
+The more insidious variant: the prompt documentation (in `RecipeSchemaDocumentationProvider.GetFormatPrompt()`) is updated to mention the new fields, but the JSON schema passed to Anthropic's `output_config.format` is not — or vice versa. The AI "knows" about the new fields from the system prompt but the structured-output grammar rejects them, causing silent loss.
 
 **Why it happens:**
-EF Core `ValueConverter` applies uniformly to all rows; there is no "only on new writes" mode. The migration must explicitly re-encrypt existing plaintext rows before the converter is registered, or the converter must detect plaintext input and pass it through.
+Two code sites must be updated in sync: (1) the `RecipeDocument` POCO type (which drives the schema exporter), and (2) the `RecipeSchemaDocumentationProvider` format-prompt string. They are in separate files; a partial PR update leaves them mismatched. The existing `PromptSnapshotTests` (Verify.Xunit byte-stable snapshot) will catch drift — but only if the snapshot is updated in the same commit.
 
 **How to avoid:**
-- **Sentinel prefix pattern:** Encrypted values are stored as `enc:v1:<base64>`. The `ValueConverter` read path: if the stored string starts with `enc:v1:`, decrypt the remainder; otherwise return as-is (legacy plaintext) AND schedule a re-encryption on next save. No existing row breaks.
-- Run a one-time EF migration that rewrites all non-null `AiApiKey` values through encryption. This requires the `IDataProtector` to be available inside the migration — which it is NOT by default (migrations don't have DI). Instead: use the `DatabaseSeeder.SeedAsync` startup path to re-encrypt all un-prefixed rows on first boot post-migration.
-- Add a startup log: "Re-encrypted N legacy API keys at startup."
-- Test: seed a row with a plaintext key, run the sentinel-aware converter, assert the key is readable AND the row is updated to the prefixed form.
+- Update the prompt snapshot (`Snapshots/PromptSnapshotTests.*`) in the same plan that adds v4 fields to `RecipeDocument`. The snapshot test fails on CI if the two are out of sync.
+- Add the new optional fields (`substitutions?`, `equipment?`, `doneness?`, `source?`) to `RecipeDocument` as nullable with `[JsonPropertyName]` attributes before writing the documentation provider changes, so the schema exporter reflects them automatically.
+- Add an `AiRecipeFixtureTests`-style integration fixture for a recipe that includes the new fields to verify the round-trip (generate JSON with new fields → `JsonRecipeSerializer.Deserialize` → non-null values).
 
 **Warning signs:**
-- `CryptographicException` in `AiApiKeyResolutionService` immediately after upgrade.
-- All users lose AI access on first start of the new version.
+- `PromptSnapshotTests` is updated without also updating `RecipeDocument`.
+- AI-generated recipes always have null `substitutions` and null `equipment` even after the schema bump.
+- `RecipeJsonSchemaProvider.GetSchema()` output (logged at debug level or dumped in a test) does not contain the new field names.
 
-**Phase to address:** Phase 11 (Encrypt-at-rest). The migration + sentinel-prefix approach must be specified in the PLAN.md before any code is written.
+**Phase to address:**
+The richer-format schema bump phase. The prompt snapshot test update is the verification gate.
 
 ---
 
-### Pitfall C4: `SecretRedactor` does not cover the new encryption error path — cleartext key leaks in exception messages
+### Pitfall 4: USDA FoodData Central ingredient name matching returns the wrong food — silently wrong nutrition
 
 **What goes wrong:**
-`SecretRedactor` (`src/CookBot.Infrastructure/AI/SecretRedactor.cs`) strips `sk-ant-*` patterns and `x-api-key` header values from error messages. The decrypt path in the new encryption layer will throw `CryptographicException` whose message may include the raw bytes it failed to decrypt — which is the *ciphertext*, not the plaintext, so `sk-ant-` won't match. However: if the resolve path falls back to reading an unencrypted key (Pitfall C3's legacy path), then crashes during an AI call, the cleartext key may appear in a `HttpRequestException` message that is NOT caught by `SecretRedactor` because it happens before the key is passed to `AnthropicAiService`. The `SecretRedactor.Redact(raw, resolvedKey)` signature requires the `resolvedKey` to be known at the catch site — if `resolvedKey` is read from `AiApiKeyResolutionService` before the error, it is available; but in a fallback/exception path it may not be.
-
-**How to avoid:**
-- Every catch site in the AI call path must call `SecretRedactor.Redact(errorMessage, resolvedKey)` where `resolvedKey` comes from the `EffectiveAiCredentials` returned by `ResolveAsync`. The existing pattern in `AnthropicAiService.SendStructuredAsync` (line 219, 263, 274) is the correct model — verify the new encrypt/decrypt path follows it.
-- Add a unit test: `SecretRedactor.Redact(rawError, legacyPlaintextKey)` where `rawError` embeds the key — assert `[REDACTED]` result.
-
-**Warning signs:**
-- Exception messages visible in Blazor error UI contain `sk-ant-` substrings.
-- The new key-read path adds a `catch` block that constructs an error string without calling `SecretRedactor`.
-
-**Phase to address:** Phase 11 (Encrypt-at-rest). The `SecretRedactor` coverage check should be a mandatory step in the plan.
-
----
-
-### Pitfall C5: `wwwroot/uploads/` committed to git — user photos become public
-
-**What goes wrong:**
-The repo's `.gitignore` covers `*.db` and `*.db.pre-*.bak` but NOT `wwwroot/uploads/` (confirmed by reading `.gitignore`). When a developer creates the directory locally and uploads a test photo, `git add .` or `git add src/` will include the file. If the repo is ever pushed to a public fork or a CI service, user-uploaded photos are exposed. The `*.bak` entry was added post-hoc (WARN-BAK-FILE-UNTRACKED in the v1.2 audit); the uploads directory is the same category of omission.
-
-**How to avoid:**
-- Add to `.gitignore` before any upload code ships:
-  ```
-  src/CookBot.Web/wwwroot/uploads/
-  ```
-- Also add a `.gitkeep` inside the empty directory (committed) so the directory is created on fresh clone without needing a startup mkdir.
-- Add a startup check in `Program.cs`: `Directory.CreateDirectory(uploadPath)` where `uploadPath` is from configuration, to create the directory on first run without it needing to be in git.
-
-**Warning signs:**
-- `git status` shows `wwwroot/uploads/` files as untracked after a test upload.
-- A `.gitignore` entry for uploads does not exist before Phase 9 is executed.
-
-**Phase to address:** Phase 9 (Photos surface) — add the `.gitignore` entry as the FIRST task of Plan 9-1 before writing any upload code.
-
----
-
-### Pitfall C6: DB backup does not include `uploads/` — restore leaves photos broken
-
-**What goes wrong:**
-`IDatabaseBackupService` copies `cookbot.db` to `cookbot.db.pre-{migrationName}.bak`. The photos stored in `wwwroot/uploads/` are referenced by `Recipe.PhotoUrl` (e.g. `/uploads/abc123.jpg`) in the database but the directory is never backed up. If a user restores from a DB backup (or a Docker volume restore covers only the `cookbot.db` volume, not the `uploads/` volume), every recipe renders with a broken image. The 404'd `src` attribute triggers the `onerror` fallback to `StripedPlaceholder` — silent breakage from the user's perspective, but their photos are permanently lost.
-
-**How to avoid:**
-- The Docker `docker-compose.yml` must define SEPARATE named volumes for `cookbot.db` and `uploads/` and document that BOTH must be backed up.
-- The README backup section must explicitly say: "Backing up only the database file is insufficient if you use photo uploads. Also back up the uploads directory."
-- The pre-migration backup step (`IDatabaseBackupService.BackupBeforeMigrationAsync`) should log a reminder: "Note: wwwroot/uploads/ is not included in this backup. Back it up separately."
-- Consider a startup integrity check: count `Recipe.PhotoUrl` rows that start with `/uploads/` and verify the corresponding files exist; log a warning for missing files.
-
-**Warning signs:**
-- `docker-compose.yml` has a volume for the database but not for uploads.
-- README backup instructions mention only `cookbot.db`.
-- A restore-from-backup test shows broken images.
-
-**Phase to address:** Phase 12 (Prod-ready — Docker + backup docs). Must be addressed alongside the Dockerfile, not after.
-
----
-
-### Pitfall C7: V2→V3 upcaster bundling — partial failure of one addition breaks all three
-
-**What goes wrong:**
-The V3 schema bump bundles `PhotoUrl` + `Description` + per-step temperature into a single upcaster step (`V2Upcaster.Upcast(node)` → V3). If the temperature upcaster logic has a bug (e.g. it reads a field that doesn't exist in some recipes, throws a `NullReferenceException`), the upcaster chain throws for ALL v2 recipes — including ones with no temperature data. Every recipe in the app becomes unloadable. The `RecipeUpcasterChain.UpcastToCurrent` method (`src/CookBot.Application/Recipes/RecipeUpcasterChain.cs`) throws synchronously; there is no fallback.
+The FDC `/foods/search` endpoint does text-based fuzzy matching. "Butter, unsalted" may return a branded margarine. "Brown sugar" may rank a Foundation Foods entry for "Sugars, brown" (100 g reference) above the "Brown sugar, packed" entry that matches the recipe context. "Chicken breast" may return values for raw, with-bone, which is a different calorie density than boneless-skinless cooked. Any wrong match propagates into per-serving calorie/macro numbers that look plausible but are wrong. No error is thrown; the calculation completes "successfully."
 
 **Why it happens:**
-Bundling changes amortizes AI-prompt regression work but creates an all-or-nothing failure mode. The upcaster is in the hot read path for every recipe load.
+FDC full-text search returns results ranked by relevance, not by cooking-use likelihood. The database includes five data types (Foundation Foods, SR Legacy, FNDDS, Branded Foods, Experimental) with wildly different granularity. "1 cup flour" matches "Wheat flour, all-purpose" in Foundation Foods (correct) but could also match "ENRICHED FLOUR" from a branded food (different serving size reference). Without explicit data-type filtering (`dataType=Foundation,SR Legacy`) and a fuzzy-match confidence threshold, every lookup is a gamble.
 
 **How to avoid:**
-- Each of the three additions (PhotoUrl, Description, per-step temperature) is a **separate null-fill operation** inside the V2→V3 upcaster. Each uses `??` / null-coalescing — never throws for missing fields.
-- Specifically: if a v2 recipe has no `steps[N].temperature` field, the upcaster sets it to `null` (NOT `{ value: 0, unit: "F" }`). Zero is a valid temperature; null is the absence of temperature data.
-- Add a test: upcast a v2 recipe with NO temperature data — assert all three new fields are present (PhotoUrl: null, Description: null, steps[N].temperature: null) and no exception is thrown.
-- Add a test: upcast a recipe with only ONE of the three new fields present — the other two are still null-filled correctly.
+- Restrict initial lookups to `dataType=Foundation Foods,SR Legacy` — these have peer-reviewed per-100g values and are not brand-specific. Never accept a Branded Foods result without user confirmation.
+- Always store the matched FDC food ID, food description, and data type alongside the computed nutrition value. Display the match to the user ("Matched to: Wheat flour, all-purpose [FDC #20081]") so errors are visible.
+- Implement a confidence threshold: if the top search result's relevance score is below the threshold, mark the ingredient as "unmatched" rather than silently using the low-confidence match.
+- Show a per-ingredient match review UI before persisting nutrition. Do not auto-persist without user acknowledgement on first use.
+- For unmatched or low-confidence ingredients, display "-- kcal" rather than zero or an estimated value. "Zero" is indistinguishable from "we computed this and it's zero calories."
 
 **Warning signs:**
-- The upcaster for per-step temperature accesses `steps[N].temperature` without a null guard.
-- `RecipeUpcasterChain.CurrentVersion` is bumped to 3 but the test suite doesn't exercise a v2 recipe that has no temperature.
+- Nutrition panel for a recipe with "2 cups all-purpose flour" shows calorie count far below the expected ~900 kcal.
+- Pantry ingredient "olive oil" returns a branded product's nutrition instead of "Oil, olive, salad or cooking [FDC #4053]".
+- Matched food descriptions are not displayed to the user anywhere in the UI.
 
-**Phase to address:** Phase 8 (Schema V3 + Format cleanup). The upcaster tests must be written before the upcaster is merged.
+**Phase to address:**
+The nutrition phase. The match-review UX and confidence threshold must be in the acceptance criteria; the phase should not be considered done until a "show me what was matched" surface exists.
 
 ---
 
-### Pitfall C8: AI emits alternate photo field names — lint denylist not updated for V3 fields
+### Pitfall 5: Volume-to-mass unit conversion using a generic density — silently wrong calorie count
 
 **What goes wrong:**
-The existing lint denylist (enforced in tests as of v1.1 Phase 1 Plan 01-04) prevents the AI opt-out clause from re-entering the system prompt. A parallel concern applies to field names: the AI has been trained on thousands of recipe schemas and knows that photos are often called `image`, `imageUrl`, `picture`, `thumbnail`, `coverPhoto`. When `photoUrl` appears in the JSON schema, the AI's structured-output constrained decoding forces it to use `photoUrl` — but if structured output ever degrades (model refusal, retry path falls back to free-form), the AI emits `imageUrl` instead. The `RecipeValidator` doesn't check field names; `JsonExtensionData.Extras` silently absorbs `imageUrl`, so the photo is lost with no error.
+FDC nutrition values are per 100 g (by mass). Recipe ingredients are in volume units: "1 cup all-purpose flour", "2 tablespoons olive oil", "1/2 cup packed brown sugar". Converting volume to mass requires the ingredient-specific density. Using a generic water density (1 g/mL) produces: 1 cup flour = 237 g instead of the correct ~125 g — nearly double the mass, nearly double the calories. Applying the wrong density silently doubles or halves every volume-measured ingredient's calorie contribution.
+
+**Why it happens:**
+Developers reach for a simple `volume_ml * 1.0 g/mL` formula because it is simple and the error is not obvious. FDC does include serving-size data (`servingSize` and `servingSizeUnit` fields in the food detail response) for some foods, but this is inconsistent across data types and not available for all Foundation Foods entries. The temptation is to ignore density and use mass-from-volume directly.
 
 **How to avoid:**
-- Extend the lint denylist test (already covering prompt opt-out phrases) to also assert that the AI prompt schema documentation uses ONLY `photoUrl` and does NOT use `image`, `imageUrl`, `picture`, or `thumbnail` in any example or comment.
-- In the `RecipeValidator`, add a warning (not error) when `Extras` contains keys that are likely-alternate field names: `image`, `imageUrl`, `picture`, `thumbnail`. Surface as `ValidationWarning` with code `AlternateName`.
-- Add a prompt regression test: feed the schema to the AI with a recipe prompt; assert the response's PhotoUrl field name is exactly `photoUrl`.
+- Build a density lookup table for the ~50 most common cooking ingredients (flour, sugar, butter, oil, milk, cream, honey, cocoa powder, etc.) from authoritative sources (USDA ARS measurement conversion tables). This covers 90% of recipe volume measurements.
+- For ingredients not in the density table, mark their volume-unit conversions as "approximate" and surface a disclaimer.
+- Prefer to match FDC entries that have a `gramWeight` field for the matching household measure (e.g., "1 cup, sifted" = 125 g for all-purpose flour) — FDC `foodPortions` data includes this for many Foundation Foods entries.
+- Never use the water density constant (1 g/mL ≈ 236.6 g/cup) as a fallback without flagging the result as low-accuracy.
+- The existing `UnitConversionService` already handles unit normalization — the density lookup belongs here, not in the nutrition service, so the conversion is testable in isolation.
 
 **Warning signs:**
-- `RecipeDocument.Extras` dict on AI-generated recipes contains `imageUrl` or `image` keys.
-- The repair loop does not trigger (because `Extras` round-trips silently).
+- "1 cup butter" computes as ~237 g instead of the correct ~227 g.
+- "1 cup all-purpose flour" computes caloric contribution matching ~900+ kcal instead of the expected ~455 kcal.
+- The nutrition service has a line like `var massGrams = volumeMl * 1.0` without a density lookup call.
 
-**Phase to address:** Phase 8 (Schema V3). Update the lint denylist and add the `Extras`-check warning as part of the schema PR.
+**Phase to address:**
+The nutrition phase. The density lookup table must be a first-class artifact with unit tests covering the 20 most common ingredients.
 
 ---
 
-## High Pitfalls
-
-Mistakes that cause user-visible breakage requiring a hotfix or significant rework.
-
-### Pitfall H1: Kestrel / SignalR / FormOptions size limits block file uploads with misleading errors
+### Pitfall 6: Presenting nutrition numbers without a disclaimer — user treats app as medical/dietary authority
 
 **What goes wrong:**
-Blazor Server `<InputFile>` uploads flow through THREE independent size limits that must all be raised:
-1. `KestrelServerOptions.Limits.MaxRequestBodySize` — defaults to 30 MB. Raises a 413.
-2. `FormOptions.MultipartBodyLengthLimit` — defaults to 128 MB (higher than Kestrel's limit, so not the binding constraint by default, but still must be configured explicitly when Kestrel is raised).
-3. Blazor Server's SignalR `MaximumReceiveMessageSize` — defaults to 32 KB. File content passes through the SignalR circuit. A 2 MB image will exceed this and disconnect the circuit with no meaningful error to the user (the snackbar never fires — the circuit is just gone).
+A user with a medical dietary restriction (diabetes, kidney disease, eating disorder) uses the app's calorie panel for meal planning and relies on it as accurate. The numbers are USDA-sourced estimates, not certified nutritional analysis. Recipe cooking (reduction, caramelization, absorption) changes actual nutrient content. Serving sizes are self-reported. A wrong FDC match (Pitfall 4) or a density error (Pitfall 5) silently produces wrong numbers. The app is GPL-licensed for self-hosting, so the maintainer bears no commercial liability — but the user of a particular self-hosted instance might.
 
-The symptom for limit #3 is especially misleading: the `<InputFile>` `OnChange` handler fires (the file was selected), but the circuit silently drops and reconnects. The user sees the "Disconnected" overlay, reconnects, and finds their edit unsaved. There is no 413 response — the connection just closes.
+**Why it happens:**
+Nutrition features without disclaimers are the norm in popular recipe apps, so developers copy the pattern. The legal and UX requirement to disclaim accuracy feels like polish — it is skipped for MVP.
 
 **How to avoid:**
-- In `Program.cs`, configure all three explicitly for the expected max upload size (e.g. 5 MB for photos):
-  ```csharp
-  builder.WebHost.ConfigureKestrel(opts =>
-      opts.Limits.MaxRequestBodySize = 5 * 1024 * 1024);
-  builder.Services.Configure<FormOptions>(opts =>
-      opts.MultipartBodyLengthLimit = 5 * 1024 * 1024);
-  builder.Services.AddServerSideBlazor(opts =>
-      opts.MaximumReceiveMessageSize = 5 * 1024 * 1024);
-  ```
-- Also enforce the cap client-side in the `<InputFile>` handler: check `file.Size` before reading; surface a snackbar error immediately if over the limit.
-- Add a smoke test: attempt to upload a 6 MB file; verify the user sees a "File too large" toast, NOT a circuit disconnect.
+- Display a persistent non-dismissable disclaimer on every nutrition panel: "Estimates based on USDA FoodData Central. Results are approximate and not suitable for medical dietary planning."
+- Use the word "estimate" not "calories" in the heading.
+- Attribute FDC as the data source per the CC0 license request: "Data: USDA FoodData Central."
+- Do not display macro precision beyond one decimal place — false precision amplifies the impression of accuracy.
 
 **Warning signs:**
-- The circuit drops when selecting a large image — no error toast, just "Reconnecting...".
-- `MaximumReceiveMessageSize` is not set in `Program.cs`.
+- Nutrition panel shows "Calories: 482.7 kcal" with no disclaimer text visible.
+- The UI design for the nutrition panel looks identical to a certified nutritional label.
 
-**Phase to address:** Phase 9 (Photos surface — file upload). Must be part of Plan 9-1 before any upload UI ships.
+**Phase to address:**
+The nutrition phase. The disclaimer copy should be in the UX spec before the first commit of nutrition UI.
 
 ---
 
-### Pitfall H2: Path-traversal in user-supplied filenames
+### Pitfall 7: USDA FDC API outage or rate limit causes a synchronous exception that crashes the recipe-save flow
 
 **What goes wrong:**
-When saving an uploaded file to `wwwroot/uploads/`, if the filename is derived from the user-supplied `IBrowserFile.Name`, a malicious filename like `../../appsettings.json` or `../../../etc/passwd` writes outside the intended directory. On Linux (the Docker container target), file permissions may block the worst outcomes, but on a misconfigured host the app could overwrite its own config.
+If nutrition lookup is called synchronously during recipe save (as part of `RecipeService.CreateAsync` or `UpdateAsync`), an FDC API outage (HTTP 503), network timeout, or rate-limit response (HTTP 429) causes the save to fail with an unhandled exception. The user loses their recipe edit because a third-party API was down.
+
+**Why it happens:**
+Treating nutrition as a first-class save step rather than a post-save enrichment. It mirrors the pattern of "compute everything at save time" that works for local operations but is fragile for external calls.
 
 **How to avoid:**
-- **Never use the browser-supplied filename.** Generate a server-side filename:
-  ```csharp
-  var safeFileName = $"{Guid.NewGuid():N}{GetSafeExtension(file.ContentType)}";
-  var savePath = Path.Combine(_uploadDir, safeFileName);
-  ```
-- `GetSafeExtension` maps content-type to a known-safe extension (`.jpg`, `.png`, `.webp`, `.gif`) — it does NOT use the browser filename's extension.
-- Assert that the resolved `savePath` starts with the configured upload directory path (`savePath.StartsWith(_uploadDir)`) even after `Path.GetFullPath` normalization — defense in depth.
+- Nutrition lookup must be a *post-save* enrichment, never blocking the save path. Save the recipe first, then enqueue/trigger nutrition computation as a fire-and-forget background task or explicit UI action.
+- Cache FDC results in a local SQLite table keyed by `(normalizedIngredientName, fdcFoodId)` with a TTL (e.g., 30 days). FDC data changes infrequently; a stale cache is better than a failed save.
+- Rate-limit awareness: the FDC API allows 1,000 requests/hour per IP with a registered key. At ~15 ingredients per recipe, a user batch-importing 70 recipes would exhaust the hourly limit. Cache hits must be used to stay under the limit.
+- On HTTP 429 or timeout, the nutrition column stays null and a soft warning ("Nutrition unavailable — will retry") is shown. Never block the user flow.
 
 **Warning signs:**
-- Upload code uses `file.Name` or any derivative of it to form the save path.
-- No path-prefix assertion exists before writing.
+- `FdcNutritionService.EnrichAsync()` is called inside `RecipeService.CreateAsync`.
+- There is no local cache table for FDC results.
+- No retry policy or circuit-breaker pattern around the FDC HTTP call.
 
-**Phase to address:** Phase 9 (Photos surface). Part of the security checklist for Plan 9-1.
+**Phase to address:**
+The nutrition phase. The architectural decision (post-save enrichment + cache) must be in the phase plan before the implementation plan.
 
 ---
 
-### Pitfall H3: Content-type sniffing failure — served uploaded file triggers XSS
+### Pitfall 8: Schema.org JSON-LD uses relative image URLs or local `/uploads/` paths — fails Google indexing
 
 **What goes wrong:**
-A user uploads a file with a `.jpg` extension that is actually HTML (or SVG with embedded `<script>`). Kestrel serves files from `wwwroot/` with content-type based on extension. The browser receives the file with `Content-Type: image/jpeg` but the actual content is HTML — older browsers (and some SVG renderers) sniff the content and execute the script. If the `<img src="/uploads/...">` is rendered in another user's recipe view, this is a stored XSS.
+The Schema.org `image` field requires a fully-qualified HTTPS URL ("crawlable and indexable" per Google's structured data requirements). A recipe with a locally-uploaded photo at `/uploads/abc123.jpg` will have that path written into the JSON-LD block as `"image": "/uploads/abc123.jpg"` — a relative URL that Google's indexer cannot resolve from an external crawl. Google will reject the image field and the recipe will not qualify for rich results.
+
+**Why it happens:**
+The `RecipeDocument.PhotoUrl` field stores whatever was saved: a local upload path (`/uploads/{guid}.jpg`) or a pasted external URL. JSON-LD generation reads `doc.PhotoUrl` directly without checking whether it is an absolute HTTPS URL. For a trusted-LAN self-hosted app, the question of "what is the public base URL?" is non-trivial — there is no `HttpContext.Request.Host` equivalent that is always correct for SEO purposes.
 
 **How to avoid:**
-- Read the first 512 bytes of the uploaded file and verify the file magic bytes match the declared content-type before saving. For images: JPEG starts with `FF D8 FF`, PNG with `89 50 4E 47`, WebP with `52 49 46 46`. Reject anything that fails the magic-byte check.
-- Serve the `uploads/` directory with `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'` response headers to suppress browser sniffing. In ASP.NET Core, use `StaticFileOptions.OnPrepareResponse` to add these headers specifically for the uploads directory.
-- Explicitly reject SVG uploads. SVG is XML and can contain `<script>` tags. The allowed types should be JPEG, PNG, WebP, GIF only.
-- Test: upload an HTML file renamed `.jpg`; assert the save is rejected or the served file cannot execute scripts.
+- JSON-LD generation is SEO-only; the primary use case for this app is self-hosted personal use, not Google indexing. Make this explicit: the `<script type="application/ld+json">` block is conditionally omitted when `PhotoUrl` is null or is a relative/local path. A recipe with only a local upload photo simply does not emit a `image` field in the JSON-LD.
+- If an absolute URL is available, validate it is `http://` or `https://` before including it.
+- Do not invent a configurable `PublicBaseUrl` setting for this milestone unless SEO is an explicitly requested feature — it adds complexity for a trusted-LAN app.
 
 **Warning signs:**
-- Upload validation only checks `IBrowserFile.ContentType` (user-controlled) without verifying magic bytes.
-- No `X-Content-Type-Options: nosniff` on served upload responses.
-- SVG is listed as an accepted content type.
+- JSON-LD serializer calls `$"\"image\": \"{doc.PhotoUrl}\""` without checking `Uri.IsAbsoluteUri`.
+- A recipe with a local upload shows `"image": "/uploads/abc123.jpg"` in the page source.
 
-**Phase to address:** Phase 9 (Photos surface). Security validation must precede serving any uploaded content.
+**Phase to address:**
+The Schema.org export phase. The conditional-omission logic for relative URLs is a first-class requirement, not a polish item.
 
 ---
 
-### Pitfall H4: `onerror` fallback infinite loop — broken image triggers fallback that is also broken
+### Pitfall 9: Schema.org ISO 8601 duration formatted as bare minutes integer instead of PT{N}M
 
 **What goes wrong:**
-IMG-10/11 (from `v1.3-PHASE-CANDIDATE-recipe-photos.md`) uses `onerror` to fall back to the `StripedPlaceholder`. The canonical implementation pattern is:
-```html
-<img src="@photoUrl" onerror="this.src='/img/placeholder.svg'" />
-```
-If `/img/placeholder.svg` itself is a broken URL (file missing, wrong path), the `onerror` fires again, which tries to load `/img/placeholder.svg` again, creating an infinite request loop that pegs the browser's network queue. On slow connections this causes a visible flicker storm.
+Google requires `cookTime` and `prepTime` in ISO 8601 duration format: `"PT30M"` for 30 minutes, `"PT1H30M"` for 90 minutes. Writing `"cookTime": 30` or `"cookTime": "30 minutes"` fails structured data validation. Google's Rich Results Test will flag these as errors and the recipe will be ineligible for rich results. The `RecipeDocument` stores times as `int? PrepTimeMinutes` and `int? CookTimeMinutes` — the conversion to `PT{H}H{M}M` format is a trivial but easy-to-forget step.
+
+**Why it happens:**
+The developer serializes the integer directly from the `RecipeDocument` property. The format looks reasonable in isolation; the error only surfaces when validated externally.
 
 **How to avoid:**
-- The `onerror` handler must set `this.onerror = null` before changing `src` to prevent re-firing:
-  ```html
-  onerror="this.onerror=null; this.style.display='none'; this.parentElement.classList.add('photo-missing');"
-  ```
-- Better: in Blazor, use a backing field `_photoLoadFailed = false` and a Blazor event handler instead of inline JS; on error, set the flag and re-render to show `<StripedPlaceholder>` instead of the `<img>`. This is safe from the loop because Blazor replaces the DOM element entirely.
-- Add a smoke test: render a recipe card with a 404 `PhotoUrl`; assert no network loop (inspect DevTools Network tab).
+- Write a static helper `IsoFormatDuration(int? totalMinutes)` that returns `null` when input is null, `"PT{N}M"` for under 60 minutes, and `"PT{H}H{M}M"` for 60+ minutes.
+- Add a unit test for the boundary cases: null → null, 0 → `"PT0M"`, 30 → `"PT30M"`, 60 → `"PT1H"`, 90 → `"PT1H30M"`.
+- The JSON-LD serializer should call this helper, not access the int field directly.
 
 **Warning signs:**
-- `onerror` handler sets `this.src` without first setting `this.onerror = null`.
-- The fallback image path is hard-coded rather than verified to exist.
+- JSON-LD output contains `"cookTime": 30` or `"cookTime": "30 minutes"`.
+- No unit test for the duration formatter.
+- Google's Rich Results Test returns a `cookTime` format error.
 
-**Phase to address:** Phase 9 (Photos surface — consuming surfaces).
+**Phase to address:**
+The Schema.org export phase. The duration formatter and its tests must be in the first plan that produces JSON-LD output.
 
 ---
 
-### Pitfall H5: Paste-URL accepts `javascript:`, `data:`, and `file://` URIs — XSS and local-file disclosure
+### Pitfall 10: Cooklang export implies round-trip capability — users expect re-import
 
 **What goes wrong:**
-`IMG-06` in the phase candidate already calls for a scheme allowlist. This pitfall documents what breaks if it is implemented incorrectly or incompletely:
-- `javascript:alert(1)` in `<img src>` is a known XSS vector in older browsers. Modern browsers block it for `<img>`, but it should still be blocked at parse time.
-- `data:text/html;base64,...` can be a bandwidth bomb (multi-megabyte inline data URI) and a persistent payload stored in the database.
-- `file:///etc/passwd` causes the Blazor Server process to attempt to read local files (if it processes the URL at all), or leaks the path in error messages.
-- An SVG served by a third-party URL (`https://evil.com/xss.svg`) can contain `<script>` tags that execute in the browser when loaded as an `<img>`. The `referrerpolicy="no-referrer"` attribute does not prevent this.
+Cooklang export is intentionally one-way: section headers, ingredient substitutions, doneness cues, per-step temperature, source/provenance, prep/cook time metadata, and the `RecipeDocument.Extras` round-trip bag are all either lost or imperfectly mapped during export. If the UI presents a "Download as Cooklang" button without a visible disclaimer, users will download their recipes, use a Cooklang tool to modify them, and expect to re-import them back. The re-import path does not exist; data edited externally is lost.
+
+**Why it happens:**
+Export buttons imply bidirectionality to users. The `PROJECT.md` is explicit that Cooklang export is "one-way, no import required" — but that invariant must be surfaced in the UI, not just in the planning documents.
 
 **How to avoid:**
-- `RecipePhotoUrlValidator` (IMG-06) must use `Uri.TryCreate` + check `uri.Scheme` is `http` or `https`. Do NOT use string prefix matching (`url.StartsWith("http")` would pass `https://` but also technically pass `http://evil`).
-- Validate on both user paste (editor) AND on AI-emitted `PhotoUrl` in the repair-loop validation step.
-- For SVG from external URLs: the `<img>` tag in modern browsers already sandboxes SVG (scripts don't execute). Do NOT use `<object>` or `<embed>` for display; `<img>` only.
-- Add unit tests to `RecipePhotoUrlValidator`:
-  - `javascript:alert(1)` → rejected
-  - `data:image/jpeg;base64,...` → rejected
-  - `file:///etc/passwd` → rejected
-  - `ftp://host/image.jpg` → rejected
-  - `https://example.com/photo.jpg` → accepted
-  - `http://example.com/photo.jpg` → accepted
-  - `//example.com/photo.jpg` (protocol-relative) → rejected (no scheme)
+- Add a clear "(one-way export)" or "for sharing only" label to every Cooklang download affordance.
+- Do not add a Cooklang import path in this milestone.
+- Log a warning for any `RecipeDocument` field that has a non-null value that cannot be represented in Cooklang (substitutions, provenance, etc.) so the developer knows the loss is expected and intentional.
 
 **Warning signs:**
-- `RecipePhotoUrlValidator` uses `StartsWith("http")` instead of `Uri.TryCreate` + scheme check.
-- `data:` URIs are accepted.
-- No unit tests cover the rejected cases.
+- The download button is labeled "Export to Cooklang" with no qualification.
+- An issue is opened asking for Cooklang import — this is the expected user response when the round-trip assumption is made.
 
-**Phase to address:** Phase 8 (Schema V3 — URL safety is part of the schema work, not the UI surface).
+**Phase to address:**
+The Cooklang export phase. The "one-way only" label is an acceptance criterion.
 
 ---
 
-### Pitfall H6: QuestPDF fetches `PhotoUrl` at PDF render time — blocking HTTP call in the render path
+### Pitfall 11: Cooklang special characters in ingredient names or step text break the export — `@`, `#`, `~` in content
 
 **What goes wrong:**
-`CookbookPdfService.GeneratePdf` currently renders text-only recipes. When photo support is added, the temptation is to pass `PhotoUrl` to QuestPDF's `.Image(url)` or similar fluent API. QuestPDF does NOT fetch URLs — it requires raw bytes. If the implementation downloads the image bytes inside the `GeneratePdf` method (called synchronously on the Blazor circuit), this is a blocking `HttpClient.GetAsync(...).Result` call inside the synchronous QuestPDF document builder. This blocks the circuit thread and can deadlock the Blazor Server synchronization context.
+Cooklang uses `@` to start ingredient references, `#` for cookware, and `~` for timers. If a recipe step's text contains these characters naturally (e.g., a step that references a social-media handle, a temperature like "45°C #target", or a step with a tilde in a brand name), the Cooklang serializer will produce malformed output. Worse: there is no documented escaping mechanism in the Cooklang spec for these characters — the spec does not define a backslash-escape or similar. The exported `.cook` file may parse incorrectly in a Cooklang-compatible tool.
+
+**Why it happens:**
+Recipe step text in `RecipeDocument.StepNode.ContentStep.Text` is freeform with `[name](#id)` ingredient links as the only structured content. The Cooklang exporter must strip `[name](#id)` links and replace them with `@name{...}` syntax, but it must also defensively scan for bare `@`, `#`, `~` in surrounding text and handle them. There is no standard escape — the safe option is to replace them with Unicode lookalikes or remove them.
 
 **How to avoid:**
-- Photo embedding in PDF export is optional for v1.3. The simplest correct approach: if a recipe has a `PhotoUrl` that is an external URL, the PDF omits the photo (or shows a placeholder note). The PDF export is a document format, not a browser.
-- If photos are desired in PDF: download all image bytes BEFORE entering `GeneratePdf` using an `async` method; pass the byte arrays into the synchronous renderer.
-- Add a XML doc comment on `CookbookPdfService.GeneratePdf` explicitly noting: "Never call HttpClient here — this method is synchronous. Pre-fetch external resources in the caller."
-- Test: generate a PDF for a cookbook with a recipe that has a `PhotoUrl`; verify no blocking HTTP call occurs (use a `StubHttpClient` in tests).
+- Before emitting step text to Cooklang, strip or replace bare `@`, `#`, `~` characters that are not part of a recognized `[name](#id)` pattern. Log the substitution so the developer can see what was sanitized.
+- Write a test: a recipe step containing `"Add to a 45°C bath #temp"` should produce valid Cooklang output with the `#` either removed or rendered as a plain `#` in a manner that does not start a cookware reference.
+- Mark the Cooklang export as "best-effort" in the UI disclaimer — lossy not just for format features but for edge-case characters.
 
 **Warning signs:**
-- `CookbookPdfService` is given `HttpClient` as a constructor dependency.
-- `QuestPDF` `.Image(url)` — QuestPDF does not support URLs natively; any URL-to-image requires pre-fetching.
+- No test cases with `@`, `#`, or `~` in step text.
+- The Cooklang exporter passes `step.Text` directly to output without sanitization.
 
-**Phase to address:** Phase 9 (Photos surface — consuming surfaces, PDF integration).
+**Phase to address:**
+The Cooklang export phase. Character sanitization must be in the same plan as the step-text serializer.
 
 ---
 
-### Pitfall H7: Smart pantry-match algorithm is O(recipes × pantry × ingredients) — slow Home load
+### Pitfall 12: AI "find a photo" returns a hallucinated URL or a copyrighted image — persisted and displayed
 
 **What goes wrong:**
-The current `BuildPantryMatchesAsync` (lines 286-321 of `Home.razor.cs`) loads ALL recipes with their ingredients via `Include(r => r.RecipeIngredients).ThenInclude(ri => ri.Ingredient)` and computes match ratios in-memory. This is already an O(recipes × ingredients) query. The smart algorithm (FUTURE-13) adds expiration weighting, dietary filtering, and percentage-of-pantry-used scoring — all of which require additional in-memory passes. For a user with 300 recipes × 15 ingredients average × a 50-item pantry, this becomes 22,500 row comparisons per Home page load, synchronously, on the circuit thread.
+An AI asked to "find a photo for this recipe" may return a plausible-looking image URL that (a) does not exist (hallucinated — HTTP 404 on fetch), (b) is an infringing image (Getty, Shutterstock, photographer's portfolio — copyright not cleared), (c) shows the wrong food (a photo of a beef stew labeled as a chicken curry), or (d) is a privacy-violating image (a real person's food photo from a private Instagram). All four scenarios persist a bad URL to `RecipeDocument.PhotoUrl`, potentially in a shared cookbook that other users see.
+
+**Why it happens:**
+Claude (and other LLMs) do not have reliable access to live image databases. They pattern-match from training data — they may emit URLs that look like stock photo URLs but are fabricated, or they may recall real URLs from training that are no longer valid or that link to images they are not authorized to reproduce. The v1.3 `RecipePhotoUrlValidator` validates scheme (`http`/`https` only) and max length but does not validate that the URL actually resolves to a real image. The `onerror` fallback handles broken URLs in rendering but does not prevent persisting them.
 
 **How to avoid:**
-- Push as much filtering as possible to EF Core / SQLite before the in-memory computation. At minimum: use a `JOIN` to filter recipes where `ANY RecipeIngredient.IngredientId IN (pantryIngredientIds)` before loading full ingredient data.
-- Cap the candidate set: load only recipes where the join ratio is plausible (e.g. pre-filter to recipes where at least 50% of ingredients match) using a subquery or a CTE in raw SQL.
-- Add a composite index on `RecipeIngredient(IngredientId, RecipeId)` if it does not exist — this makes the join fast.
-- Add a `[Benchmark]` test (or at least a timing assertion) for `BuildPantryMatchesAsync` with 300 seed recipes and 50 pantry items; assert < 200ms.
+- Do NOT ask the AI to provide a photo URL directly. Instead, implement the "find a photo" feature as a search-query suggestion — the AI suggests search terms (e.g., "chocolate lava cake close-up food photography"), and the user pastes their own chosen URL. This removes the copyright and hallucination risk entirely.
+- If a direct AI URL path is kept, always HEAD-check the URL before persisting: HTTP 4xx = reject. This eliminates hallucinated URLs at save time.
+- Add a copyright disclaimer: "Ensure you have the right to use any image you add to a recipe." Display this on every photo input surface.
+- Do not add "reverse image search" capability that automatically finds and persists photos without user review. The user must always be the last actor before a photo URL is saved.
+- Extend the existing `RecipePhotoUrlValidator` to optionally do a HEAD request (with a short timeout, fire-and-forget) and surface a "URL could not be verified" warning to the editor.
 
 **Warning signs:**
-- Home page load time increases linearly with recipe count after v1.3.
-- `BuildPantryMatchesAsync` materializes ALL recipes before filtering.
-- No database index on `RecipeIngredient.IngredientId`.
+- The AI is instructed to "provide a URL for an image of this recipe" in the system prompt.
+- Photo URLs from AI are persisted without any fetch-validation step.
+- No copyright disclaimer is visible anywhere in the photo input UI.
 
-**Phase to address:** Phase 10 (QOL — smart pantry-match). Must be addressed in the algorithm design, not as a follow-up.
+**Phase to address:**
+The photo enhancement phase. The "search-term suggestion only" decision must be made before implementation begins; reverting after building a direct-URL-from-AI flow is expensive.
 
 ---
 
-### Pitfall H8: Score volatility — pantry-match recipes shuffle position on every Home reload
+### Pitfall 13: Multiple-photos gallery — orphaned files on recipe delete or photo removal
 
 **What goes wrong:**
-If the smart pantry-match score is computed with any floating-point arithmetic that is not deterministic across calls (e.g. depending on row retrieval order from SQLite, or on `DateTime.UtcNow` for expiration weighting), recipes will change their ranked position on every page load. The user navigates Home, sees "Pasta" as the top suggestion, navigates away, returns, and it's now second. Over repeated loads the list appears random. This is particularly jarring for the expiration-weighting logic: if an item expires "in 3 days" the score changes every second.
+When a recipe is deleted or a photo is removed from the gallery, the underlying file in `wwwroot/uploads/` is not deleted. With a single hero photo per recipe (v1.3 state), the orphan risk was low — only one file per recipe. With a gallery of N photos, recipe deletion or repeated photo cycling by the user accumulates orphaned files that grow the deployment volume indefinitely. In a Docker container with a mounted persistent volume, this silently fills the disk.
+
+**Why it happens:**
+The EF Core delete for a `Recipe` row does not know about the filesystem. `wwwroot/uploads/` is outside the database transaction scope. Without an explicit file-deletion hook in `RecipeService.DeleteAsync` (or an analogous `RecipePhotoService.DeleteAsync`), the files are abandoned. SQLite's cascade-delete removes the DB rows (assuming `PRAGMA foreign_keys = ON` is set on every connection — a known .NET SQLite footgun) but the filesystem is not cascade-deleted.
 
 **How to avoid:**
-- Expiration weighting must be quantized to day-granularity (`(expiry - DateTime.UtcNow.Date).TotalDays`, truncated to int). A score that changes only daily (not hourly) is stable across a user session.
-- The final sort must have a deterministic tie-breaker: `OrderByDescending(score).ThenBy(recipeId)` (or `ThenBy(recipeName, OrdinalIgnoreCase)`).
-- Test: call `BuildPantryMatchesAsync` twice with the same data; assert the result list is identical.
+- `RecipePhotoService` (or the equivalent gallery service) must own file lifecycle: every `SaveAsync` call is paired with a corresponding `DeleteAsync(path)` call when the photo is removed.
+- `RecipeService.DeleteAsync` must enumerate all `PhotoUrl` values for the recipe being deleted (including gallery entries) and delete each local file before or after the DB delete.
+- Only delete files with paths matching the `/uploads/` prefix — do not attempt to delete external `http://` URLs. This is the same guard already in `LocalRecipePhotoStorage`.
+- Add a background cleanup pass (triggered on startup or by an admin action) that finds files in `wwwroot/uploads/` with no corresponding DB row — a safety net for any missed deletion.
 
 **Warning signs:**
-- The score formula uses `DateTime.UtcNow` without date truncation.
-- The final sort has no tie-breaker.
+- `RecipeService.DeleteAsync` deletes the `Recipe` row but contains no `File.Delete` call or photo-service call.
+- `wwwroot/uploads/` grows without bound during UAT testing (delete a recipe, check if the file is still there).
 
-**Phase to address:** Phase 10 (QOL — smart pantry-match). Determinism check is part of the acceptance test.
+**Phase to address:**
+The photo enhancement phase. The lifecycle contract for local files must be in the plan before gallery implementation begins.
 
 ---
 
-### Pitfall H9: Token-cost telemetry double-counts tokens on the 2-retry repair loop
+### Pitfall 14: Multiple-photo upload in Blazor Server hits SignalR MaximumReceiveMessageSize per-selection
 
 **What goes wrong:**
-The `AiRecipeGenerator` retry loop sends the same conversation to Anthropic a second time on validation failure. If the telemetry log records tokens from the Anthropic `usage` object in each `SendStructuredAsync` call, a recipe that required one repair attempt is logged as costing 2× the first-call tokens. For a user who generates many complex recipes, their displayed cost is inflated by up to 100% depending on repair-loop hit rate.
+Blazor Server's `InputFile` component transfers file bytes over the SignalR circuit. The current `Program.cs` sets `MaximumReceiveMessageSize = 12 * 1024 * 1024` (12 MB) to accommodate the single-hero-photo 10 MB per-file limit. When uploading multiple files at once (a gallery of 5 photos selected together), the browser sends the upload manifest as a single SignalR message. At 5 × up-to-10 MB, the manifest can exceed the 12 MB limit, dropping the circuit and displaying a blank page. The user loses their selection.
+
+**Why it happens:**
+`MaximumReceiveMessageSize` was sized for a single 10 MB file plus overhead. Multiple simultaneous file selections multiply the metadata (not the byte payload, which streams separately) but the selection manifest itself can still hit limits when many files are selected. GitHub issue dotnet/aspnetcore#42993 describes this as a known limitation: the InputFile component does not split upload manifests across messages.
 
 **How to avoid:**
-- Log each attempt's tokens separately, tagged with `attempt: 1`, `attempt: 2`. Report the SUM per recipe-generation event, not per API call.
-- Include a `attempts` field in the telemetry record so cost-per-attempt can be analyzed separately from cost-per-recipe.
-- Test: mock `IAiService` to return a validation failure on attempt 1 and success on attempt 2; assert the telemetry record for that recipe-generation event shows `totalInputTokens = attempt1.input + attempt2.input` and `attempts = 2`.
+- Require sequential upload: the gallery upload UX must accept one file at a time (or in small batches of ≤3), not allow the user to select all photos simultaneously in a single file picker operation.
+- Or: increase `MaximumReceiveMessageSize` to 64 MB but pair this with a per-upload cap (≤ 5 photos per recipe, ≤ 10 MB per photo) enforced before the stream is opened — never rely on the SignalR limit alone as the only size guard.
+- Prefer sequential: it is simpler and mirrors the existing single-file upload UX without requiring `MaximumReceiveMessageSize` changes that increase DoS risk.
 
 **Warning signs:**
-- Telemetry records one row per `SendStructuredAsync` call rather than one row per `GenerateAsync` call.
-- `AiRecipeGenerator.GenerateAsync` logs telemetry inside the retry loop rather than at the end.
+- A `<InputFile multiple>` attribute is added without adjusting `MaximumReceiveMessageSize`.
+- The upload UX allows selecting N files simultaneously with no count limit shown.
+- UAT: select 5 large photos simultaneously and observe whether the SignalR circuit drops.
 
-**Phase to address:** Phase 12 (Prod-ready — token-cost telemetry).
+**Phase to address:**
+The photo enhancement phase. The "sequential or small-batch" decision is a UX requirement that must be in the plan.
 
 ---
 
-### Pitfall H10: Token pricing table goes stale — Anthropic changes prices, v1.3 still computes 2026 rates
+### Pitfall 15: Display-time service accidentally mutating CanonicalDocumentJson — violates the canonical-first invariant
 
 **What goes wrong:**
-Token-cost telemetry (FUTURE-02) must translate `input_tokens` and `output_tokens` into a dollar estimate. If the pricing table is hardcoded in a C# constant or a static dictionary, it will be wrong when Anthropic reprices (which has happened multiple times — Sonnet pricing changed between 3.5 and 4.x). Users will see inaccurate cost estimates that are off by 40-80% after a repricing event.
+The canonical-first invariant from v1.1/v1.3 is: UI surfaces consume `RecipeDocument` read-only; mutations happen only through `RecipeService.UpdateAsync` which writes back to `Recipe.CanonicalDocumentJson`. A new v1.4 display service (the Schema.org JSON-LD renderer, the nutrition panel, or the Cooklang exporter) that receives a `RecipeDocument` and also has access to a `Recipe` entity (through constructor injection, or because a Razor component passes both) can accidentally call `RecipeService.UpdateAsync` or directly set a property on the `Recipe` entity during rendering. Because `RecipeDocument` is a `sealed record`, property mutation requires `with` expressions — but the `Recipe.CanonicalDocumentJson` setter is not sealed.
+
+**Why it happens:**
+Display services that also need to "enrich" the view (e.g., "attach computed nutrition") are tempted to cache the enriched data by writing it back to the record. A developer writes: `recipe.CanonicalDocumentJson = JsonSerializer.Serialize(enrichedDoc)` inside a Blazor component's `OnInitializedAsync` to avoid recomputing nutrition on every render. This silently persists partially-computed data as canonical.
 
 **How to avoid:**
-- The pricing table must be in `appsettings.json` under `CookBot.AiPricing`, not in code. The default values ship with the v1.3 release; users can update them in their local config without updating the app.
-- Alternatively, store the pricing in a database table (`AiModelPricing`) that the admin can update via a simple UI or seeder.
-- Display cost estimates with a clear disclaimer: "Estimates based on pricing as of [configuredDate]. Check Anthropic's pricing page for current rates."
-- The cost display should never show a precise dollar figure — use "~$0.003" rather than "$0.00312" to signal it is an estimate.
+- Nutrition enrichment data lives in a separate DB table (`RecipeNutrition`, keyed by `RecipeId`) — it is NOT written to `CanonicalDocumentJson`. The canonical doc never contains derived nutrition data.
+- Schema.org JSON-LD and Cooklang export are stateless transformations: `SchemaOrgSerializer.Serialize(RecipeDocument)` → string. No entity access; no DB write.
+- In code review: any new service that takes a `Recipe` entity as a dependency AND also calls any method on a mutating service (anything not `readonly` in `RecipeService`) is a red flag.
+- Add a code convention note to `CONVENTIONS.md`: "Export and display services receive `RecipeDocument` (not `Recipe`) and are read-only. They never call `RecipeService.UpdateAsync`."
 
 **Warning signs:**
-- Pricing constants appear in a `.cs` file rather than configuration.
-- No `configuredDate` field indicates when the rates were last verified.
+- A new Razor component calls a service that takes `Recipe recipe` and also has `IRecipeService` injected.
+- `CanonicalDocumentJson` is set anywhere outside of `RecipeService.CreateAsync` or `RecipeService.UpdateAsync`.
+- Nutrition values appear in `Recipe.CanonicalDocumentJson` on inspection.
 
-**Phase to address:** Phase 12 (Prod-ready — token-cost telemetry). The pricing-in-config design decision must be made in the PLAN.md.
+**Phase to address:**
+Cross-cutting — mention in every phase plan that introduces a new display or export service.
 
 ---
 
-### Pitfall H11: `RecipeFormatParser` round-trip fixtures break when V3 fields are added
+### Pitfall 16: Scope creep across four concurrent themes causes interdependency chaos
 
 **What goes wrong:**
-`tests/CookBot.Tests/Services/RecipeFormatParserTests.cs` contains round-trip fixtures that assert `Parse(Serialize(doc)) == doc`. When `RecipeDocument` gains `PhotoUrl`, `Description`, and per-step `Temperature`, the serializer emits these new fields in YAML. If the test fixtures use string comparison (`Assert.Equal(expected, actual)`) rather than structural comparison, EVERY existing fixture fails because the output now includes `photoUrl: null` and `description: null` lines. This is the most likely "breaks first" location when V3 lands.
+Four themes (richer format, export, nutrition, photos) have cross-cutting dependencies. The schema bump (v4) must land before nutrition can store results against the new fields. Photos must land before Schema.org can emit a valid `image` field. If phases overlap or are planned as "do all at once", a bug in nutrition blocks the photo gallery, a bug in the schema bump blocks the Cooklang exporter, and the UAT harness runs against a partially-deployed state where some features are half-done.
+
+**Why it happens:**
+Milestone planning at the theme level feels efficient. Execution at the theme level produces half-done features that cannot be independently tested.
 
 **How to avoid:**
-- Before adding V3 fields, audit `RecipeFormatParserTests.cs` for string-comparison assertions. Convert them to structural assertions (`Assert.Equal(doc.Name, parsed.Name)`, etc.) or use null-omission in the YAML serializer so `null` fields are not emitted.
-- Add new fixtures SPECIFICALLY for V3 fields rather than modifying existing ones.
-- Run `dotnet test --filter RecipeFormatParserTests` as the first step of the V3 schema PR and verify green before any code changes.
+- Phase ordering must respect the dependency chain: schema bump (v4) → richer-format fields in parser/validator → AI prompt update → nutrition (reads v4 fields) → photo gallery → Schema.org/Cooklang (reads v4 + photos).
+- Each phase is independently deployable and UAT-verifiable before the next begins.
+- The v4 schema bump phase must be the first phase, with green unit tests and a passing prompt snapshot before any other theme's code is written.
 
 **Warning signs:**
-- `RecipeFormatParserTests.cs` uses `Assert.Equal(yamlString, serialized)` for multi-line YAML comparison.
-- Existing tests do not have a "null fields are not emitted" assertion.
+- A plan file touches `Migration_V3_To_V4` AND `FdcNutritionService` in the same plan.
+- The phase plan for Cooklang export assumes `RecipeDocument.Substitutions` is already available without explicitly depending on the v4 schema bump phase.
 
-**Phase to address:** Phase 8 (Schema V3). The PLAN.md for the schema phase must include "audit and update `RecipeFormatParserTests` before merging schema changes."
-
----
-
-## Moderate Pitfalls
-
-Mistakes that cause friction, UX confusion, or require a non-trivial fix.
-
-### Pitfall M1: Per-step temperature unit mismatch — user types 350°F, stored as 350°C
-
-**What goes wrong:**
-When the editor captures per-step temperature, the user types "350" and the UI likely has a unit dropdown. If the dropdown defaults to Celsius but the user is American and thinks Fahrenheit, or if the AI emits `{ value: 350, unit: "F" }` but the display renders it as degrees C, the recipe is silently wrong. The validator cannot catch this because 350 is a valid integer for either unit; the error is semantic, not structural.
-
-**How to avoid:**
-- The unit dropdown must default to the user's `UserProfile.UnitSystem` preference (already stored). Imperial → Fahrenheit default; Metric → Celsius default.
-- Display the unit inline with the value: "350 °F" — not just "350" with a separate dropdown.
-- In the AI prompt, instruct the model to use the user's unit system for temperature (already done for ingredient amounts; extend to steps).
-- Add a test: generate a recipe with the AI for a user with `UnitSystem.Metric`; assert the emitted temperature unit is `"C"`.
-
-**Warning signs:**
-- Temperature unit dropdown defaults to Celsius regardless of user preference.
-- AI-emitted temperatures are not validated against the user's unit system preference.
-
-**Phase to address:** Phase 8 (Schema V3 — per-step temperature).
-
----
-
-### Pitfall M2: V2→V3 upcaster null-fills temperature with `{ value: 0, unit: "F" }` instead of `null`
-
-**What goes wrong:**
-A developer writing the V2→V3 upcaster sets the step temperature field to a default object rather than `null` because the C# model has `Temperature Temperature { get; init; } = new Temperature(0, TemperatureUnit.F)` with a default constructor. Every existing recipe gets `temperature: { value: 0, unit: "F" }` after upcast. The UI renders "0°F" on every step of every legacy recipe. The cooking mode shows "Bake at 0°F." This is not caught by the `RecipeValidator` because 0 is a valid integer.
-
-**How to avoid:**
-- The `Temperature` property on `ContentStep` must be `Temperature? Temperature` — nullable. The default is `null`, not a zero-valued struct.
-- The V2→V3 upcaster explicitly sets `temperature: null` for all steps that had no temperature in v2.
-- The UI renders temperature only when the value is non-null AND `value > 0` (or some reasonable sentinel check).
-- Add a test: upcast a v2 recipe; assert `doc.Steps.OfType<ContentStep>().All(s => s.Temperature == null)`.
-
-**Warning signs:**
-- `ContentStep.Temperature` is a non-nullable value type.
-- The upcaster uses `new Temperature()` to initialize missing temperature fields.
-
-**Phase to address:** Phase 8 (Schema V3). The nullable annotation must be in the initial domain model PR.
-
----
-
-### Pitfall M3: `RecipeJsonSchemaProvider` not updated for V3 — AI structured-output ignores new fields
-
-**What goes wrong:**
-`RecipeJsonSchemaProvider.BuildSchema()` derives the JSON schema from `RecipeDocument` via `JsonSchemaExporter`. If `RecipeDocument` gains `PhotoUrl`, `Description`, and a `Temperature` nested type, the schema is updated automatically ONLY if the new properties have `[JsonPropertyName]` attributes. If `Temperature` is a nested record added to `ContentStep` without the attribute, or if `ContentStep` uses `[JsonPolymorphic]` and the new property is on the base class, the schema exporter may omit or mis-describe the field. The AI is then constrained-decoded against the old schema and cannot emit the new fields.
-
-**How to avoid:**
-- After adding V3 fields to the domain model, call `RecipeJsonSchemaProvider.GetSchema()` in a test and assert the returned JSON schema contains `photoUrl`, `description`, and `temperature` properties.
-- Also assert that `temperature` has the correct nullable shape: `{ "type": ["object", "null"] }`.
-- The existing `SetAdditionalPropertiesFalse` walker in `RecipeJsonSchemaProvider` must also visit the new `Temperature` nested object and add `"additionalProperties": false` — verify this in the test.
-
-**Warning signs:**
-- Schema output does not contain `photoUrl` after `RecipeDocument` is updated.
-- `temperature` appears as a non-nullable object in the schema (causes the AI to always emit a temperature even for steps with no heat).
-
-**Phase to address:** Phase 8 (Schema V3). Add a `RecipeJsonSchemaProvider` output assertion test as the very first test of the V3 phase.
-
----
-
-### Pitfall M4: Docker container listens on `localhost` only — unreachable from host network
-
-**What goes wrong:**
-The app's `run.sh` binds Kestrel to `http://localhost:7000`. In a Docker container, `localhost` refers to the container's loopback interface — the host machine cannot reach it even with port mapping (`-p 7000:7000`). The port mapping maps host port 7000 to container port 7000 on `0.0.0.0` (the container's external interface), but the app is listening only on `127.0.0.1`. The result: the app starts, port is mapped, but all requests get `connection refused`.
-
-**How to avoid:**
-- In the Dockerfile's `ENTRYPOINT` or via an environment variable: set `ASPNETCORE_URLS=http://+:7000` (or `http://0.0.0.0:7000`). The `+` is ASP.NET Core's wildcard that binds to all interfaces.
-- Alternatively, set in `appsettings.json`: `"Urls": "http://+:7000"` — but environment variable override is cleaner for Docker.
-- Verify by running `docker-compose up` and `curl http://localhost:7000/` from the HOST machine (not inside the container).
-
-**Warning signs:**
-- `appsettings.json` or `launchSettings.json` hardcodes `localhost` as the bind address.
-- `ASPNETCORE_URLS` is not set in the Dockerfile or `docker-compose.yml`.
-
-**Phase to address:** Phase 12 (Prod-ready — Dockerfile). First thing to verify in the Docker smoke test.
-
----
-
-### Pitfall M5: SQLite WAL mode + Docker volume + high write frequency = lock contention
-
-**What goes wrong:**
-SQLite's WAL (Write-Ahead Log) mode creates additional files alongside `cookbot.db`: `cookbot.db-shm` and `cookbot.db-wal`. If these files are on a Docker volume that has slow fsync (e.g. NFS-backed or a Docker Desktop virtualized volume on macOS/Windows), concurrent writes from the Blazor Server's scoped `CookBotDbContext` instances can experience lock contention. The symptom is intermittent `SQLITE_BUSY` errors during recipe saves. The `.gitignore` already covers `*.db-wal` and `*.db-shm`, so they won't be accidentally committed, but they must be on the SAME volume as `cookbot.db`.
-
-**How to avoid:**
-- The Docker volume mount must include the entire directory containing `cookbot.db`, not just the file. Use `./data:/app/data` where `data/` holds `cookbot.db`, not a bind mount of the file itself.
-- In `Program.cs`, set the EF Core connection string with `Journal Mode=WAL;` explicitly and `Cache=Shared` for the pool. The default is WAL-off; adding WAL improves concurrent read performance but requires the shm/wal files to be co-located.
-- Test: two simultaneous recipe saves from two browser sessions; assert no `SQLITE_BUSY` exception.
-
-**Warning signs:**
-- The `docker-compose.yml` mounts the specific file (`./cookbot.db:/app/cookbot.db`) rather than the directory.
-- `*.db-shm` and `*.db-wal` files appear on the HOST in a different location than `cookbot.db`.
-
-**Phase to address:** Phase 12 (Prod-ready — Dockerfile + docker-compose).
-
----
-
-### Pitfall M6: `docker-compose restart: unless-stopped` masks startup failures
-
-**What goes wrong:**
-`restart: unless-stopped` causes Docker Compose to restart the container if it exits. If the app fails at startup (migration failure, missing volume, wrong connection string), it exits immediately, Docker restarts it, it fails again, restart again — a rapid restart loop that can exhaust disk space from log files and mask the root cause. The user sees a container that is "running" but immediately restarts, and `docker logs cookbot` shows the same error on loop.
-
-**How to avoid:**
-- Use `restart: on-failure` with `max_retries: 3` rather than `unless-stopped`. After 3 failures, Docker stops retrying and the container stays in the `exited` state — making it obvious something is wrong.
-- Alternatively, use `unless-stopped` but implement a startup health check (`healthcheck:` in `docker-compose.yml`) that the app only passes once it has successfully migrated and is accepting connections.
-- Document in the README: "If the container enters a restart loop, check `docker logs cookbot` for startup errors."
-
-**Warning signs:**
-- `docker-compose.yml` has `restart: unless-stopped` with no `healthcheck`.
-- No startup validation that exits with a non-zero code on unrecoverable errors (e.g. missing key ring volume).
-
-**Phase to address:** Phase 12 (Prod-ready — Dockerfile + docker-compose).
-
----
-
-### Pitfall M7: Timezone / locale defaults break `FractionFormatter` or cooking timers in container
-
-**What goes wrong:**
-The .NET runtime inside a Linux Docker container defaults to UTC and the invariant culture. The `FractionFormatter` is culture-independent (it formats fractions as strings, not numbers), so it is safe. However, `DescribeRelative` in `Home.razor.cs` (line 330-337) calls `utc.ToLocalTime()` and formats with `"MMM d"` — inside the container, `ToLocalTime()` returns UTC (no TZ set), and `"MMM d"` produces English month names regardless of the user's locale. For a French self-hoster, "Mai 15" would be expected but "May 15" appears. This is a cosmetic issue, not a crash.
-
-**How to avoid:**
-- Set `TZ=UTC` explicitly in the Dockerfile `ENV` section to avoid surprises when the host has a different TZ.
-- In `DescribeRelative`, use `DateTime.UtcNow` throughout and format with a culture-invariant format that doesn't rely on month-name localization (`"yyyy-MM-dd"` or `"MMM d"` with `CultureInfo.InvariantCulture`).
-- Document in README: "The app uses UTC for all date display. Locale-specific date formatting is not yet supported."
-
-**Warning signs:**
-- `TZ` is not set in the Dockerfile.
-- `ToLocalTime()` is used in server-side formatting (not just in JS client-side display).
-
-**Phase to address:** Phase 12 (Prod-ready — Dockerfile). Minor but worth fixing at Dockerfile authoring time.
-
----
-
-### Pitfall M8: Token-cost telemetry scan at Profile render time — missing composite index
-
-**What goes wrong:**
-Token-cost telemetry (FUTURE-02) requires a per-user aggregate query: "sum all input and output tokens for this user across all AI calls." If the telemetry table has no composite index on `(UserId, CreatedAt)`, this query scans the entire table on every Profile page load. For a self-hoster who has used the app for a year with daily AI recipe generation (say, 365 × 10 calls = 3,650 rows), the scan is trivial. But for the admin page showing cross-user telemetry, the scan covers all users' rows.
-
-**How to avoid:**
-- Add a composite index `IX_AiUsageLogs_UserId_CreatedAt` in the EF migration that creates the telemetry table.
-- Keep the Profile query to a date-bounded aggregation (current month, last 30 days) rather than all-time, to bound the scan even without the index.
-- Test: seed 10,000 telemetry rows across 10 users; assert Profile render completes in < 100ms.
-
-**Warning signs:**
-- The telemetry table has no index on `UserId`.
-- The Profile page query has no date filter (`WHERE CreatedAt > @start`).
-
-**Phase to address:** Phase 12 (Prod-ready — token-cost telemetry). The EF migration that creates the telemetry table must include the index.
-
----
-
-### Pitfall M9: Cross-user token telemetry visible to admin — privacy decision not documented
-
-**What goes wrong:**
-If the self-hosting admin has access to a "total cost by user" view (useful for managing a shared key), this reveals per-user AI usage patterns to the admin. For a family-use deployment this is expected. For a shared-office deployment, users may not expect the admin to see when they used AI and how intensively. This is not a bug but a product decision that needs explicit documentation.
-
-**How to avoid:**
-- The admin telemetry view should be gated behind `User.IsCookBotAdmin` (already the admin flag). Add a visible note in the UI: "Usage telemetry is visible to CookBot administrators."
-- Document in the README: "The admin can view aggregate token usage per user. If this is undesirable for your deployment, disable token-cost telemetry in appsettings."
-- Add a `CookBotSettings.TelemetryEnabled` flag (similar to `AiFeaturesEnabled`) so the admin can opt out of telemetry entirely.
-
-**Warning signs:**
-- No UI disclosure that the admin can see individual user token usage.
-- No `TelemetryEnabled` killswitch in `CookBotSettings`.
-
-**Phase to address:** Phase 12 (Prod-ready — token-cost telemetry). The privacy disclosure must be in the initial telemetry plan.
-
----
-
-### Pitfall M10: `Recipe.Description` collides with AI treating step 1 as the description
-
-**What goes wrong:**
-When the AI generates a recipe and `Description` is a new top-level field in V3, the model may include an introductory paragraph as step 1 of the steps array ("This classic Italian dish dates back to...") AND also populate `description` with a similar sentence. Alternatively, if the system prompt doesn't explicitly distinguish the two, the model puts the intro paragraph in step 1 instead of `description`, leaving `description` empty. Neither outcome is wrong per the validator, but both are undesirable UX.
-
-**How to avoid:**
-- In the system prompt's description of the V3 schema, explicitly define `description` as "1-2 sentence recipe summary, no historical context, no cooking advice — just what the dish is." AND specify "Do not put introductory prose in step 1. Steps begin with the first cooking action."
-- Add a `RecipeValidator` warning (not error) when `steps[0]` is a `ContentStep` whose text is > 100 characters and does not start with a cooking verb — a heuristic signal that the intro paragraph ended up in step 1.
-- Test: generate a recipe; assert `Description` is non-empty when the system prompt instructs the model to populate it.
-
-**Warning signs:**
-- AI-generated recipes have a non-cooking introductory sentence as `steps[0]`.
-- `Description` is consistently empty on AI-generated V3 recipes.
-
-**Phase to address:** Phase 8 (Schema V3 — AI prompt update). Add the validator warning alongside the schema.
+**Phase to address:**
+Roadmap design phase — the dependency chain must be explicit in the roadmap before phase planning begins.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems in THIS codebase.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| `<img onerror="this.src='/fallback.png'">` without `this.onerror=null` | Simple one-liner | Infinite loop on double-broken URLs, pegs browser network queue | Never |
-| Using `IBrowserFile.Name` for save path | Preserves user's filename | Path-traversal attack vector | Never |
-| Mounting `cookbot.db` directly (not its directory) in Docker | Simpler bind mount | WAL files (`-shm`, `-wal`) land on host outside the volume, breaking WAL mode | Never for SQLite with WAL enabled |
-| Pricing constants in C# source | Compile-time safety | Stale rates after any Anthropic repricing; requires app rebuild to update | Acceptable if clearly commented with verification date; better in config |
-| `restart: unless-stopped` without `healthcheck` | Container auto-restarts on crash | Masks startup failures; creates rapid restart loops | Acceptable in development; unacceptable in production docs |
-| Per-user `IDataProtector` scope for API keys | Better isolation | Breaks the sharing flow where recipient reads owner's row | Never for a shared-key model |
-| Recording telemetry inside the retry loop | Simpler code | Double-counts token cost on repair attempts | Never; record at the `GenerateAsync` level |
+| Inline FDC match without cache | Simpler first pass | Rate limit exhaustion at 70+ recipes; stale results after FDC updates | Never — cache is a day-one requirement |
+| Store nutrition in CanonicalDocumentJson | No new table needed | Violates canonical-first invariant; pollutes the schema; round-trips derived data | Never |
+| Use FDC Branded Foods without filtering | Wider food coverage | Brand-specific serving sizes pollute calculations; misleading precision | Never for default match; only after user-confirmed match |
+| Cooklang import (not just export) | Feature parity with Cooklang ecosystem | Complex bidirectional mapping; format differences cause data loss on re-import | Defer to v1.5+ |
+| Schema.org on every recipe page regardless of photo | "More SEO" | Invalid `image` field disqualifies the recipe from rich results | Only emit JSON-LD when image is an absolute HTTPS URL |
+| AI provides photo URL directly | Feels magical | Hallucinated URLs, copyright risk, wrong food | Never — suggest search terms only |
 
 ---
 
@@ -627,12 +399,13 @@ Shortcuts that seem reasonable but create long-term problems in THIS codebase.
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| ASP.NET Core Data Protection + Docker | Key ring in ephemeral container layer | Explicit named volume for key ring directory, separate from DB volume |
-| Data Protection + API key sharing | Per-user protector scope | Single shared purpose string (`"AiApiKey"`) across all rows |
-| `<InputFile>` + Blazor Server SignalR | Only raising Kestrel limit | Must raise ALL THREE: Kestrel `MaxRequestBodySize`, `FormOptions.MultipartBodyLengthLimit`, `AddServerSideBlazor MaximumReceiveMessageSize` |
-| QuestPDF + PhotoUrl | Passing URL string to QuestPDF | Pre-fetch bytes in async caller; pass byte array to synchronous renderer |
-| SQLite WAL + Docker volume | Bind-mounting the file (`./cookbot.db:/app/cookbot.db`) | Bind-mount the directory (`./data:/app/data`) so WAL sidecar files co-locate |
-| EF Value Converter + existing plaintext data | Converter decrypts all rows including legacy plaintext | Sentinel-prefix pattern (`enc:v1:`) + startup re-encryption pass |
+| USDA FDC `/foods/search` | Accept top result without checking data type | Filter to `Foundation Foods,SR Legacy`; check `dataType` field in response |
+| USDA FDC nutrition values | Use `value` field directly without checking `unitName` | Confirm `unitName == "KCAL"` / `"G"` before storing; do not assume units |
+| USDA FDC serving size | Use `servingSize` for volume→mass conversion blindly | Check `servingSizeUnit`; prefer `foodPortions` with `gramWeight` for household measures |
+| Schema.org `recipeInstructions` | Emit raw step text with `[name](#id)` links | Strip ingredient-link syntax; emit plain-text step instructions |
+| Schema.org `totalTime` | Omit it when only `cookTime` or `prepTime` is set | Compute `totalTime = prepTime + cookTime` when both are set; emit all three |
+| Cooklang `@ingredient` | Emit multi-word ingredients without `{}` | Multi-word ingredients require `@long ingredient name{}` — single-word can be bare `@word` |
+| Cooklang section `==heading==` | Map v4 `SectionStep.Heading` directly | Check heading does not contain `=` characters; sanitize |
 
 ---
 
@@ -640,10 +413,10 @@ Shortcuts that seem reasonable but create long-term problems in THIS codebase.
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| `BuildPantryMatchesAsync` loads all recipes before filtering | Home page slow to load | Composite DB index + pre-filter in EF query before `ToListAsync` | ~100+ recipes |
-| Token telemetry all-time aggregate query | Profile page slow | Composite index `(UserId, CreatedAt)` + date-bound query (last 30 days) | ~1,000+ telemetry rows |
-| Pantry-match score uses `DateTime.UtcNow` without truncation | Recipes re-sort on every reload, flickering UX | Truncate to day granularity in score formula | Immediately on first use |
-| `RecipeFormatParser` round-trip fixture string comparison | Every fixture fails when new nullable fields are added | Structural assertions, not string comparison | First V3 schema merge |
+| FDC API called per-ingredient on every recipe view | Slow page load; rate limit exhaustion | Cache in DB keyed by `(normalizedName, fdcFoodId)` with TTL | Immediately at ~15 ingredients/recipe × multiple views |
+| Gallery photo count unbounded | Disk fills in Docker volume; slow recipe-view load | Enforce ≤5 photos per recipe; show count in editor | At ~20 photos per recipe in a shared cookbook |
+| Backfill all existing recipes with nutrition on deploy | Startup blocks; rate limit exhausted in one migration | Make backfill opt-in per-recipe; never auto-backfill | Any deployment with >10 existing recipes |
+| JSON-LD rendered server-side on every request without caching | Unnecessary serialization work per page load | Cache the JSON-LD string alongside the canonical doc; invalidate on recipe save | Negligible at current scale — low priority |
 
 ---
 
@@ -651,13 +424,9 @@ Shortcuts that seem reasonable but create long-term problems in THIS codebase.
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Using `IBrowserFile.Name` in save path | Path-traversal attack, overwrite config files | Server-generated GUID filename + content-type-derived extension |
-| Checking only `IBrowserFile.ContentType` for upload validation | Stored XSS via HTML/SVG disguised as JPEG | Magic-byte validation of first 512 bytes |
-| Serving uploads without `X-Content-Type-Options: nosniff` | Browser sniffs uploaded HTML as executable | `StaticFileOptions.OnPrepareResponse` adds `nosniff` header for `/uploads/` |
-| Accepting `data:` or `javascript:` in paste-URL | Bandwidth bomb, XSS, persistent payload in DB | `Uri.TryCreate` + scheme allowlist (`http`, `https` only) in `RecipePhotoUrlValidator` |
-| `wwwroot/uploads/` not in `.gitignore` | User photos accidentally committed to repo | Add `.gitignore` entry before writing any upload code |
-| Data Protection key ring not on a named volume | Container restart destroys all API keys | Explicit named volume in `docker-compose.yml` for key ring directory |
-| Cleartext key in `CryptographicException` error path | Key leaks if sentinel-prefix check fails during decrypt | All new decrypt catch sites must call `SecretRedactor.Redact` |
+| FDC API key committed to `appsettings.json` | Key deactivated by USDA on discovery (per terms); app stops fetching nutrition | Load from environment variable `FDC_API_KEY`; add `.gitignore` guard; document in README |
+| AI-generated photo URL persisted without fetch-validation | Malicious URL in shared cookbook exposes users to SSRF or invalid content | HEAD-validate before persisting; existing `RecipePhotoUrlValidator` scheme-allowlist covers XSS; extend to validate resolution |
+| Schema.org JSON-LD containing user-authored recipe name without HTML encoding | Unlikely XSS vector (JSON-LD is not HTML-parsed by browsers) | Use `System.Text.Json` serializer for the entire JSON-LD block — it escapes problematic characters automatically; never use string interpolation to build JSON-LD |
 
 ---
 
@@ -665,30 +434,38 @@ Shortcuts that seem reasonable but create long-term problems in THIS codebase.
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Double-broken `onerror` fallback loop | Flickering image + pegged network | `this.onerror=null` before setting `this.src`; or Blazor state-flag approach |
-| Upload silently drops circuit (SignalR limit) | User loses edit, no error message | Client-side size check BEFORE reading file; explicit "file too large" toast |
-| Recipes re-sort on every Home reload (score instability) | Jarring UX, "random" suggestions | Day-granular expiration weighting, deterministic tie-breaker sort |
-| Per-step temperature shows "0°F" on all legacy recipes | Every recipe appears to have wrong temperature | `Temperature?` nullable; render only when non-null |
-| AI `Description` + introductory step 1 duplication | Redundant content, confusing recipe structure | Explicit system prompt instruction distinguishing the two fields |
-| Token cost shows precise dollars (false precision) | User over-trusts the estimate | Display as `~$X.XX` with disclosure note about estimate basis |
+| Nutrition panel shows zero for unmatched ingredients | User thinks zero-calorie; underestimates meal | Show "--" (dash) for unmatched; "≈" prefix for low-confidence matches |
+| Cooklang download has no format warning | User expects re-import; data edit lost | Label "Export only (one-way)" and add tooltip explaining what is lost |
+| Photo gallery order not persisted | User reorders photos; order resets on page reload | Store display order explicitly (e.g., `displayOrder int` column); not implicit by insert order |
+| "Find me a photo" AI button with no disclaimer | User assumes AI photos are royalty-free | Button label: "Suggest search terms" not "Find photo"; disclaimer before any AI photo feature |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-These are the v1.3 features most likely to appear complete during development but be missing a critical piece.
+- [ ] **Upcaster v3→v4:** Does `RecipeUpcasterChain.CurrentVersion` = 4? Is `Migration_V3_To_V4` registered in DI? Does the fixture matrix include a v3 doc with all new fields absent?
+- [ ] **AI schema:** Does the prompt snapshot test pass after adding new fields to `RecipeDocument`? Does a generated recipe include the new fields (even if null) in the structured output?
+- [ ] **Nutrition FDC match:** Is the matched food description visible to the user? Is the match stored with its FDC food ID (not just the computed values)?
+- [ ] **Nutrition density:** Does "1 cup all-purpose flour" compute to approximately 455 kcal (not 900 kcal)? Is the density table covered by unit tests?
+- [ ] **FDC caching:** Does a second lookup for the same ingredient name skip the API call and use the cache?
+- [ ] **Schema.org:** Does validation with Google Rich Results Test pass for a recipe that has `name`, `image` (absolute URL), `cookTime` (ISO 8601), and `recipeInstructions` (plain text)?
+- [ ] **Cooklang:** Does a recipe with `@`, `#`, `~` in step text produce a parseable `.cook` file?
+- [ ] **Photo orphan cleanup:** After deleting a recipe with gallery photos, are the local files removed from `wwwroot/uploads/`?
+- [ ] **Multi-upload:** Uploading 3 photos simultaneously does not drop the SignalR circuit?
+- [ ] **Canonical invariant:** Does `RecipeDocument` deserialized from `CanonicalDocumentJson` after save contain no nutrition or JSON-LD data?
 
-- [ ] **File uploads:** Missing the SignalR `MaximumReceiveMessageSize` raise — uploads work in dev (localhost, fast) but drop circuits on LAN use. Verify: `Program.cs` has all THREE size limits configured.
-- [ ] **File uploads:** Missing `wwwroot/uploads/` in `.gitignore` — will silently be committed on first `git add`. Verify: `.gitignore` entry added before Phase 9 code.
-- [ ] **Photo onerror fallback:** Missing `this.onerror=null` in the handler — loop not visible until a broken image is actually encountered. Verify: test with a deliberate 404 photo URL.
-- [ ] **Docker deploy:** Key ring not on a named volume — works until the first `docker stop && start`. Verify: `docker-compose stop && docker-compose start`, confirm AI still works without re-entering keys.
-- [ ] **Docker deploy:** App bound to `localhost` inside container — works in `docker exec` but not from host. Verify: `curl http://localhost:7000/` from HOST machine after `docker-compose up`.
-- [ ] **Encrypt-at-rest:** Existing plaintext keys not migrated — breaks ALL users on first upgrade. Verify: seed a plaintext key, run the new version, confirm key is still accessible.
-- [ ] **Encrypt-at-rest:** Key sharing path not tested — recipient cannot use owner's key after encryption. Verify: owner sets key, creates share, recipient successfully uses it.
-- [ ] **V3 schema:** `RecipeJsonSchemaProvider` not updated — AI cannot emit new fields. Verify: assert schema JSON contains `photoUrl`, `description`, `temperature`.
-- [ ] **V3 upcaster:** Zero-fill instead of null-fill for per-step temperature — shows "0°F" on every legacy step. Verify: upcast a v2 recipe; assert all `temperature` fields are null.
-- [ ] **Token telemetry:** Double-counting on repair loop — cost appears inflated. Verify: force a repair-loop hit; assert telemetry shows one record with `attempts=2`, not two records.
-- [ ] **Pantry match:** Missing composite DB index — Home page becomes slow at scale. Verify: seed 200 recipes; measure `BuildPantryMatchesAsync` elapsed time.
+---
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Wrong FDC match persisted in nutrition cache | LOW | Expose "re-match" action per ingredient; clear cache row and re-search |
+| Upcaster gap missed in DI registration | LOW | Add the registration + restart; no data loss (upcasters run on read, not on save) |
+| Orphaned photo files accumulated | LOW | Run the cleanup background pass; it is non-destructive (checks DB before deleting) |
+| Nutrition stored in CanonicalDocumentJson | HIGH | Requires a data migration to strip nutrition keys from all canonical docs + schema revert |
+| Hallucinated AI photo URL persisted in shared cookbook | MEDIUM | Add admin "clear photo" action; notify affected users if cookbook is shared |
+| Cooklang with `@`/`#`/`~` chars exported incorrectly | LOW | Fix the sanitizer; re-export is the user action (no DB data is corrupted) |
 
 ---
 
@@ -696,57 +473,39 @@ These are the v1.3 features most likely to appear complete during development bu
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| C1: Data Protection key ring lost on container restart | Phase 12 (Dockerfile) | `docker-compose stop && start` smoke test with AI call |
-| C2: Key-sharing decryption scope breakage | Phase 11 (Encrypt-at-rest) | Owner-sets-key + recipient-uses-key integration test |
-| C3: Existing plaintext keys not migrated | Phase 11 (Encrypt-at-rest) | Sentinel-prefix unit test + upgrade smoke test from v1.2 DB |
-| C4: `SecretRedactor` coverage gap in decrypt path | Phase 11 (Encrypt-at-rest) | `SecretRedactor.Redact` unit test with legacy plaintext key |
-| C5: `wwwroot/uploads/` committed to git | Phase 9 (Photos surface — first task) | `git status` after test upload shows no tracked files |
-| C6: DB backup excludes `uploads/` directory | Phase 12 (Dockerfile + backup docs) | Backup-restore round-trip with photos; verify image URLs still resolve |
-| C7: V3 upcaster bundling causes all-or-nothing failure | Phase 8 (Schema V3) | Upcast v2 recipe with no temperature; assert no throw, all new fields null |
-| C8: Lint denylist not updated for V3 alternate field names | Phase 8 (Schema V3) | `Extras` dict check warning test; denylist test covers `imageUrl` |
-| H1: Three size limits block file uploads | Phase 9 (Photos surface — Plan 9-1) | Upload 6 MB test file; verify "File too large" toast, no circuit drop |
-| H2: Path-traversal in uploaded filenames | Phase 9 (Photos surface — Plan 9-1) | Upload with filename `../../appsettings.json`; assert rejection |
-| H3: Content-type sniffing XSS | Phase 9 (Photos surface — Plan 9-1) | Upload HTML as `.jpg`; assert rejection or `nosniff` header |
-| H4: `onerror` fallback infinite loop | Phase 9 (Photos surface — consuming surfaces) | Render recipe with 404 PhotoUrl; assert no network loop |
-| H5: Paste-URL accepts dangerous schemes | Phase 8 (Schema V3 — URL safety) | `RecipePhotoUrlValidator` unit tests for all rejected cases |
-| H6: QuestPDF blocks on HTTP fetch | Phase 9 (Photos surface — PDF) | Generate PDF for recipe with PhotoUrl; assert no blocking call |
-| H7: Smart pantry-match O(n²) performance | Phase 10 (QOL — pantry match) | Benchmark with 300 recipes; assert < 200ms |
-| H8: Pantry match score volatility | Phase 10 (QOL — pantry match) | Call twice with same data; assert identical result list |
-| H9: Token telemetry double-counts on repair | Phase 12 (Telemetry) | Force repair-loop; assert single telemetry record with `attempts=2` |
-| H10: Pricing table goes stale | Phase 12 (Telemetry) | Pricing in `appsettings.json`; assert no pricing constants in `.cs` files |
-| H11: `RecipeFormatParserTests` breaks on V3 | Phase 8 (Schema V3 — first step) | Run `RecipeFormatParserTests` before any schema changes; audit string assertions |
-| M1: Per-step temperature unit mismatch | Phase 8 (Schema V3 — per-step temperature) | AI generates recipe for Metric user; assert temperature unit is `"C"` |
-| M2: V3 upcaster null-fills temp with `{ value: 0 }` | Phase 8 (Schema V3 — upcaster) | Upcast v2 recipe; assert `ContentStep.Temperature == null` |
-| M3: `RecipeJsonSchemaProvider` missing V3 fields | Phase 8 (Schema V3) | Schema assertion test: `photoUrl`, `description`, `temperature` present |
-| M4: Docker container binds `localhost` only | Phase 12 (Dockerfile) | `curl http://localhost:7000/` from host machine after `docker-compose up` |
-| M5: SQLite WAL + Docker file bind mount | Phase 12 (Dockerfile) | Bind-mount directory, not file; verify WAL files co-locate |
-| M6: `restart: unless-stopped` masks startup failures | Phase 12 (Dockerfile) | Induce startup failure; assert container stops after 3 retries |
-| M7: Timezone breaks date display in container | Phase 12 (Dockerfile) | Verify `TZ=UTC` in Dockerfile ENV |
-| M8: Telemetry scan missing composite index | Phase 12 (Telemetry) | Migration includes `IX_AiUsageLogs_UserId_CreatedAt` |
-| M9: Cross-user telemetry not disclosed | Phase 12 (Telemetry) | UI shows "visible to admins" note; `TelemetryEnabled` flag exists |
-| M10: AI puts intro prose in step 1 instead of Description | Phase 8 (Schema V3 — AI prompt) | Generate recipe; assert Description non-empty; step[0] starts with verb |
+| Upcaster DI gap (P1) | Schema bump phase (first phase) | Gap-detection test + DI registration test pass |
+| Bundle-throw upcaster (P2) | Schema bump phase | Fixture matrix covers partial-field v3 docs |
+| AI schema drift (P3) | Schema bump phase | Prompt snapshot test updated and passing |
+| FDC wrong food match (P4) | Nutrition phase | Match-review UI visible in UAT; FDC food ID stored in DB |
+| Density conversion error (P5) | Nutrition phase | Density table unit test covers 20 common ingredients |
+| Nutrition disclaimer missing (P6) | Nutrition phase | "Estimate" label and FDC attribution in every nutrition panel |
+| FDC API blocking save (P7) | Nutrition phase | Nutrition is post-save; FDC outage does not block recipe save |
+| Schema.org relative image URL (P8) | Schema.org export phase | JSON-LD omits `image` when `PhotoUrl` is a relative path |
+| ISO 8601 duration format (P9) | Schema.org export phase | Unit test for `IsoFormatDuration` boundary cases |
+| Cooklang round-trip implication (P10) | Cooklang export phase | "Export only" label present in UAT |
+| Cooklang special chars (P11) | Cooklang export phase | Test with `@` `#` `~` in step text produces valid `.cook` output |
+| AI photo hallucination/copyright (P12) | Photo enhancement phase | No AI-provides-URL flow; search-term-only mode implemented |
+| Photo orphan files (P13) | Photo enhancement phase | UAT: delete recipe; verify `wwwroot/uploads/` file removed |
+| Multi-upload SignalR limit (P14) | Photo enhancement phase | UAT: upload 3+ photos; circuit remains connected |
+| Canonical mutation in display service (P15) | Every phase — code review gate | `CanonicalDocumentJson` never set outside `RecipeService` |
+| Scope creep and interdependencies (P16) | Roadmap phase | Dependency chain explicit; each phase independently deployable |
 
 ---
 
 ## Sources
 
-All findings are grounded in the actual codebase at the paths cited. External sources used to validate specific claims:
-
-- `src/CookBot.Web/Services/AiApiKeyResolutionService.cs` — key sharing flow (C2)
-- `src/CookBot.Infrastructure/AI/SecretRedactor.cs` — redaction coverage gap (C4)
-- `src/CookBot.Application/Recipes/RecipeUpcasterChain.cs` — upcaster throw behavior (C7)
-- `src/CookBot.Application/Recipes/RecipeJsonSchemaProvider.cs` — schema derivation from type (M3)
-- `src/CookBot.Web/Components/Pages/Home.razor.cs:280-321` — current pantry-match performance (H7)
-- `src/CookBot.Infrastructure/AI/AnthropicAiService.cs` — `new HttpClient()` per call, no pooling (existing concern; not new in v1.3 but relevant to telemetry)
-- `.gitignore` (repo root) — absence of `uploads/` entry (C5)
-- `src/CookBot.Web/Services/CookbookPdfService.cs` — synchronous PDF render, no HTTP in builder (H6)
-- `.planning/v1.3-PHASE-CANDIDATE-recipe-photos.md` — IMG-01..13 requirements, threat model
-- [Microsoft Learn — ASP.NET Core Data Protection configuration](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview) — HIGH confidence; key ring persistence location and Docker volume requirement
-- [Microsoft Learn — Blazor file uploads](https://learn.microsoft.com/en-us/aspnet/core/blazor/file-uploads) — HIGH confidence; `MaximumReceiveMessageSize` requirement documented
-- [Microsoft Learn — Static file middleware headers](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/static-files) — HIGH confidence; `OnPrepareResponse` for custom headers on upload directory
-- [OWASP — File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) — HIGH confidence; magic-byte validation, path-traversal prevention
+- USDA FoodData Central API Guide: https://fdc.nal.usda.gov/api-guide/ (rate limits: 1,000/hour/IP; CC0 license; citation requested)
+- Google Search Central — Recipe structured data: https://developers.google.com/search/docs/appearance/structured-data/recipe
+- Cooklang specification: https://cooklang.org/docs/spec/
+- Cooklang spec GitHub discussion #46 (metadata limitations): https://github.com/cooklang/spec/discussions/46
+- dotnet/aspnetcore issue #42993 — InputFile upload manifest vs SignalR MaximumReceiveMessageSize: https://github.com/dotnet/aspnetcore/issues/42993
+- Existing codebase: `Migration_V2_To_V3.cs` PITFALLS C7 / M2 comments (per-field independence guard pattern)
+- Existing codebase: `RecipeJsonSchemaProvider.cs` (Anthropic strict-mode anyOf externalization, ForbiddenInAnyOfBranch)
+- Existing codebase: `LocalRecipePhotoStorage.cs` (PITFALL H1 / H2 / H3 — magic-byte sniff, path-traversal guard)
+- Existing codebase: `AiRecipeGenerator.cs` (PITFALL H9 — telemetry write site pattern)
+- Existing codebase: `.planning/PROJECT.md` — canonical-first invariant, trusted-LAN posture, no-Newtonsoft/no-MudBlazor constraints
+- FAO/INFOODS Guidelines for Converting Units (density conversion references): https://www.fao.org/fileadmin/templates/food_composition/documents/1nutrition/Conversion_Guidelines-V1.0.pdf
 
 ---
-
-*Pitfalls research for: FreelovesCookBot v1.3 Production-Ready & Format Maturity*
-*Researched: 2026-05-15*
+*Pitfalls research for: v1.4 Recipe Data & Interoperability — schema bump, USDA nutrition, Schema.org/Cooklang export, photo gallery*
+*Researched: 2026-06-05*

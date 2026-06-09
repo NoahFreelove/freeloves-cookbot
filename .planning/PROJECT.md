@@ -16,6 +16,22 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 **v1.3 SHIPPED (2026-06-05, tag `v1.3`).** Phases 8 (Format Foundation), 9 (Photos + Prod-Ready Infrastructure), 10 (QOL, Polish & Consumer Surfaces), and 11 (UAT Cleanup + Automated UAT Harness) all complete and verified. Phase 10 UAT is fully green (6 pass; Test 4 honest validation-fail deferral). Phase 11 fixed the four UAT-surfaced backlog items (999.2–999.5) and shipped a reusable Playwright browser-UAT harness at `tests/uat-harness/` (`npm test`). Next milestone TBD via `/gsd-new-milestone`.
 
+## Current Milestone: v1.4 Recipe Data & Interoperability
+
+**Goal:** Make recipes richer and portable — extend the canonical v3 schema with the deferred format fields, compute nutrition automatically, export to external standards, and grow photos beyond a single hero — without breaking the v3 round-trip or the trusted-LAN posture.
+
+**Target features (4 themes):**
+- **Richer recipe format** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance fields (FUTURE-03..06); a schema bump on top of v3 (likely v4) with a per-field upcaster, AI-prompt schema update, parser + validator coverage.
+- **Export & interoperability** — Schema.org Recipe (JSON-LD) markup for SEO/rich results + Cooklang one-way export (FUTURE-07, FUTURE-11); export-only, no import round-trip required.
+- **Nutrition** — auto-compute calories + macros from ingredient amounts via USDA FoodData Central (FUTURE-08); per-recipe and per-serving panels; handle unmatched/ambiguous ingredients gracefully.
+- **Photo enhancements** — multiple photos / gallery per recipe + backfill for existing recipes; optional reverse-image AI "find a photo for this recipe" (builds on v1.3's single hero photo + upload/paste pipeline).
+
+**Key context:**
+- Additive milestone — **no breaking changes**; a richer-format schema bump rides the existing upcaster chain (v3→v4) the same way v2→v3 did. Canonical-first reads and display-only layering invariants from v1.3 carry forward.
+- Two themes lean on external specs/APIs to get right: **USDA FoodData Central** (data source, matching strategy, licensing), **Schema.org Recipe** (JSON-LD shape, Google rich-results requirements), **Cooklang** (export grammar). Research-first was chosen for these.
+- Trusted-LAN posture preserved; nutrition/export are local computations or static markup, not new public endpoints. Numbering continues — v1.4 phases start at **Phase 12**.
+- The reusable Playwright UAT harness (`tests/uat-harness/`) shipped in v1.3 — reuse it for v1.4 UAT.
+
 ## Shipped Milestone: v1.3 Production-Ready & Format Maturity ✅ (archived → `milestones/v1.3-ROADMAP.md`)
 
 **Goal:** Make CookBot shippable for other self-hosters while landing the deferred format/QOL/polish work — one v3 schema bump carries photos + description + per-step temperature, a new prod-ready track ships Docker + encryption + telemetry + deploy docs, and the v1.2 carry-forward tech-debt list closes.
@@ -94,22 +110,19 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 ### Active
 
-<!-- Next milestone not yet defined. Run `/gsd-new-milestone` to gather context → research → requirements → roadmap. The v1.4+ candidates live under Carry-forward below. -->
+<!-- v1.4 Recipe Data & Interoperability. REQ-IDs land when REQUIREMENTS.md is authored (next step in this milestone cycle). The buckets below are the planning frame. -->
 
-- _Next milestone (v1.4+) not yet defined — run `/gsd-new-milestone`. Candidate scope is in **Carry-forward** below._
+- **Richer recipe format** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance fields; v3→v4 schema bump + upcaster + AI-prompt update + parser/validator coverage (FUTURE-03..06)
+- **Export & interoperability** — Schema.org Recipe (JSON-LD) markup + Cooklang one-way export (FUTURE-07, FUTURE-11)
+- **Nutrition** — USDA FoodData Central auto-nutrition (calories + macros) from ingredient amounts, per-recipe + per-serving panels (FUTURE-08)
+- **Photo enhancements** — multiple photos / gallery per recipe, backfill existing recipes, optional reverse-image AI "find a photo"
 
-### Carry-forward (deferred to v1.4+)
+### Carry-forward (deferred to v1.5+)
 
-<!-- Items not in scope for v1.3; deferred to subsequent milestones. v1.3 absorbs the photos / per-step-temperature / tags-relational / projector-deletion / AI-prompt-snapshot / README-format / FUTURE-01/02/13/14/15 / DEFERRED-PROF-AIPROMPT / D-25/D-26/D-37/D-15/D-16 / live-tick items from the previous carry-forward list. -->
+<!-- v1.4 promoted FUTURE-03..08 / FUTURE-11 + photo backfill / multiple-photos / reverse-image into the Active milestone (richer format + export + nutrition + photos). Items below remain deferred. -->
 
-- **Format extensions** — substitutions / equipment / doneness cues / source provenance (`FUTURE-03..06`) — further format fields beyond v1.3's photo + description + per-step-temperature additions
-- **Schema.org Recipe / Cooklang one-way export** (`FUTURE-07`, `FUTURE-11`) — export interop for SEO / external tools
-- **USDA FoodData Central nutrition computation** (`FUTURE-08`) — auto-derive nutrition from ingredient amounts
 - **Tool-use fallback for structured-output regressions** (`FUTURE-09`) — defensive fallback if Anthropic Structured Outputs regresses
 - **Per-sharer cookbook-import consent banner** (`FUTURE-12`) — UX-visible consent affordance for shared imports (AI-08-AUDIT Markdig lockdown is the technical mitigation)
-- **Backfilling photos for existing recipes** — v1.3 migration leaves `PhotoUrl = null` for existing rows; bulk backfill UI is a separate concern
-- **Multiple photos per recipe / photo gallery** — v1.3 ships single hero photo only
-- **Reverse-image search ("find a photo for this recipe" AI feature)** — separate AI-feature scope, not a format-track item
 
 ### Out of Scope
 

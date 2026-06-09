@@ -1,19 +1,19 @@
-# Research Summary — v1.3 Production-Ready & Format Maturity
+# Research Summary
 
-**Project:** FreelovesCookBot
-**Domain:** Self-hosted Blazor Server recipe tracker — v1.3 delta over shipped v1.2 codebase
-**Researched:** 2026-05-15
-**Confidence:** HIGH (all four research dimensions grounded in live codebase inspection + official ASP.NET Core 10 / Anthropic / NuGet docs)
+**Project:** FreelovesCookBot v1.4 — Recipe Data & Interoperability
+**Domain:** Recipe schema evolution, export interoperability (Schema.org JSON-LD + Cooklang), USDA nutrition pipeline, photo gallery
+**Researched:** 2026-06-05
+**Confidence:** HIGH
 
 ---
 
 ## Executive Summary
 
-FreelovesCookBot v1.3 adds five capability buckets to an already-solid v1.2 codebase: a schema v3 canonical bump (photos + description + per-step temperature), format cleanup (projector deletion + relational tags + snapshot tests), QOL (smart pantry-match + AI chat hardening + accent picker + prompt editor), small-stuff polish (cookbook reparenting, pantry quick-add, moon glyph, TopBar slot, live timer tick), and a prod-ready track that makes the app shippable for other self-hosters (Dockerfile, encrypt-at-rest API keys, token-cost telemetry, deploy docs). The stack delta is intentionally small: two new NuGet packages (`Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8` for EF-backed key ring persistence, `Verify.Xunit 31.12.5` for prompt snapshot regression tests) cover everything; all other new capabilities are code-only changes against existing services. The existing Clean/Onion architecture (Domain → Application → Infrastructure → Web) comfortably absorbs all five buckets without introducing new layers or abstractions.
+v1.4 is a purely additive milestone layered on top of the stable v1.3 canonical `RecipeDocument` platform. The research converged on a single non-negotiable structural constraint: **the v3→v4 schema bump must land first and stand alone as Phase 12** before any other theme writes a line of code. Every downstream feature — the export projectors, the photo gallery migration, and the nutrition pipeline — reads from `RecipeDocument` v4. Building any of them against v3 and then re-patching for v4 fields is avoidable rework. This dependency is explicit and unambiguous across all four research files.
 
-The single highest-risk decision in v1.3 is the combination of `IDataProtector` encrypt-at-rest and Docker containerization. These two features co-depend in a way that is not obvious at development time: the Data Protection key ring must be on a named Docker volume, or every container restart silently destroys all users' encrypted API keys. This risk is well-mitigated by the research (sentinel-prefix pattern for backward-compatible key migration, `PersistKeysToDbContext` via the new NuGet package, three explicit volume mounts in docker-compose), but the mitigation must be built into the foundation phases, not retrofitted. The second load-bearing decision is ImageSharp rejection: the GPL-3.0 license incompatibility (confirmed via Six Labors Split License text) means photo validation uses magic-byte BCL sniffing instead — approximately 30 lines of pure .NET that carries no license risk.
+The cross-cutting package constraint is equally firm: **zero new NuGet packages**. All five sub-themes are achievable on the existing dependency set. Hand-rolling `SchemaOrgRecipeSerializer` (~80 lines of System.Text.Json) and `CooklangExporter` (~150 lines) beats every library candidate reviewed — no GPL-compatible, STJ-native, actively-maintained Schema.org library exists; `CookLangNet` is parser-only, unmaintained since 2023, and cannot write `.cook` files. The USDA FDC has no .NET client library at all; `FdcClient` follows the `AnthropicAiService` HttpClient pattern exactly. The photo gallery extends the existing `LocalRecipePhotoStorage` pattern; vision AI extends the existing `AnthropicAiService` with an image-content overload.
 
-The four researchers converge on all key technical facts. One divergence required reconciliation: STACK.md leaned toward `ContentRootPath/uploads/` (Microsoft's general recommendation for runtime-uploaded files), while ARCHITECTURE.md landed on `wwwroot/uploads/` + `UseStaticFiles(PhysicalFileProvider, RequestPath="/uploads")`. The ARCHITECTURE decision stands for v1.3: `wwwroot/uploads/` keeps the upload directory co-located with the web root, which simplifies the Docker single-volume story (the existing web root path is already the container's `ContentRootPath/wwwroot`), and the `UseStaticFiles` middleware approach correctly handles runtime-written files that `MapStaticAssets()` (build-time fingerprinting only) cannot serve. The key fact is that `MapStaticAssets()` and `UseStaticFiles()` must coexist — they serve different content.
+The dominant risks are in Theme 4 (Nutrition) and are well-defined: USDA fuzzy-match returns the wrong food silently, volume→mass conversion uses a generic water density instead of ingredient-specific density, and FDC API calls are made synchronously on the recipe-save path. The nutrition theme also carries a mandatory disclaimer requirement — the panel must label results as estimates and attribute USDA FoodData Central. All three risks have clear, concrete preventions that must be acceptance criteria in the nutrition phase plan, not afterthoughts.
 
 ---
 
@@ -21,219 +21,209 @@ The four researchers converge on all key technical facts. One divergence require
 
 ### Recommended Stack
 
-The v1.3 NuGet additions are exactly two packages. `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8` persists the Data Protection key ring into the existing SQLite DB via `CookBotDbContext`, which eliminates the documented Docker-volume failure mode of `PersistKeysToFileSystem` on Linux overlay/NFS filesystems (confirmed via dotnet/aspnetcore#2941). `Verify.Xunit 31.12.5` is compatible with the project's `xunit 2.9.2` and enables prompt-snapshot regression tests; `Verify.XunitV3` would require migrating all 196 tests to xUnit v3 — out of scope. All other v1.3 capabilities (image validation, URL scheme allowlist, token telemetry, tag migration, projector deletion, Dockerfile) are code-only.
+No new packages required for v1.4. All five themes extend existing infrastructure by adding ~80–200 lines of hand-rolled code per theme, following patterns already in the codebase.
 
-**Core technologies (NEW for v1.3):**
-- `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8`: DB-backed key ring persistence — avoids Linux Docker volume reliability issues with `PersistKeysToFileSystem`; colocates key ring with `cookbot.db` for a clean one-volume backup story
-- `Verify.Xunit 31.12.5`: prompt-snapshot regression tests — compatible with xUnit 2.9.2; `Verify.XunitV3` would force a full xUnit v3 migration
-- BCL magic-byte sniffing (no NuGet): JPEG `FF D8 FF`, PNG `89 50 4E 47`, WebP at offset 8, GIF `47 49 46` — replaces `SixLabors.ImageSharp` (REJECTED: GPL-3.0 incompatible with the project's GPL-3.0-only license due to Apache 2.0 patent-termination clause conflict per FSF guidance)
-- Anthropic SSE body `usage.input_tokens`/`usage.output_tokens` (no NuGet): token-cost telemetry extracted from `message_start.message.usage` and `message_delta.usage` in the existing SSE parse loop — the Anthropic Admin API (`sk-ant-admin...`) requires an organization-level key unavailable to individual self-hosters
+**Technology decisions per theme:**
 
-**Confirmed anti-patterns (do not use):**
-- `SixLabors.ImageSharp` — GPL-3.0 incompatible (hard block)
-- `Magick.NET` — license complexity + 50 MB native binaries; overkill for "is this an image" validation
-- `Microsoft.Extensions.AI` / official `Anthropic` NuGet — conflicts with `AnthropicAiService` direct-HttpClient design and structured-output transport
-- `Newtonsoft.Json`, `NJsonSchema` — enforced anti-patterns since v1.1
-- `Verify.XunitV3` — incompatible with xUnit 2.9.2; migration is a separate milestone concern
-- Per-user `IDataProtector` scope for API key encryption — breaks the key-sharing flow where a recipient reads the owner's row
+- **v4 schema bump:** Pure POCO + upcaster (`Migration_V3_To_V4`), following the identical v2→v3 pattern. `RecipeJsonSchemaProvider` auto-reflects the updated POCO via `JsonSchemaExporter` — no provider code change needed.
+- **Schema.org JSON-LD:** `System.Text.Json` write path; new `JsonLdRecipeProjector` in `CookBot.Application/Recipes/`. ~80 lines. Injected into `RecipeView.razor` via `<HeadContent>` for server-rendered SEO.
+- **Cooklang export:** Hand-rolled `CooklangRecipeProjector` in `CookBot.Application/Recipes/`. ~150 lines. `YamlDotNet` (already a dep) handles YAML frontmatter.
+- **USDA FDC nutrition:** Named `HttpClient` via `IHttpClientFactory` in `CookBot.Infrastructure/Nutrition/FdcClient.cs`. Mirrors `AnthropicAiService` exactly. Key stored in `CookBotSettings.FdcApiKey` (nullable; null = graceful no-op). SR Legacy + Foundation Foods CSVs seeded into SQLite at startup for full offline nutrition — no live API calls for the ~8,600 Foundation + SR Legacy foods that cover essentially all recipe staples.
+- **Photo gallery:** Extend `LocalRecipePhotoStorage` with a multi-file loop. New `RecipePhoto` EF entity table (see Architecture section for the entity-vs-canonical-array decision). New `RecipePhotoService` in Application.
+- **AI photo assist:** Extend `AnthropicAiService` with a `SendWithImageAsync` overload. No new client; no new interface.
+
+**Version compatibility:** EF Core migrations only. No package version changes. New migrations: `AddRecipePhotosTable`, `AddNutritionCacheTables`.
 
 ### Expected Features
 
-The feature prioritization matrix from FEATURES.md distinguishes P1 (must-close carry-forwards or core milestone goals) from P2/P3 (meaningful additions and nice-to-haves). The roadmapper should use this to decide which features enter each phase versus which ride as stretch goals.
+**Must have (table stakes for v1.4):**
 
-**Must have (P1 — closes named items or is core to the milestone):**
-- Single hero photo: file upload (`<InputFile>` -> `wwwroot/uploads/`) + paste-URL coexist; onerror fallback to `<StripedPlaceholder>`; scheme allowlist (`http`/`https` only)
-- `Recipe.Description` — closes D-25 (editor field persisted nowhere in v1.2, a trust-breaking bug)
-- Per-step temperature as structured `int? Temperature` on `ContentStep` — first-class field, ahead of Cooklang/Mealie/Tandoor which all use plain text only
-- V2->V3 upcaster bundling all three additions (one AI-prompt regression pass amortizes across all three)
-- `LegacyRecipeProjector` deletion — closes FUTURE-V1.1-03
-- `TagsJson` -> relational `RecipeTag` — closes FUTURE-V1.1-02; unlocks dietary filtering in pantry-match
-- Dockerfile + docker-compose with three named volumes (`cookbot_db`, `cookbot_uploads`, `cookbot_keys`)
-- README install/config/backup/upgrade sections
-- Smart pantry-match: ingredient-coverage % scoring + recency debounce via `IRecipeMadeService` — closes FUTURE-13 (replaces deterministic stub)
-- AiChat "Edit anyway" hardening via `RawRecipeEditorDialog` — closes FUTURE-15/WARN-AICHAT-RAW-EDIT-EDGE
-- Encrypt-at-rest for `UserProfile.AiApiKey` via `IDataProtector` EF value converter — closes FUTURE-01
-- Cookbook reparenting on edit — closes D-26
-- Pantry per-row grocery quick-add — closes D-37
-- Moon glyph for dark-mode toggle — closes D-15
-- Home active-timer live JS tick (closes punch-list item from v1.2 audit)
+- `RecipeDocument` v4 fields: `Equipment []EquipmentEntry`, `RecipeProvenance?` (SourceUrl, OriginalAuthor, SourceName, AdaptedDate), per-ingredient `Substitutions []IngredientSubstitution`, per-step `DonenessCue string?`
+- v3→v4 upcaster with per-field independent null-guards (never bundle-throw)
+- AI prompt schema update and passing prompt-snapshot test
+- Schema.org JSON-LD `<script>` block in RecipeView `<head>`: `name`, `image` (absolute URLs only), `recipeIngredient`, `recipeInstructions` as `HowToStep`, `prepTime`/`cookTime`/`totalTime` as ISO 8601 duration, `recipeYield`, `author`, `keywords`, `datePublished`
+- Cooklang `.cook` download with correct `@ingredient{amount%unit}` tokens, `~{timer%unit}`, `==Section==`, YAML frontmatter, "Export only (one-way)" label
+- `RecipePhoto` entity table + EF migration (backfills `Recipe.PhotoUrl` → primary photo row); multi-upload UI; gallery in RecipeView; hero designation
+- Foundation Foods + SR Legacy CSVs seeded as SQLite lookup; `NutritionService` with ingredient name normalization + two-level cache (`FdcLookupCache` + `RecipeNutritionCache`); per-serving/total display toggle; "Estimated nutrition" disclaimer + FDC attribution
 
-**Should have (P2 — adds meaningful value within scope):**
-- Accent variant picker (terracotta/sage) in `localStorage` — closes FUTURE-14; DS-02 token structure already wired
-- Profile-side AI prompt editor for `UserProfile.AiSystemPromptTemplate` — closes DEFERRED-PROF-AIPROMPT
-- Token-cost telemetry: `AiUsageLog` table + Profile 30-day rolling widget + key-owner breakdown — closes FUTURE-02
-- Prompt-snapshot regression test for `PromptBuilderService` — closes FUTURE-V1.1-04
-- README "Recipe Format" section — closes FUTURE-V1.1-05
-- Recency debounce in pantry-match (7-day penalty via `IRecipeMadeService.GetLastCookAsync`)
-- Dietary pre-filter in pantry-match (depends on `RecipeTag` relational migration)
-- TopBar RightSlot passthrough via `ICbTopBarService` — closes D-16
+**Should have (differentiators within v1.4):**
 
-**Defer to v1.4+ (anti-features for v1.3):**
-- Multiple photos / photo gallery (requires carousel, lightbox, ordering controls)
-- Thumbnail generation / server-side image resizing (requires ImageSharp or SkiaSharp, both GPL-problematic)
-- Expiration-weighted pantry-match scoring (requires `PantryItem.ExpiresOn` + per-item date picker UI; no mainstream recipe app implements this; unlikely to see consistent manual entry on a trusted-LAN cooking app)
-- AI call per pantry refresh for suggestions (expensive, slow, non-deterministic)
-- CDN / image proxy integration (public CDN is cloud, not trusted-LAN)
-- UI backup download button (README backup docs + volume guidance is sufficient for v1.3)
-- SQLCipher full-DB encryption (disproportionate complexity; breaks EF migrations and DB inspection tools)
-- CI/CD pipelines (not in PROJECT.md scope)
+- Schema.org `nutrition.calories` emitted once Theme 4 data exists (gated dependency)
+- Equipment checklist pre-cook modal in Cooking Mode
+- `DonenessCue` surfaced as highlighted callout in Cooking Mode (below timer)
+- AI-assisted substitution generation (extend AI prompt; structured output already handles arrays)
+- "Suggest search terms" AI feature for photos (Claude describes the dish visually; user pastes their own URL — no AI URL generation, no hallucination risk)
+- Per-ingredient unmatched indicator ("--" for unmatched, not zero; "≈" for low-confidence)
+- `RecipePhoto.DisplayOrder` with drag-reorder in RecipeEditor
+
+**Defer to v1.4.x or v1.5+:**
+
+- Per-step photo linking (HIGH complexity)
+- Unsplash API bulk photo backfill (external API dependency; out-of-scope for trusted-LAN posture)
+- Cooklang import / round-trip (large scope; no user demand evidence yet)
+- Nutrition micronutrients beyond calorie/protein/fat/carbs
+- AI-assisted unmatched ingredient resolution via Claude
+- `recipeCategory` + `recipeCuisine` in Schema.org (requires new v4 fields + editor UI; v4.1 candidate)
+- Manual calorie override per ingredient
+
+**Anti-features — never do:**
+
+- AI provides a photo URL directly (hallucination + copyright risk; suggest search terms only)
+- Nutrition stored inside `CanonicalDocumentJson` (violates canonical-first invariant; AI must never emit nutrition)
+- Photo paths stored in `CanonicalDocumentJson` (host-specific operational state; breaks on cookbook export/import)
+- `aggregateRating` in Schema.org (no rating system; fabricating it violates Google policy)
 
 ### Architecture Approach
 
-All five buckets integrate cleanly into the existing Clean/Onion layer boundaries. The ARCHITECTURE researcher verified each integration point against the live codebase and found no new layers or abstractions are needed. The key structural decisions are: (1) `IRecipePhotoStorage` interface belongs in `CookBot.Domain/Interfaces/` with `LocalRecipePhotoStorage` implementation in `CookBot.Web/Services/` (file write is a Web-layer concern; `IBrowserFile` is a Blazor type unavailable in Application/Domain); (2) `IPantryMatchService` is a new Application-layer service replacing the 40-line inline `BuildPantryMatchesAsync` in `Home.razor.cs`; (3) schema v3 adds three nullable properties to the existing `RecipeDocument` record (not a new versioned type) because the upcaster chain operates at the JSON-node level before typed deserialization; (4) token telemetry surfaces via `StructuredResult<T>` field extensions bubbled from `AnthropicAiService` through `AiRecipeGenerator` to `AiChat.razor`, which writes the `AiUsageLog` row.
+v1.4 extends the four-layer Clean/Onion architecture without adding a new project. New components follow established layer assignments: new Domain POCOs (`IngredientSubstitution`, `EquipmentEntry`, `RecipeProvenance`, `RecipePhoto`, `FdcLookupCache`, `RecipeNutritionCache`), new Application services (`JsonLdRecipeProjector`, `CooklangRecipeProjector`, `NutritionService`, `RecipePhotoService`), new Infrastructure adapters (`FdcClient`), and modified Web surfaces (`RecipeView.razor`, `RecipeEditor.razor`). The canonical-first / display-only invariant applies to every new service: projectors receive `RecipeDocument` and return a string; they never touch `Recipe.CanonicalDocumentJson`.
 
 **Major new components:**
-1. `Migration_V2_To_V3` (Application) — trivial stamp-version upcaster; null-fills all three new fields; registered in `DependencyInjection.cs`
-2. `IRecipePhotoStorage` / `LocalRecipePhotoStorage` (Domain interface, Web implementation) — writes to `wwwroot/uploads/`, enforces magic-byte validation + size cap, returns `/uploads/{guid}.{ext}` URL
-3. `RecipePhotoUrlValidator` (Application, static) — `Uri.TryCreate` + scheme allowlist; called in editor, `RecipeService`, and AI orchestrator post-process
-4. `IPantryMatchService` / `PantryMatchService` (Application) — coverage-ratio scoring + dietary pre-filter + recency debounce; replaces inline stub
-5. `AiUsageLog` entity (Domain) + `AiUsageLogConfiguration` (Infrastructure) — keyed `(UserId, KeyOwnerUserId, ModelName, InputTokens, OutputTokens, EstimatedCostUsd, Timestamp)`
-6. `CbTopBarService` / `ICbTopBarService` (Web) — Scoped service pattern matching `ICbToastService`; enables page -> layout slot injection
-7. `RawRecipeEditorDialog` (Web) — textarea pre-filled with raw JSON; "Try to parse" button re-runs `Parser.TryParse`; replaces the D-09 degraded-toast fallback in `AiChat.razor`
-8. `docker/Dockerfile` + `docker/docker-compose.yml` + `docker/.env.example` — multi-stage build; three named volumes; `ASPNETCORE_URLS=http://+:7000`
 
-**Files deleted (format cleanup):**
-- `src/CookBot.Infrastructure/Data/Migrations/Helpers/LegacyRecipeProjector.cs`
-- `src/CookBot.Application/Recipes/IRecipeProjector.cs`
+1. `Migration_V3_To_V4` (Application) — per-field independent null-guards; stamps `version: 4`; registered in DI alongside existing upcasters
+2. `JsonLdRecipeProjector` (Application) — `Project(RecipeDocument, canonicalPageUrl) → string`; `IsoFormatDuration` helper; omits `image` when URL is not absolute HTTPS
+3. `CooklangRecipeProjector` (Application) — `Project(RecipeDocument) → string`; resolves `[name](#id)` chips to `@name{amount%unit}`; sanitizes bare `@`, `#`, `~` in step text
+4. `NutritionService` (Application) — orchestrates `FdcClient`, `UnitConversionService` (extended with density table), two-level SQLite cache; post-save enrichment only
+5. `FdcClient` (Infrastructure) — named `HttpClient` via `IHttpClientFactory`; Foundation + SR Legacy dataType filter; graceful no-op when `FdcApiKey` is null
+6. `RecipePhotoService` (Application) — full file lifecycle (delete cleans up `wwwroot/uploads/`); syncs `Recipe.PhotoUrl` to hero on every mutation
+
+**Resolved architecture divergence — photos entity vs. canonical array:**
+
+STACK.md favored `IReadOnlyList<string> Photos` in `RecipeDocument`. ARCHITECTURE.md recommended a `RecipePhoto` EF entity table. **The entity table is the correct choice** for this codebase: photo paths are host-specific operational state, not recipe format data. They must not travel in `.cookbook.json` exports. They must not be emitted by or fed to the AI. The `Recipe.PhotoUrl` precedent is already an EF column bridge set because photo display is a UI concern separate from the format — multiple photos follow the same reasoning.
 
 ### Critical Pitfalls
 
-All 8 critical + 11 high pitfalls in PITFALLS.md are grounded in live codebase inspection. The top 5 that must ride into ROADMAP success criteria:
+1. **USDA wrong-food match — silently wrong nutrition (Pitfall 4).** Filter to `dataType=Foundation Foods,SR Legacy` only. Store matched FDC food ID + description alongside every computed value. Show matched food names to the user. Show "--" for unmatched, never zero. Implement a confidence threshold.
 
-1. **Data Protection key ring not on a named Docker volume (C1)** — container restart silently destroys all encrypted API keys with no user-visible error (app behaves as if no key is set). Prevention: `docker-compose.yml` must have an explicit named volume for the key ring directory on day one; retrofitting requires all users to re-enter keys. The `PersistKeysToDbContext` approach (new NuGet) eliminates this by colocating the key ring with `cookbot.db` in the same volume.
+2. **Volume→mass density error — wrong density doubles calorie count (Pitfall 5).** Build a density lookup table for ~50 common cooking ingredients in `UnitConversionService`. Never fall back to water density (1 g/mL). Prefer FDC `foodPortions.gramWeight` for household measures where available.
 
-2. **Existing plaintext `AiApiKey` rows not migrated before EF value converter activates (C3)** — `IDataProtector.Unprotect` throws `CryptographicException` on non-ciphertext input; all existing users lose AI access immediately on upgrade. Prevention: sentinel-prefix pattern (`enc:v1:<base64>`) allows the read path to detect and pass through legacy plaintext while scheduling re-encryption; `DatabaseSeeder.SeedAsync` re-encrypts all un-prefixed rows on first boot.
+3. **FDC API call on save path — FDC outage loses recipe edit (Pitfall 7).** Nutrition is post-save enrichment triggered by explicit user action only, never blocking `RecipeService.CreateAsync`/`UpdateAsync`.
 
-3. **File uploads silently drop the Blazor circuit instead of showing an error (H1)** — three independent size limits must all be raised: Kestrel `MaxRequestBodySize`, `FormOptions.MultipartBodyLengthLimit`, and Blazor Server `AddServerSideBlazor(opts => opts.MaximumReceiveMessageSize = ...)`. Failing to raise the SignalR limit causes a silent circuit disconnect with no error toast.
+4. **Nutrition disclaimer missing — user treats panel as medical authority (Pitfall 6).** Every nutrition panel must show "Estimates based on USDA FoodData Central. Results are approximate and not suitable for medical dietary planning." Heading must say "Estimated nutrition," not "Calories."
 
-4. **V2->V3 upcaster null-fills per-step temperature with `{ value: 0, unit: "F" }` instead of `null` (M2 / C7)** — cooking mode shows "Bake at 0 degrees F" on every step of every legacy recipe. Prevention: `ContentStep.Temperature` must be declared `int?` (nullable); the upcaster must leave the field absent.
+5. **Schema.org relative image URL + ISO 8601 duration format (Pitfalls 8 + 9).** Omit `image` entirely when `PhotoUrl` is relative. All time fields must use `IsoFormatDuration` helper producing `"PT30M"` / `"PT1H30M"` format.
 
-5. **Smart pantry-match materializes all recipes before filtering — O(recipes x ingredients) on every Home load (H7)** — Home page load time grows linearly with recipe count. Prevention: push ingredient-intersection filter to EF Core before `ToListAsync`; add composite index on `RecipeIngredient(IngredientId, RecipeId)`.
+6. **Bundle-throw in Migration_V3_To_V4 (Pitfall 2).** Four new field groups = four independent null-guards. Follow the v2→v3 pattern exactly.
 
-**Additional pitfalls that must appear in success criteria:**
-- `wwwroot/uploads/` not in `.gitignore` before any upload code ships (C5) — add entry as the first task of the photos plan
-- Single-purpose `IDataProtector` scope for all API key encryption (C2) — never use per-user scope; key-sharing reads owner's row with the same protector
-- `onerror` fallback loop without `this.onerror=null` (H4) — Blazor state-flag approach preferred over inline JS
-- Path-traversal via `IBrowserFile.Name` (H2) — always generate server-side GUID filename; never use client-supplied name
-- `MapStaticAssets()` does not serve runtime-uploaded files (Architecture anti-pattern) — must add `UseStaticFiles` with `PhysicalFileProvider` separately
+7. **Upcaster DI registration gap (Pitfall 1).** DI registration and gap-detection test in the same Phase 12 plan as the migration class.
+
+8. **AI photo hallucination / copyright (Pitfall 12).** "Suggest search terms" only. No AI-provided URLs persisted. Copyright disclaimer on every photo input surface.
+
+9. **Cooklang one-way label + special-character sanitization (Pitfalls 10 + 11).** Every Cooklang download affordance labeled "Export only (one-way)." Bare `@`, `#`, `~` sanitized before emission.
+
+10. **Canonical invariant violation in display services (Pitfall 15).** Code-review gate on every new v1.4 service: projectors receive `RecipeDocument`, not `Recipe`; they never call `RecipeService.UpdateAsync`; `CanonicalDocumentJson` set only in `RecipeService`.
 
 ---
 
 ## Implications for Roadmap
 
-### Two Competing Phase Framings
+### Phase 12: v3→v4 Schema Bump + Richer Format Fields
 
-The user confirmed five feature buckets. The ARCHITECTURE researcher proposed a 3-phase shape (foundation / prod-ready / QOL+polish). Both framings are valid; the roadmapper should choose. This section presents both and then gives a clear recommendation.
+**Rationale:** All downstream themes depend on stable `RecipeDocument` v4. This theme follows a proven pattern (identical to v2→v3) and requires no external dependencies. Must be green and merged before Phase 13 begins.
 
-**Framing A — User's 5 Buckets (as-stated):**
-1. Schema v3 + Photos
-2. Format cleanup
-3. QOL
-4. Small-stuff polish
-5. Prod-ready (self-hosters)
+**Delivers:** `RecipeDocument` v4 with `Equipment`, `RecipeProvenance`, per-ingredient `Substitutions`, per-step `DonenessCue`; `Migration_V3_To_V4` in DI with per-field guards; `RecipeUpcasterChain.CurrentVersion = 4`; updated AI prompt + passing prompt-snapshot test; `RecipeValidator` v4 warnings; unit-test fixture matrix covering partial-field v3 documents.
 
-**Framing B — ARCHITECTURE's 3-Phase Build Order:**
-1. Foundation (schema v3 + all EF migrations + format cleanup + file storage + URL safety)
-2. Prod-ready infra (encrypt-at-rest + Docker + token telemetry)
-3. Consumer features (smart pantry-match + AiChat hardening + QOL + polish)
+**Features:** FUTURE-03 (substitutions), FUTURE-04 (equipment), FUTURE-05 (doneness cues), FUTURE-06 (provenance)
 
-**Recommendation: a modified 3-phase shape (Phases 8, 9, 10) aligned with the ARCHITECTURE build-order rationale.** The bucket framing groups by feature type; the phase framing groups by dependency order. Phase dependencies in v1.3 run strictly foundation -> infra -> consumers: the V2->V3 upcaster must exist before consuming surfaces; `RecipeTag` must exist before dietary pantry-match filtering; the `AiUsageLog` migration must exist before the telemetry widget; Docker + key ring volumes must be co-designed with encrypt-at-rest. Shipping in bucket order (photos first, then format, then QOL, then prod-ready) would require re-touching schema-related files across phases and risk shipping a partially-complete Docker story.
+**Pitfalls to gate:** P1 (DI registration gap), P2 (bundle-throw), P3 (AI schema drift)
 
-The ARCHITECTURE researcher's proposed phase numbering (Phase 8 = foundation, Phase 9 = prod-ready infra, Phase 10 = consumer/QOL/polish) maps cleanly onto v1.2's phase numbering continuation (v1.2 ended at Phase 7). The roadmapper may choose to split Phase 9 or Phase 10 further if the work volume justifies it.
+**Research flag:** Standard pattern. Skip `--research-phase`.
 
 ---
 
-### Phase 8: Format Foundation
+### Phase 13: Export & Interoperability (Schema.org JSON-LD + Cooklang)
 
-**Rationale:** Everything else depends on the V2->V3 schema bump. The upcaster, the three new nullable fields on `RecipeDocument`/`ContentStep`, the `RecipeTag` relational migration, and the `LegacyRecipeProjector` deletion must all be in place before any consuming surface can be built. Doing this first also means the AI-prompt regression test (prompt snapshot) can be written once against a stable schema and serve as a guard rail for all subsequent phases.
+**Rationale:** Both are pure read-only projections from `RecipeDocument` with no EF schema changes. Cheapest themes after v4 is stable. Bundled efficiently — same architectural pattern, no cross-dependency between them.
 
-**Delivers:**
-- `RecipeDocument` v3 with `PhotoUrl string?`, `Description string?`, `ContentStep.Temperature int?`
-- `Migration_V2_To_V3` upcaster (pure stamp — null-fills all three new fields)
-- `RecipePhotoUrlValidator` static helper with full unit-test coverage of rejected URL schemes
-- `RecipeJsonSchemaProvider` updated to v3 shape with schema-output assertion test
-- EF migrations: `AddRecipePhotoUrl`, `AddRecipeDescription` (or combined), `AddRecipeTagTable`, `AddAiUsageLog` (entity shell only)
-- `RecipeTag` entity + configuration + data migration from `TagsJson`
-- `LegacyRecipeProjector` deleted; `RecipeService.CreateAsync`/`UpdateAsync` rebuilt without it
-- `PromptBuilderService` lint denylist updated: add `image`, `imageUrl`, `picture`, `thumbnail`
-- Prompt-snapshot regression test for `PromptBuilderService.BuildSystemPrompt`
-- `RecipeFormatParserTests` audited and converted to structural assertions before any schema changes merge (H11 prevention)
+**Delivers:** `JsonLdRecipeProjector` with `IsoFormatDuration` helper and absolute-URL guard on `image`; `<script type="application/ld+json">` in RecipeView `<HeadContent>`; `CooklangRecipeProjector` with chip-to-`@token` resolution, `~timer` emission, `==Section==` headers, YAML frontmatter, `@`/`#`/`~` sanitization; "Export as .cook" button with "Export only (one-way)" label.
 
-**Features from FEATURES.md:** Bucket 1 (schema layer), Bucket 2 (full format cleanup)
-**Pitfalls to avoid:** C7, C8, M1, M2, M3, M10, H11
+**Features:** FUTURE-07 (Schema.org), FUTURE-11 (Cooklang)
 
-**Research flag:** SKIP — all patterns directly observed in live codebase; ARCHITECTURE.md covers every file touch.
+**Pitfalls to gate:** P8 (relative image URL), P9 (ISO 8601 format), P10 (Cooklang round-trip implication), P11 (Cooklang special characters)
+
+**Research flag:** Standard patterns. Skip `--research-phase`.
 
 ---
 
-### Phase 9: Photos + Prod-Ready Infrastructure
+### Phase 14: Photo Gallery
 
-**Rationale:** File upload, encrypt-at-rest, and Docker must ship together because they share three co-dependent design decisions: (1) `wwwroot/uploads/` is a Docker volume mount; (2) the Data Protection key ring must be on a named volume beside `cookbot.db`; (3) the `DatabaseSeeder` one-time key-re-encryption pass must run after the `DataProtectionKeys` table migration is applied. Shipping Docker without the key ring volume would be a latent data-loss bug.
+**Rationale:** Independent of nutrition. `RecipePhoto` entity migration has no dependency on nutrition tables. Placing photos before nutrition lets UAT exercise the gallery before the more complex nutrition panel arrives. File lifecycle correctness (orphan cleanup) is the primary acceptance-criteria concern.
 
-**Delivers:**
-- `IRecipePhotoStorage` / `LocalRecipePhotoStorage`: magic-byte validation, GUID filename generation, size cap, `X-Content-Type-Options: nosniff`
-- `UseStaticFiles(PhysicalFileProvider, RequestPath="/uploads")` in `Program.cs`
-- `wwwroot/uploads/` in `.gitignore` + `.gitkeep`
-- Kestrel + `FormOptions` + SignalR `MaximumReceiveMessageSize` all raised (H1 prevention)
-- `RecipeEditor.razor`: photo input with live preview, URL validation, clear button
-- `RecipeView.razor` + Home cards + AiChat canvas: photo rendering with Blazor-state-flag onerror fallback
-- `IDataProtector` encrypt-at-rest: sentinel-prefix migration in `DatabaseSeeder`, single shared protector scope (`"CookBot.AiApiKey"`), `Unprotect` in `AiApiKeyResolutionService`, `Protect` in `EditProfile.razor` save path
-- `Program.cs` `AddDataProtection().PersistKeysToDbContext<CookBotDbContext>()`
-- `CookBotDbContext` implements `IDataProtectionKeyContext`; migration `AddDataProtectionKeysTable`
-- Owner-sets-key + recipient-uses-key integration test (C2 prevention)
-- `docker/Dockerfile`, `docker/docker-compose.yml` (three named volumes), `docker/.env.example`
-- `ASPNETCORE_URLS=http://+:7000` in Dockerfile ENV (M4 prevention)
-- SQLite directory mount not file mount (M5 prevention); `healthcheck` + `restart: on-failure` (M6); `TZ=UTC` (M7)
-- README install/config/backup/upgrade sections
-- `AiUsageLog` write path: SSE parsing extended in `AnthropicAiService`; `StructuredResult<T>` extended; `AiChat.razor` writes one row per `GenerateAsync` call (H9 prevention)
-- Pricing in `appsettings.json` under `CookBot.AiPricing` (H10 prevention)
-- Composite index `IX_AiUsageLogs_UserId_CreatedAt` in migration (M8 prevention)
-- `CookBotSettings.TelemetryEnabled` killswitch + UI disclosure note (M9 prevention)
-- `QuestPDF` PDF export: photo omitted or pre-fetched bytes passed asynchronously (H6 prevention)
+**Delivers:** `RecipePhoto` EF entity + migration (backfills `Recipe.PhotoUrl` → primary row); `RecipePhotoService` with full file lifecycle; sequential multi-upload UI in RecipeEditor (not simultaneous — avoids SignalR manifest size limit); gallery strip in RecipeView; hero designation + reorder; "Suggest search terms" AI photo assist (Claude text-only, no URL generation); `Recipe.PhotoUrl` kept as denormalized hero-URL sync target.
 
-**Features from FEATURES.md:** Bucket 1 (editor + consuming surfaces), Bucket 5 (Dockerfile, encrypt-at-rest, telemetry, README)
-**Pitfalls to avoid:** C1, C2, C3, C4, C5, C6, H1, H2, H3, H4, H5, H6, M4, M5, M6, M7, M8, M9, H9, H10
+**Pitfalls to gate:** P12 (AI photo hallucination/copyright), P13 (orphaned files on delete), P14 (SignalR multi-upload limit), P15 (canonical invariant)
 
-**Research flag:** SKIP — all implementation decisions resolved; open questions reconciled in this SUMMARY.
+**Research flag:** Standard pattern. Skip `--research-phase`. Acceptance criteria must explicitly cover file deletion lifecycle.
 
 ---
 
-### Phase 10: QOL, Polish, and Consumer Features
+### Phase 15: Nutrition (USDA FoodData Central)
 
-**Rationale:** All consumer features depend on Phase 8 foundations: smart pantry-match dietary filtering requires `RecipeTag`; Profile telemetry widget requires `AiUsageLog` rows from Phase 9. Polish items (moon glyph, TopBar slot, timer tick) have no dependencies but benefit from a stable base. This phase can be executed as one wave or split if scope is tight.
+**Rationale:** Most complex theme — new external HTTP dependency, two new cache tables, unit conversion extension, graceful degradation logic. Benefits from stable v4 schema. Isolated from photos and export concerns. The fuzzy-match strategy and match-review UX are non-optional acceptance criteria, not implementation details.
 
-**Delivers:**
-- `IPantryMatchService` / `PantryMatchService`: coverage % scoring, dietary pre-filter (from `RecipeTag`), recency debounce, EF-side pre-filter before `ToListAsync`, composite index on `RecipeIngredient(IngredientId, RecipeId)` (H7, H8 prevention)
-- `RawRecipeEditorDialog.razor`: textarea + "Try to parse" + "Copy" buttons; replaces D-09 toast
-- Accent variant picker in `EditProfile.razor`: three named accents, `localStorage` persistence (no `UserProfile` column)
-- Profile AI prompt editor: `<CbTextarea>` bound to `UserProfile.AiSystemPromptTemplate`, variable reference panel, "Reset to default"
-- Profile telemetry widget: 30-day rolling totals + key-owner recipient breakdown (reads `AiUsageLog`)
-- Cookbook reparenting: `RecipeService.UpdateAsync` extended with optional `newCookbookId` + ownership check; `RecipeEditor.razor` cookbook picker
-- Pantry per-row grocery quick-add: `GroceryListService.AddItemAsync` + cart icon in `PantryView.razor`
-- Moon glyph: `Icon.Names.Moon` constant + crescent SVG in `Icon.razor`; `TopBar.razor` conditional
-- `ICbTopBarService` / `CbTopBarService`: Scoped service; `MainLayout.razor` subscribes; passes `RightSlot` to `TopBar`
-- Home active-timer live JS tick: `CookingTimers.startHomeTick` in `cooking-timers.js`
-- README "Recipe Format" section
+**Delivers:** SR Legacy + Foundation Foods CSVs seeded into SQLite at startup; `FdcClient` Infrastructure service (named `HttpClient`, graceful no-op when key absent); `NutritionService` with ingredient name normalization, two-level caching, density table for ~50 common ingredients; nutrition panel on RecipeView (post-save-only CTA, per-serving/total toggle, "--" for unmatched, "≈" for low-confidence, matched FDC food IDs visible to user, "Estimated nutrition" heading, mandatory disclaimer + FDC attribution, absent-key graceful message); `CookBotSettings.FdcApiKey` optional config field.
 
-**Features from FEATURES.md:** Bucket 3 (QOL), Bucket 4 (small-stuff polish), P2 items from Buckets 2 and 5
-**Pitfalls to avoid:** H7, H8
+**Features:** FUTURE-08 (nutrition auto-compute)
 
-**Research flag:** SKIP for polish items. Consider `/gsd-discuss-phase` before Phase 10 if the roadmapper wants to validate pantry-match scoring weights against actual user data before committing to specific values.
+**Pitfalls to gate:** P4 (wrong FDC food match), P5 (density conversion error), P6 (disclaimer missing), P7 (FDC API blocking save), P15 (canonical invariant)
+
+**Research flag:** Needs careful phase planning. The match-review UX surface (showing users which FDC food was matched with its ID) is a non-optional feature. The density table source and ingredient scope must be named as acceptance criteria. The "post-save enrichment only" architectural decision must be stated in the plan before implementation begins.
+
+---
+
+### Phase 16: UAT + Integration
+
+**Rationale:** Reuse the Playwright harness from Phase 11. Focuses on cross-theme integration scenarios: Schema.org `nutrition.calories` field appears only after Phase 15 data exists; gallery hero photo flows into Schema.org `image`; cookbook export/import round-trip with v4 documents.
+
+**Delivers:** UAT run across all v1.4 themes; Google Rich Results Test validation; cross-theme integration scenarios; v1.4 milestone sign-off.
+
+**Research flag:** Standard pattern. Skip `--research-phase`.
 
 ---
 
 ### Phase Ordering Rationale
 
-The foundation-before-consumers dependency chain is strict in three places:
-1. `RecipeDocument` v3 properties must exist before any photo input, temperature display, or description field can be wired in any Razor component.
-2. `RecipeTag` table must exist before the pantry-match dietary pre-filter can use a JOIN instead of JSON extraction in SQL.
-3. The Data Protection key ring volume and `PersistKeysToDbContext` migration must exist before the `DatabaseSeeder` re-encryption pass runs — and both must be live in the same Docker phase to avoid shipping a half-complete self-hoster story.
+The build order is driven by two hard constraints visible across all four research files:
 
-Within Phase 9, token telemetry write path can be parallelized with encrypt-at-rest and Docker work. The telemetry read path (Profile widget) rides into Phase 10 as part of `EditProfile.razor` additions. Within Phase 10, all items are independent and can be parallelized at the plan level.
+1. **v4 schema first.** All export services and the photo gallery migration coordinate on stable `RecipeDocument` v4. The upcaster chain must be complete and tested before any consumer of v4 fields writes code.
+
+2. **Nutrition last.** Most complex theme, most isolated. Placing it last gives the most time for the offline-seed approach to be validated and lets it build on a fully-stable schema. The architecture researcher was explicit: "benefits from stable RecipeDocument v4 to read from. Isolated from photo and export concerns."
+
+**Where the researchers diverged — photos vs. nutrition ordering:**
+
+FEATURES.md treated photos (Theme 5) and nutrition (Theme 4) as roughly co-equal. ARCHITECTURE.md explicitly recommended Phase 14 Photos before Phase 15 Nutrition because the `RecipePhoto` table migration is simpler and the gallery UI can be UAT'd independently before the complex nutrition panel arrives. This summary adopts the ARCHITECTURE.md ordering. If timeline pressure requires parallelism, photos and nutrition can be planned concurrently but must be executed sequentially after the v4 schema lands.
 
 ### Research Flags
 
-All three phases: SKIP research-phase. Technical patterns are either directly observed in the live codebase or verified via official ASP.NET Core 10 docs and Anthropic streaming docs. The four researchers agree on all key implementation decisions. Open questions that remained after individual research files were resolved in this synthesis.
+**Needs careful phase planning attention (not more research, but sharp acceptance criteria):**
+- Phase 15 (Nutrition): fuzzy-match strategy, density table source and scope, match-review UX, "post-save enrichment only" gate — all must be acceptance criteria in the phase plan, not left to implementation discretion.
+
+**Standard patterns — skip `/gsd:plan-phase --research-phase`:**
+- Phase 12 (v4 schema bump): v2→v3 precedent; pitfall checklist covers the risks
+- Phase 13 (exports): official specs are complete and verified; both projectors follow existing Application-layer pattern
+- Phase 14 (photos): extends existing `LocalRecipePhotoStorage` pattern
+- Phase 16 (UAT): reuse Phase 11 harness
+
+---
+
+## Open Questions for Requirements Definition
+
+The researchers flagged four unresolved decisions the user must make before or during requirements authoring:
+
+**1. FDC API key: host-global vs. per-user**
+
+STACK.md placed `FdcApiKey` in `CookBotSettings` (global, same pattern as `AiFeaturesEnabled`). For a trusted-LAN self-hosted app where all users share the same USDA data source, a single host-global key is almost certainly correct. The per-user AI key model exists because individual users pay for their own Anthropic usage; FDC is free and rate-limited per IP, not per user. Recommend: host-global. The user should confirm explicitly.
+
+**2. Density table source and coverage scope**
+
+PITFALLS requires a density lookup table for ~50 common cooking ingredients to avoid the water-density error. STACK.md suggested ~20 as minimum. Neither file named the authoritative source (USDA ARS measurement conversion tables, King Arthur Flour, FAO/INFOODS). The phase plan must name the source and enumerate the ingredients covered — this is a verifiable acceptance criterion.
+
+**3. `RecipeCategory` / `RecipeCuisine` as v4 fields vs. derived from tags**
+
+Schema.org's `recipeCategory` and `recipeCuisine` have no equivalent in v3 or v4 as currently designed. Option (a): add `Category` and `Cuisine` string fields to v4 with editor UI (adds scope to Phase 12). Option (b): derive from `RecipeTags` at projection time (no new fields, less precise). Option (b) is the lower-risk path for v1.4; option (a) defers to v4.1. The user should decide before Phase 12 requirements are authored.
+
+**4. `RecipePhoto` entity table confirmed as architecture decision**
+
+STACK.md favored `IReadOnlyList<string> Photos` in `RecipeDocument`. ARCHITECTURE.md recommended a `RecipePhoto` EF entity table. This summary recommends the entity table. The user should explicitly confirm before Phase 14 is planned, as it determines whether an EF migration is needed and whether photo paths are stripped from `.cookbook.json` exports.
 
 ---
 
@@ -241,54 +231,41 @@ All three phases: SKIP research-phase. Technical patterns are either directly ob
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Two new NuGets verified against NuGet.org + official MS docs; ImageSharp GPL incompatibility confirmed from Six Labors license text; Anthropic SSE token fields confirmed from official streaming docs |
-| Features | HIGH (photo patterns, Anthropic API constraints); MEDIUM (pantry-match algorithm) | No recipe app publicly documents their pantry-match scoring algorithm; coverage % is the standard but exact weighting is inferred from SuperCook/Mealie behavior |
-| Architecture | HIGH | All integration points verified against live source files at cited paths; `MapStaticAssets` vs `UseStaticFiles` behavior for runtime-uploaded files confirmed from official docs |
-| Pitfalls | HIGH | All 8 critical + 11 high pitfalls grounded in actual source code at cited paths; Docker/Data-Protection pitfalls cross-referenced with official MS docs and dotnet/aspnetcore GitHub issues |
+| Stack | HIGH | All five themes verified against official docs; zero-new-packages conclusion firm across all four research files |
+| Features | HIGH | Google Rich Results spec current (Dec 2025 verified); Cooklang spec canonical; USDA FDC API guide verified with live call; feature scope derived from official specs not community inference |
+| Architecture | HIGH | Direct codebase read; all new components follow established patterns; one divergence (photos entity vs. array) resolved with clear rationale grounded in codebase evidence |
+| Pitfalls | HIGH (schema/photos), MEDIUM (nutrition matching) | Schema bump and photo pitfalls grounded in codebase evidence and codebase precedents; FDC ingredient matching accuracy is inherently non-deterministic — graceful degradation and match-review UX are the mitigations, not algorithmic confidence |
 
-**Overall confidence: HIGH**
+**Overall confidence:** HIGH for architecture decisions and build order. MEDIUM for nutrition matching accuracy in practice — the fuzzy-match problem has no deterministic solution; the density table quality and normalization coverage are only fully known at implementation time.
 
-### Reconciled Divergences
+### Gaps to Address
 
-1. **File upload storage path (STACK vs. ARCHITECTURE):** STACK.md cited Microsoft's general recommendation for `ContentRootPath/uploads/`. ARCHITECTURE.md landed on `wwwroot/uploads/` + `UseStaticFiles(PhysicalFileProvider)`. ARCHITECTURE wins for v1.3: `wwwroot/uploads/` simplifies the Docker volume story (one directory subtree), and `UseStaticFiles` middleware is the correct way to serve runtime-written files that `MapStaticAssets()` (build-time only) cannot see.
-
-2. **Expiration weighting in pantry-match (FEATURES vs. general expectations):** FEATURES.md explicitly flags expiration-weighted scoring as an anti-feature at v1.3 scope. Anti-feature designation stands. Coverage % + recency debounce is the algorithm for v1.3.
-
-### Gaps to Address During Planning
-
-- **Pantry-match scoring weights:** The specific debounce weights and coverage threshold (proposed: `coverageScore - 0.3 * recentlyMadePenalty`, threshold >= 60%) are engineering estimates. They should be surfaced in Phase 10 plan and made configurable in `appsettings.json` rather than hardcoded.
-- **`AiApiKey` sentinel-prefix detection:** The exact heuristic (detect `CfDJ8...` Data Protection ciphertext prefix vs. plaintext `sk-ant-` key) should be pinned in the Phase 9 plan. ARCHITECTURE.md notes Data Protection ciphertext starts with `CfDJ8` — document this explicitly.
-- **Token pricing table values:** Actual per-million-token prices for Haiku 4.5, Sonnet 4.6, and Opus 4.7 should be verified at Phase 9 plan time against Anthropic's current pricing page and embedded in `appsettings.json` defaults with the verification date.
-- **`RecipeTag` migration drop timing:** The `TagsJson` column drop (after both columns coexist) should be specified in Phase 8 plan as a separate migration within the same phase, not deferred to Phase 10.
+- **Ingredient name normalization strategy:** Which adjectives/modifiers to strip ("room-temperature", "good", "fresh", "packed") before FDC search is implementation-defined. A deny-list approach is recommended but the exact list needs authoring during Phase 15 planning.
+- **FDC offline seed data freshness policy:** SR Legacy is a 2018 final release. Foundation Foods refreshes bi-annually. The seed data will drift from the live API over time. A "refresh seed data" admin action is a reasonable v1.5 scope item; v1.4 ships the seed data current at release date. This should be documented in the v1.4 README.
+- **Photo count cap as a named constant:** FEATURES.md recommended "≤10 photos per recipe" as a default cap. The exact limit should be a named constant in `CookBotSettings` or at the service layer, not hardcoded in the UI validator. Define it in Phase 14 requirements.
+- **`.cookbook.json` export behavior with gallery photos:** Photo paths (`/uploads/{guid}.jpg`) are host-specific and will 404 on the recipient's instance. The export format should either omit photo rows or include an explicit note. Resolve in Phase 14 planning.
 
 ---
 
 ## Sources
 
-### Primary (HIGH confidence — official docs and live codebase)
-- ASP.NET Core 10 Data Protection docs (key storage providers, key encryption at rest, configuration)
-- ASP.NET Core 10 Blazor file uploads docs — three size limits, `IBrowserFile.ContentType` untrusted warning
-- ASP.NET Core 10 Static Files docs — `MapStaticAssets` vs `UseStaticFiles` for runtime-uploaded files; `PhysicalFileProvider`
-- Anthropic Messages Streaming docs — SSE event shapes for `message_start.message.usage` and `message_delta.usage`
-- Anthropic Usage and Cost API docs — Admin API key requirement; per-request `usage` fields available to individual accounts
-- Six Labors ImageSharp LICENSE on GitHub — Split License GPL-3.0 incompatibility confirmed
-- NuGet: `Verify.Xunit 31.12.5` dependency spec; `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.8`
-- Live codebase source inspection — `AiApiKeyResolutionService.cs`, `SecretRedactor.cs`, `RecipeUpcasterChain.cs`, `RecipeJsonSchemaProvider.cs`, `Home.razor.cs`, `CookbookPdfService.cs`, `.gitignore`
-- dotnet/aspnetcore#2941 + dotnet/dotnet-docker#4252 — `PersistKeysToFileSystem` Linux Docker volume failure modes
+### Primary (HIGH confidence)
+- Google Search Central — Recipe structured data (Dec 2025 update): https://developers.google.com/search/docs/appearance/structured-data/recipe
+- Cooklang specification: https://cooklang.org/docs/spec/
+- USDA FoodData Central API Guide: https://fdc.nal.usda.gov/api-guide/
+- USDA FDC Download Datasets + Foundation Foods documentation: https://fdc.nal.usda.gov/download-datasets/
+- USDA FDC OpenAPI (live DEMO_KEY call — nutrient IDs 1003/1004/1005/1008 confirmed in response body)
+- Anthropic Vision documentation: https://platform.claude.com/docs/en/build-with-claude/vision
+- Existing codebase (direct read): `RecipeDocument.cs`, `Migration_V2_To_V3.cs`, `RecipeUpcasterChain.cs`, `LocalRecipePhotoStorage.cs`, `AnthropicAiService.cs`, `RecipeJsonSchemaProvider.cs`, `.planning/PROJECT.md`, `.planning/codebase/ARCHITECTURE.md`
 
-### Secondary (HIGH confidence — live docs via WebFetch)
-- Paprika iOS User Guide — file upload patterns, hero photo UX
-- Mealie documentation — backup UI, docker-compose patterns, AI key handling, default credentials flow
-- Tandoor Docker setup docs — `mediafiles` volume, nginx static file serving
-- Cooklang Specification — no structured temperature field (plain text only)
-- OWASP File Upload Cheat Sheet — magic-byte validation, path-traversal prevention
-
-### Secondary (MEDIUM confidence — community consensus)
-- Cooklang Greedy Coverage Blog — ingredient-coverage scoring as the standard pantry-match axis
-- SuperCook product behavior — ingredient-unlock scoring, partial match display (algorithm not publicly documented)
-- Mealie GitHub pantry discussion threads — basic ingredient intersection; no documented weighting
+### Secondary (MEDIUM confidence)
+- CookLangNet NuGet (v0.4.0, 2023-05-21, ~9k downloads): unmaintained, parser-only confirmed
+- Mealie GitHub discussions (#694, #2264, #4311) — ingredient substitution demand evidence
+- Paprika app documentation — multiple photos, drag-reorder, per-step photo patterns
+- FAO/INFOODS Guidelines for Converting Units — density conversion references
+- dotnet/aspnetcore issue #42993 — InputFile + SignalR MaximumReceiveMessageSize multi-file behavior
 
 ---
-*Research completed: 2026-05-15*
+
+*Research completed: 2026-06-05*
 *Ready for roadmap: yes*
-*Phases start at: Phase 8 (continuation from v1.2 Phase 7)*
