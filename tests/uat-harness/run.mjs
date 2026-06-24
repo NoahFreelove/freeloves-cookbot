@@ -38,6 +38,8 @@ import { runTest7 } from './tests/test7-responsive.mjs';
 import { runTest4 } from './tests/test4-validation-fail.mjs';
 import { runConversionTest } from './tests/test-conversion.mjs';
 import { runJsonLdPrerender } from './tests/test-jsonld-prerender.mjs';
+import { runTest14 } from './tests/test14-photo-gallery.mjs';
+import { runTest16 } from './tests/test16-integration.mjs';
 
 // ── Chromium launch configuration ───────────────────────────────────────────
 // System snap chromium verified working: smoke test (2026-06-05) confirmed
@@ -75,18 +77,19 @@ try {
     return chromium.launch({ headless: true, args: CHROMIUM_ARGS });
   });
 
-  const context = await browser.newContext();
+  const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
   // 3. Establish trusted-LAN session (default = first user, Noah; no password)
   await establishSession(page);
 
   // 4. Discover a recipe to use for Tests 5 and 7
-  let recipeId, recipeName;
+  let recipeId, recipeName, cookbookId;
   try {
     const found = await findFirstRecipe(page);
     recipeId = found.recipeId;
     recipeName = found.recipeName;
+    cookbookId = found.cookbookId;
   } catch (e) {
     console.error(`\n[harness] Could not find a recipe: ${e.message}`);
     console.error('[harness] Seed at least one recipe before running the harness.');
@@ -125,6 +128,18 @@ try {
   //    no Playwright page needed (asserts the RAW initial HTTP response, not post-hydration DOM).
   const tj = await runJsonLdPrerender({ recipeId: 1 });
   results.push({ name: 'UAT JSON-LD Prerender (INTEROP-01)', ...tj });
+
+  // 10. Run the Phase 14 Photo Gallery UAT (GALLERY-01..04). Creates and cleans up its
+  //     own throwaway recipe in cookbook {cookbookId} so seeded recipes are never mutated.
+  await establishSession(page);
+  const t14 = await runTest14(page, { cookbookId: cookbookId ?? 1 });
+  results.push({ name: 'UAT Phase 14 Photo Gallery (GALLERY-01..04)', ...t14 });
+
+  // 11. Run the Phase 16 v1.4 integration UAT (Nutrition panel + JSON-LD nutrition +
+  //     Cooklang export). Creates and cleans up its own throwaway recipe.
+  await establishSession(page);
+  const t16 = await runTest16(page, { cookbookId: cookbookId ?? 1 });
+  results.push({ name: 'UAT Phase 16 v1.4 Integration (NUTR + INTEROP)', ...t16 });
 
   await browser.close();
 

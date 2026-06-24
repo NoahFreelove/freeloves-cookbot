@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Recipe Data & Interoperability
 status: executing
-stopped_at: Phase 15 (Nutrition/CNF) executed + verified (human_needed) — 7/7 plans, 548 tests, code-review fixes applied; 15 browser-UAT items pending
-last_updated: "2026-06-08T04:03:08.998Z"
-last_activity: 2026-06-08 -- Phase 15 execution started
+stopped_at: Phase 16 (UAT + Integration) in progress — test16 integration harness added (nutrition panel + JSON-LD nutrition + Cooklang export); 8/15 Phase 15 nutrition UAT items now automated hands-free. Phase 15 shipped (commit b65e856).
+last_updated: "2026-06-24"
+last_activity: 2026-06-24 -- Phase 16 UAT automation: tests/uat-harness/tests/test16-integration.mjs added + wired into npm test
 progress:
   total_phases: 6
   completed_phases: 4
@@ -27,16 +27,15 @@ See: `.planning/PROJECT.md` (updated 2026-06-05)
 ## Current Position
 
 ```
-v1.4 ██████████████████████████░░░░░░░░░░░░░░░░░ 60%
+v1.4 ████████████████████████████████████░░░░░░ 85%
      Phase 12  Phase 13  Phase 14  Phase 15  Phase 16
-     [✓]       [✓]       [✓ UAT?]  [NEXT]    [ ]
+     [✓]       [✓]       [✓]       [✓]       [~ UAT auto]
 ```
 
-Phase: 15 (Nutrition (Offline CNF — Canadian Nutrient File)) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 15
-Next un-started phase: 15 (Nutrition — Offline CNF / Canadian Nutrient File)
-Last activity: 2026-06-08 -- Phase 15 execution started
+Phase: 16 (UAT + Integration) — IN PROGRESS (Tier-A automation done)
+Status: test16 integration harness added — nutrition panel + JSON-LD nutrition + Cooklang export run hands-free under `npm test`
+Next un-started phase: none (Phase 16 is the last v1.4 phase; remaining = a few non-automatable nutrition states + upload-blocked gallery items + optional format-fields-visible extension)
+Last activity: 2026-06-24 -- Phase 16 UAT automation (test16-integration.mjs)
 
 ## Shipped milestones
 
@@ -124,11 +123,19 @@ Phase 12–15         → Phase 16 (UAT + integration)
 
 ## Session Continuity
 
-Last session: 2026-06-08T04:03:08.991Z
-Stopped at: Phase 15 (Nutrition/CNF) executed + verified (human_needed) — 7/7 plans, 548 tests, code-review fixes applied; 15 browser-UAT items pending
+Last session: 2026-06-24 (remote — no human UAT available)
+Stopped at: Phase 16 (UAT + Integration) — Tier-A automation done; test16 harness green for nutrition + JSON-LD nutrition + Cooklang export
 Resume file: .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15-HUMAN-UAT.md
 
-**This session did:**
+**Session 2026-06-24 (Phase 16 UAT automation) did:**
+
+- Added `tests/uat-harness/tests/test16-integration.mjs` (wired into `npm test`): one throwaway recipe (4 CNF-matchable staples + 1 unmatchable "edible gold flake") drives nutrition State 1 → Calculate → State 2 + JSON-LD before/after + Cooklang export. Idempotent (deletes the recipe; setup also clears leftovers).
+- **Cleared 8/15 Phase 15 nutrition UAT items hands-free** (1, 2, 4, 5, 6, 8, 13, 15) — see 15-HUMAN-UAT.md. Also automated INTEROP-02 (Cooklang `.cook` export, previously human-only) and the nutrition half of the Phase 16 SC2 cross-theme check (`nutrition.calories` in JSON-LD).
+- **Cooklang export seam note:** `download.js` revokes the blob URL synchronously after the anchor click, so Playwright's download artifact races to ENOENT — the test captures the base64 handed to `window.cookBotDownloadFile` instead (deterministic; tests the projector output reaching the seam).
+- **Remaining (not automated):** nutrition items 3 (exact 455 kcal — unit-tested), 7 (≈ low-confidence), 9 (disclaimer in states 3/4/5), 10/11 (stale State 3 + recalc — automatable later), 12 (error state — needs injection), 14 (≤720px 2-col). The Phase 16 SC2 `image` half needs an HTTPS host. UATAUTO-02's "format fields visible" (Phase 12) + "gallery primary/reorder" (upload-blocked) not yet automated.
+- **Uncommitted** (carried + new): `tests/uat-harness/run.mjs`, `tests/test14-photo-gallery.mjs`, `tests/test16-integration.mjs`, README.md, and `.planning` doc edits (STATE.md, REQUIREMENTS.md, PROJECT.md, 14-/15-HUMAN-UAT.md).
+
+**Prior session (2026-06-08) did:**
 
 - ⚠️ **Found & fixed a stale dev server:** the process on :7000 was a build from Jun 6 20:28 — *before* the Phase 14 merge (Jun 7 09:30+). It served the old single-hero composite and had no `RecipePhotos` table (`20260607124611_AddRecipePhotosTable` never applied). Restarted it → current code built, migration applied, gallery now live. **Restart the server after any redeploy.**
 - Added an automated Phase 14 UAT module: `tests/uat-harness/tests/test14-photo-gallery.mjs` (wired into `npm test`). Creates/cleans a throwaway recipe; idempotent.
@@ -136,4 +143,9 @@ Resume file: .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15
 - **7 items remain pending (real browser needed):** #1 multi-upload, #2 reorder/set-hero, #3 caption round-trip, #4 delete-confirm, #8 RecipeView gallery+swap, #9 photo cap, plus #5-accept/#10-WR-04. Reason: Blazor Server `<InputFile>` SignalR file streaming is **not drivable via Playwright** (headless or headed). Single upload was observed working once → pipeline is functional. See 14-HUMAN-UAT.md.
 - Uncommitted: `tests/uat-harness/run.mjs` + `test14-photo-gallery.mjs`, and `.planning` doc edits (STATE.md, 14-HUMAN-UAT.md).
 
-**Next:** Either (a) finish Phase 14 UAT — a human runs the 7 remaining items in a real browser (or build a test-only direct-upload seam so the harness can drive uploads); or (b) Plan Phase 15 — Nutrition (Offline CNF / Canadian Nutrient File), NUTR-01..06 (Phase 14 code is complete + verified, so 15 can proceed in parallel). **Data source decided: CNF, not USDA FDC** (see Key v1.4 Decisions). No 15-CONTEXT.md yet — discuss-phase recommended (open Qs: CNF attribution UI placement, ingredient-name deny-list, fallback density source for CNF-unmatched ingredients). Carried low-pri hygiene from Phase 13: validate/omit non-http(s) schemes in the Cooklang `>> source:` line. Note: `/gsd:secure-phase` never run for any v1.4 phase (trusted-LAN posture; D-12-08 javascript: defang was human-verified).
+**Next (after 2026-06-24 session):** Phase 16 Tier-A automation is done. Options to close v1.4:
+- (a) **Extend test16** to cover UATAUTO-02's remaining bullets that ARE automatable: "format fields visible" (author equipment/substitutions/doneness/provenance via paste-raw YAML — wire shape known, see `tests/.../upcaster/v3-to-v4-all-present.json` — and assert they render in RecipeView), plus nutrition states 10/11 (stale) and 14 (responsive 2-col).
+- (b) **Build a test-only direct-upload seam** so the harness can drive photo uploads, unblocking the 6 stuck Phase 14 gallery items (the "gallery primary/reorder" UATAUTO-02 bullet). Touches production code — a deliberate design call.
+- (c) Accept the irreducible manual residue (paste-URL accept needs outbound network; error-state injection; HTTPS-only JSON-LD `image`) and `/gsd-verify-work` → ship v1.4.
+
+Carried low-pri hygiene from Phase 13: validate/omit non-http(s) schemes in the Cooklang `>> source:` line. Note: `/gsd:secure-phase` never run for any v1.4 phase (trusted-LAN posture; D-12-08 javascript: defang was human-verified).

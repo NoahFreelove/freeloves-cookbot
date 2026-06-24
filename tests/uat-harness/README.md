@@ -27,6 +27,33 @@ card, clicks the card, and captures the resulting `/recipes/{id}` URL + name.
 | Test 7 | TopBar responsive collapse at 719px (POLISH-04 + CLEANUP-01/02) | Automated |
 | Conversion | Per-recipe unit display toggle (CLEANUP-04) | Automated |
 | Test 4 | RawRecipeEditorDialog validation-fail (QOL-04) | SKIP — see below |
+| JSON-LD Prerender | Schema.org `Recipe` ld+json in RAW HTTP response (INTEROP-01) | Automated |
+| Test 14 | Photo gallery (GALLERY-01..04) | Partial — upload-dependent items SKIP (Blazor `<InputFile>` SignalR streaming is not drivable under Playwright); paste-URL reject, AI text-only, disclaimer automated |
+| Test 16 | v1.4 integration: nutrition panel + JSON-LD nutrition + Cooklang export | Automated (Phase 16 / UATAUTO-02) |
+
+### Test 16: v1.4 integration (Phase 16 / UATAUTO-02)
+
+Creates a throwaway recipe (four CNF-matchable staples + one unmatchable "edible gold
+flake") via the editor's Paste-raw seam, then asserts hands-free against the live app:
+- **Nutrition State 1** — "Calculate nutrition" CTA, "not yet calculated", and the exact
+  non-dismissable Health Canada disclaimer; no macro grid pre-compute (NUTR-04/05; never
+  auto-computes on load).
+- **JSON-LD pre-compute** — `application/ld+json` parses, `@type` Recipe, `nutrition` key
+  absent.
+- **Compute → State 2** — 4-up macro grid (Energy/Protein/Carbs/Fat), "Matched N of M
+  ingredients" coverage line, `--` (never `0`) for the unmatched ingredient, Per-serving↔Total
+  toggle, and the "Show all matches" expander (NUTR-02/03/04).
+- **JSON-LD post-compute** — now carries `nutrition.@type=NutritionInformation` +
+  `calories` (NUTR-06; the achievable half of the Phase 16 SC2 cross-theme check).
+- **Cooklang export** — captures the base64 payload handed to `cookBotDownloadFile` and
+  asserts a non-empty `.cook` with `@ingredient` tokens (INTEROP-02). (It captures the
+  payload rather than the browser download because `download.js` revokes the blob URL
+  synchronously after the click, so Playwright's download artifact races to ENOENT.)
+
+Deletes the throwaway recipe on exit; idempotent (a leftover from a crashed run is removed
+at start). **Known gap:** the gallery-hero `image` half of SC2 needs an absolute-HTTPS host
+(omitted by design on localhost http), and a few nutrition states (≈ low-confidence,
+stale/error banners, ≤720px 2-col) are not yet automated — see `15-HUMAN-UAT.md`.
 
 ### Test 5: Cookbook reparenting
 

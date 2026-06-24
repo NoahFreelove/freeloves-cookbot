@@ -23,12 +23,12 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 **Target features (4 themes):**
 - **Richer recipe format** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance fields (FUTURE-03..06); a schema bump on top of v3 (likely v4) with a per-field upcaster, AI-prompt schema update, parser + validator coverage.
 - **Export & interoperability** — Schema.org Recipe (JSON-LD) markup for SEO/rich results + Cooklang one-way export (FUTURE-07, FUTURE-11); export-only, no import round-trip required.
-- **Nutrition** — auto-compute calories + macros from ingredient amounts via USDA FoodData Central (FUTURE-08); per-recipe and per-serving panels; handle unmatched/ambiguous ingredients gracefully.
+- **Nutrition** — auto-compute calories + macros from ingredient amounts via the **Canadian Nutrient File (CNF)**, Health Canada's offline food-composition DB (FUTURE-08); per-recipe and per-serving panels; handle unmatched/ambiguous ingredients gracefully. (Data source switched from USDA FDC → CNF on 2026-06-07 — user is Canadian; see Key Decisions.)
 - **Photo enhancements** — multiple photos / gallery per recipe + backfill for existing recipes; optional reverse-image AI "find a photo for this recipe" (builds on v1.3's single hero photo + upload/paste pipeline).
 
 **Key context:**
 - Additive milestone — **no breaking changes**; a richer-format schema bump rides the existing upcaster chain (v3→v4) the same way v2→v3 did. Canonical-first reads and display-only layering invariants from v1.3 carry forward.
-- Two themes lean on external specs/APIs to get right: **USDA FoodData Central** (data source, matching strategy, licensing), **Schema.org Recipe** (JSON-LD shape, Google rich-results requirements), **Cooklang** (export grammar). Research-first was chosen for these.
+- Two themes lean on external specs/APIs to get right: **Canadian Nutrient File / CNF** (data source, matching strategy, OGL-Canada licensing + attribution), **Schema.org Recipe** (JSON-LD shape, Google rich-results requirements), **Cooklang** (export grammar). Research-first was chosen for these.
 - Trusted-LAN posture preserved; nutrition/export are local computations or static markup, not new public endpoints. Numbering continues — v1.4 phases start at **Phase 12**.
 - The reusable Playwright UAT harness (`tests/uat-harness/`) shipped in v1.3 — reuse it for v1.4 UAT.
 
@@ -114,7 +114,7 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 - **Richer recipe format** — ingredient substitutions, equipment list, per-step doneness cues, source/provenance fields; v3→v4 schema bump + upcaster + AI-prompt update + parser/validator coverage (FUTURE-03..06)
 - **Export & interoperability** — Schema.org Recipe (JSON-LD) markup + Cooklang one-way export (FUTURE-07, FUTURE-11)
-- **Nutrition** — USDA FoodData Central auto-nutrition (calories + macros) from ingredient amounts, per-recipe + per-serving panels (FUTURE-08)
+- **Nutrition** — Canadian Nutrient File (CNF) offline auto-nutrition (calories + macros) from ingredient amounts, per-recipe + per-serving panels, Health Canada attribution (FUTURE-08)
 - **Photo enhancements** — multiple photos / gallery per recipe, backfill existing recipes, optional reverse-image AI "find a photo"
 
 ### Carry-forward (deferred to v1.5+)
@@ -196,6 +196,7 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 | **v1.2: D-39 AiChat canvas binds canonical RecipeDocument** (Plan 07-04) | AI Chat right canvas reads directly from `_lastStructuredRecipe.Value` (the canonical `RecipeDocument` produced by `IAiRecipeGenerator`), not from rendered chat text. POLISH-01 invariant preserved | ✓ Good — three-tier extractor stays deleted; AI Chat is now a "live recipe canvas" in the design-handoff sense |
 | **v1.2: D-43 density toggle in localStorage** (Plan 07-05) | UserProfile has no Density column; adding one solely for a UI-pref toggle would require a migration | ✓ Good — matches existing `cookbot_dark_mode` localStorage pattern; `data-density` set on `<html>` before first paint |
 | **v1.2 close: FUTURE-15 — AiChat "Edit anyway" path deferred** (audit 2026-05-01) | Validation-failed path routes RawResponse through `IRecipeFormatParser.TryParse`; if raw JSON also fails parse, degraded fallback (toast, no navigation) is non-crashing but fragile. Audit-flagged as known edge | — Deferred to v1.3+ |
+| **v1.4: Phase 15 nutrition data source = Canadian Nutrient File (CNF), not USDA FDC** (decided 2026-06-07, pre-Phase-15) | User is Canadian (`UnitSystem=Canadian`). CNF (Health Canada) is the Canadian analog to USDA FoodData Central: offline relational-CSV bulk download (~5,993 foods, per-100 g, bilingual) → fits the bundled-SQLite-seed plan 1:1, and ships household-measure→gram **Conversion Factors** that remove most of the external "density table" need. License is **Open Government Licence – Canada** (redistribution allowed; *requires* attributing "Health Canada, Canadian Nutrient File"; nutrient values must not be modified, per-serving re-expression is allowed) — vs USDA CC0 which needs no attribution. | — Decided; to be locked in `/gsd-discuss-phase 15`. Implications: nutrition panel must credit Health Canada; seed stores CNF values verbatim; `CookBotSettings.FdcApiKey` repurposed to CNF (USDA optional fallback); disclaimer → "Data: Health Canada, Canadian Nutrient File (2015)". |
 
 ## Evolution
 

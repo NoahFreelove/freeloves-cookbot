@@ -6,7 +6,7 @@ Additive milestone on the stable v1.3 `RecipeDocument` v3 platform. **Zero new N
 
 User decisions (2026-06-05):
 - **AI photo helper IN** — Claude suggests search terms; user pastes a free-licensed URL (HEAD-validated). No image generation, no AI-emitted URLs.
-- **Nutrition fully offline** — bundle USDA FoodData Central Foundation Foods (CC0) as a SQLite seed; no API key, no live calls. Unmatched ingredients shown explicitly.
+- **Nutrition fully offline** — bundle the **Canadian Nutrient File (CNF)** (Health Canada, Open Government Licence – Canada) as a SQLite seed; no API key, no live calls. Unmatched ingredients shown explicitly. _(Data source changed from USDA FDC → CNF on 2026-06-07 — user is Canadian; see PROJECT.md Key Decisions. OGL-Canada requires Health Canada attribution and forbids modifying nutrient values; per-serving re-expression is allowed.)_
 - **Schema.org category/cuisine derived from existing tags** — no new v4 schema fields for these.
 
 ---
@@ -30,13 +30,13 @@ User decisions (2026-06-05):
 - [x] **INTEROP-03**: A user can export a single recipe to Cooklang (`.cook`) text, with ingredient chip refs mapped to `@name{amount%unit}`, cookware to `#items`, timers to `~{n%unit}`, sections to `== Section ==`; doneness/substitutions/temperature emitted as `--` comments. _(Phase 13 clarification: the canonical `RecipeDocument` has only recipe-level `Equipment[]` with no inline/step-scoped cookware, and Cooklang's `#cookware` is an inline-in-step token — so recipe-level equipment exports as `>>`/`--` metadata rather than inline `#items`, to avoid fabricating step-scoping the model lacks.)_
 - [x] **INTEROP-04**: The Cooklang export action is labeled **export-only** (no re-import implied); special characters (`@`, `#`, `~`) in step text are escaped/sanitized before emission.
 
-### Nutrition (NUTR) — offline USDA FoodData Central
+### Nutrition (NUTR) — offline Canadian Nutrient File (CNF)
 
-- [ ] **NUTR-01**: USDA Foundation Foods (CC0) ships as a bundled SQLite seed (`seeds/nutrition/`) — nutrition works fully offline with no API key and no runtime external calls.
-- [ ] **NUTR-02**: A recipe's nutrition (calories + macros: protein/carbs/fat) is computed from ingredient amounts by matching ingredient names to seeded foods, with results cached per-recipe and invalidated when the canonical doc changes.
-- [ ] **NUTR-03**: Volume→mass conversion uses a per-ingredient density lookup (not water-equivalent), reusing the existing unit converter; conversions with assumed density are marked lower-confidence.
+- [ ] **NUTR-01**: The Canadian Nutrient File (Health Canada, OGL-Canada) ships as a bundled SQLite seed (`seeds/nutrition/`), built from the CNF relational CSV bulk download (~5,993 foods, per-100 g) — nutrition works fully offline with no API key and no runtime external calls. Nutrient values are stored verbatim (OGL-Canada forbids modification).
+- [ ] **NUTR-02**: A recipe's nutrition (calories + macros: protein/carbs/fat) is computed from ingredient amounts by matching ingredient names to seeded CNF foods, with results cached per-recipe and invalidated when the canonical doc changes.
+- [ ] **NUTR-03**: Volume→mass conversion uses the CNF per-food household-measure→gram Conversion Factors first; for foods/measures CNF doesn't cover, a per-ingredient fallback density lookup is used (not water-equivalent), reusing the existing unit converter; conversions with assumed (non-CNF) density are marked lower-confidence.
 - [ ] **NUTR-04**: A recipe shows a nutrition panel with per-serving and total values; ingredients that couldn't be matched are shown explicitly with a coverage indicator — never silently zeroed.
-- [ ] **NUTR-05**: Every nutrition surface carries a clear "estimated, not certified — Data: USDA FoodData Central" disclaimer (CC0 attribution + health disclaimer).
+- [ ] **NUTR-05**: Every nutrition surface carries a clear "estimated, not certified — Data: Health Canada, Canadian Nutrient File (2015)" disclaimer (satisfies OGL-Canada attribution + health disclaimer; must not imply Health Canada endorsement).
 - [ ] **NUTR-06**: When nutrition exists, `nutrition.calories` (and macros) are included in the recipe's Schema.org JSON-LD output.
 
 ### Photo Gallery & AI Helper (GALLERY) — continues PHOTO-01..14 from v1.3
@@ -48,7 +48,7 @@ User decisions (2026-06-05):
 
 ### UAT Automation (UATAUTO) — continues the v1.3 harness
 
-- [ ] **UATAUTO-02**: The `tests/uat-harness/` Playwright harness is extended with hands-free checks for the v1.4 flows (new format fields visible, JSON-LD present + structurally valid, Cooklang export downloads, nutrition panel renders with coverage, gallery primary/reorder), reusing the existing session/discovery libs.
+- [~] **UATAUTO-02**: The `tests/uat-harness/` Playwright harness is extended with hands-free checks for the v1.4 flows (new format fields visible, JSON-LD present + structurally valid, Cooklang export downloads, nutrition panel renders with coverage, gallery primary/reorder), reusing the existing session/discovery libs. _(Partial 2026-06-24: `test16-integration.mjs` automates JSON-LD present+valid, Cooklang `.cook` export, and the nutrition panel + coverage + JSON-LD nutrition — 6 checks green. **Not yet automated:** "new format fields visible" (Phase 12 equipment/substitutions/doneness/provenance — authorable via paste-raw YAML, see test16 TODO) and "gallery primary/reorder" (blocked: Blazor `<InputFile>` SignalR upload is not Playwright-drivable; needs a test-only direct-upload seam).)_
 
 ---
 
@@ -56,7 +56,7 @@ User decisions (2026-06-05):
 
 - Cooklang **import** (one-way export ships in v1.4; import needs an NLP-level parser) — out of scope.
 - Per-step photo linking (Paprika-style `[photo: name]`) — high complexity, defer.
-- Live USDA FDC API fallback (branded/SR Legacy coverage) + per-user/host API key — deferred; v1.4 is offline-bundled-only.
+- Live nutrition-API fallback for gaps — CNF REST API and/or USDA FDC (branded/SR Legacy coverage) + per-user/host API key — deferred; v1.4 is offline-bundled-only (CNF seed).
 - Unsplash/Pexels API integration for bulk photo backfill — adds an external key dependency; conflicts with self-host posture.
 - First-class `RecipeCategory`/`RecipeCuisine` schema fields — v1.4 derives from tags; promote to v4.x only if tag-derivation proves too lossy.
 - Tool-use fallback for structured-output regressions (`FUTURE-09`); per-sharer cookbook-import consent banner (`FUTURE-12`).
@@ -95,4 +95,4 @@ User decisions (2026-06-05):
 | NUTR-04 | Phase 15 | Pending |
 | NUTR-05 | Phase 15 | Pending |
 | NUTR-06 | Phase 15 | Pending |
-| UATAUTO-02 | Phase 16 | Pending |
+| UATAUTO-02 | Phase 16 | Partial (test16: nutrition + JSON-LD + Cooklang green; format-fields + gallery upload pending) |
