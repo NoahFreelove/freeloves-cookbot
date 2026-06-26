@@ -123,9 +123,23 @@ Phase 12–15         → Phase 16 (UAT + integration)
 
 ## Session Continuity
 
-Last session: 2026-06-24 (remote — no human UAT available)
-Stopped at: Phase 16 (UAT + Integration) — Tier-A automation done; test16 harness green for nutrition + JSON-LD nutrition + Cooklang export
-Resume file: .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15-HUMAN-UAT.md
+Last session: 2026-06-25 (human-driven UAT — /gsd-verify-work)
+Stopped at: Phase 14 + 15 human UAT complete. All 10 Phase-14 items pass; 14/15 Phase-15 items pass (item 14 fail). 6 issues + 1 change request diagnosed (root causes in the two HUMAN-UAT.md files). Awaiting decision on the fix path.
+Resume file: .planning/phases/14-photo-gallery/14-HUMAN-UAT.md (Gaps + Change Requests), .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15-HUMAN-UAT.md (Gaps)
+
+**Session 2026-06-25 (human UAT) did:**
+
+- Ran the automated harness first (`npm test`): 6 passed / 1 skip / 0 fail — all automatable items green. Server build (12:06) confirmed current (latest commit touched only the JS harness).
+- Walked the 14 human-only items in a real browser. **Phase 14: all 10 enumerated items PASS.** **Phase 15: 14/15 PASS** (items 9 & 12 code-verified; item 14 FAILED).
+- **6 issues found (all diagnosed with file:line root causes + fix directions in the UAT files):**
+  1. `cookbook-listing-hero` (minor) — CookbookDetail.razor:108 hardcodes StripedPlaceholder; recipe hero never shown on the cookbook listing (pre-existing; likely also Home/CookbookList).
+  2. `gallery-trash-overlap` (minor) — RecipePhotoGalleryManager.razor action-button row overflows the 180px card; trash sometimes covered by the next card → unclickable. Fix: flex-wrap.
+  3. `gallery-overcap-batch-noop` (minor) — GetMultipleFiles(remaining) at ~line 321 throws outside the try/catch when selection > remaining → whole batch silently dropped, no toast.
+  4. `gallery-stale-urlerror-after-delete` (minor) — `_urlError` "Maximum N photos" not cleared after a delete frees a slot → stale message; same-URL retry blocked.
+  5. `nutrition-macro-grid-not-responsive` (minor, item 14 FAIL) — RecipeView.razor:460 inline `grid-template-columns:repeat(4,1fr)` with no class + no media rule → stays 4-across at ≤720px (inline can't be overridden by a media query).
+  6. `nutrition-coverage-rows-ignore-toggle` (minor) — coverage rows render fixed `row.EnergyKcal` (totals) while the headline honors Per-serving/Total → mismatch in per-serving mode.
+- **1 change request:** remove the "Suggest photo search terms" AI helper (user: not useful). Retires GALLERY-04 / Phase-14 item 6 — scope change, needs confirmation before executing.
+- Items 3 & 7 (nutrition) confirmed live: flour ≈455 kcal/cup density correct; ≈ low-confidence + CNF description + [FoodId] all present.
 
 **Session 2026-06-24 (Phase 16 UAT automation) did:**
 
