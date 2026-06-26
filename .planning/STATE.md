@@ -20,11 +20,11 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-05)
+See: `.planning/PROJECT.md` (updated 2026-06-25)
 
 **Core value:** A durable home for the recipes the user actually cooks, captured in one standardized format that round-trips cleanly between AI generation, manual editing, cooking mode, and import/export — without the user (or the AI) having to know special syntax.
 
-**Current focus:** Phase 15 — Nutrition (Offline CNF — Canadian Nutrient File)
+**Current focus:** Planning v1.5 — External Agent Interface (MCP + REST API)
 
 ## Current Position
 

@@ -32,8 +32,43 @@ Canonical `RecipeDocument` advanced to v3 (photos, description, per-step tempera
 - Model mix: planning/orchestration on Opus; executors + researcher + verifier on Sonnet.
 - Notable: pattern-mapping up front avoided rebuilding an existing converter — the single biggest time saver this milestone.
 
+## Milestone: v1.4 — Recipe Data & Interoperability
+
+**Shipped:** 2026-06-25 (tag `v1.4`)
+**Phases:** 5 (12–16) | **Plans:** 18 | **Tasks:** 19
+
+### What Was Built
+Canonical `RecipeDocument` advanced to v4 (ingredient substitutions, equipment list, per-step doneness cues, source/provenance) on a per-field upcaster; two pure display-only export projectors (Schema.org `Recipe` JSON-LD + one-way Cooklang `.cook`); a multi-photo gallery (`RecipePhoto` entity, upload/reorder/set-hero, disk cleanup); fully-offline nutrition from a bundled Canadian Nutrient File seed (`NutritionService` + 5-state per-serving panel + Health Canada attribution + JSON-LD wiring); and an extension of the Playwright UAT harness (`test16-integration.mjs`).
+
+### What Worked
+- **Schema bump as a standalone first phase (12)** before any consumer — every downstream theme (projectors, gallery migration, nutrition) read `RecipeDocument` v4 from day one, avoiding build-against-v3-then-repatch rework. The build-order dependency chain held.
+- **Pure display-only projector pattern** (receive `RecipeDocument`, return a string, grep-assert non-mutation) made JSON-LD and Cooklang trivially golden-testable and kept the canonical-mutation invariant clean across two new output formats.
+- **A pre-phase data-source decision (CNF over USDA FDC)** fit the bundled-SQLite-seed plan 1:1 and — via CNF household-measure→gram Conversion Factors — removed most of the external density-table burden before Phase 15 planning even started.
+- **Reusing the v1.3 UAT harness** paid off again: `test16` automated JSON-LD validity, Cooklang export, and 8/15 nutrition items hands-free.
+
+### What Was Inefficient
+- **Build-then-revert on GALLERY-04** — the AI photo-search-term helper was fully built in Phase 14, then deleted after human UAT ("not useful"). Feature value should have been pressure-tested in discuss/UAT before implementation; a harness regression guard now keeps it gone.
+- **Blazor `<InputFile>` SignalR uploads aren't Playwright-drivable** — discovered during Phase 14 UAT, it stranded 6+ gallery items as manual-only and left UATAUTO-02 partial at milestone close. Driving upload coverage needs a deliberate test-only direct-upload seam (a production-code decision deferred).
+- **A stale dev server served pre-migration code** during Phase 14 UAT (a build predating the `RecipePhotos` migration), masking the working gallery until restarted. Reinforced: restart the server after any redeploy before UAT.
+- **Phase 16 never received formal PLAN.md files** — its UAT/integration work ran directly through the harness, so the milestone-close CLI flagged it as "unstarted" and required `--force`. Phase-as-harness-work doesn't map cleanly onto the plan/summary model.
+
+### Patterns Established
+- **Standalone schema-bump-first phase** ahead of any format consumer.
+- **Display-only projector** convention (`RecipeDocument` → string, never mutates canonical) — now used by JSON-LD, Cooklang, and the nutrition panel.
+- **Offline-bundled reference data with a mandatory attribution disclaimer** (OGL-Canada: values stored verbatim, per-serving re-expression at display, non-dismissable credit).
+
+### Key Lessons
+- Restart the dev server after any redeploy before UAT — stale circuits / unapplied migrations silently serve old behavior.
+- Pressure-test "nice to have" AI affordances in discuss/UAT before building them (GALLERY-04 was built then deleted).
+- The Playwright harness cannot drive Blazor file uploads; plan a test-only seam up front if upload flows must be automated, or accept them as honest manual residue.
+
+### Cost Observations
+- Model mix: planning/orchestration on Opus; executors + researcher + verifier on Sonnet (per `model_profile: balanced`).
+- Notable: the per-field upcaster + golden-test projector patterns made the largest themes (format + export) low-risk and verifiable without live AI calls.
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Notable |
 |-----------|--------|-------|---------|---------|
 | v1.3 Production-Ready & Format Maturity | 4 | 39 | 2026-06-05 | First automated UAT harness; backlog→phase promotion |
+| v1.4 Recipe Data & Interoperability | 5 | 18 | 2026-06-25 | Schema-bump-first + pure display-only projectors; harness can't drive Blazor uploads (UATAUTO-02 partial) |
