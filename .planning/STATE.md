@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Recipe Data & Interoperability
-current_phase: 4
-status: Awaiting next milestone
-stopped_at: Phase 14 + 15 human UAT complete AND all 6 issues + the AI-helper removal FIXED this session. Build clean (0 errors); harness green (6 pass / 1 skip / 0 fail); 4 of 6 fixes + AI removal Playwright-verified. v1.4 is functionally clean.
-last_updated: "2026-06-26T02:23:53.541Z"
+milestone: v1.5
+milestone_name: External Agent Interface (MCP + REST API)
+status: planning
+last_updated: "2026-06-26T14:20:50.408Z"
 last_activity: 2026-06-26
-last_activity_desc: Milestone v1.4 completed and archived
 progress:
-  total_phases: 6
-  completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
-  percent: 67
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-25)
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-26 — Milestone v1.4 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-26 — Milestone v1.5 started
 
 ## Deferred Items
 

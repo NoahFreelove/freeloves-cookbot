@@ -18,6 +18,25 @@ A durable home for the recipes the user actually cooks, captured in **one standa
 
 **v1.4 SHIPPED (2026-06-25, tag `v1.4`).** Phases 12 (Richer Format v3→v4), 13 (Export & Interoperability — Schema.org JSON-LD + Cooklang one-way export), 14 (Photo Gallery), 15 (Nutrition — offline Canadian Nutrient File), 16 (UAT + Integration). 18 plans complete + human UAT (Phase 14 10/10, Phase 15 14/15 with the responsive-grid item fixed); the GALLERY-04 AI photo-search-term helper was retired after UAT. UATAUTO-02 partial (core flows automated; format-fields-visible + gallery-upload deferred — Blazor `<InputFile>` not Playwright-drivable). Next milestone: **v1.5 External Agent Interface (MCP + REST API)** via `/gsd-new-milestone`.
 
+## Current Milestone: v1.5 External Agent Interface (MCP + REST API)
+
+**Goal:** Let external AI agents manage the pantry and create recipes through a secured, headless interface — exposed as both a REST API and an MCP server — without weakening the trusted-LAN posture or the canonical-format guarantees.
+
+**Target features:**
+- **Agent-operations facade** — one internal Application-layer surface over the existing `PantryService` + `RecipeService`, so the REST API and MCP server share identical logic and authorization (no duplicated business rules).
+- **Pantry management** — list the acting user's accessible pantries, list items, add/update an item, deduct an item, and resolve an ingredient name → id; all scoped by the existing in-service ownership checks.
+- **Structured recipe creation** — an agent submits a canonical `RecipeDocument`; it is schema-validated (`JsonSchema.Net`), converted to `ParsedRecipe`, and persisted via `RecipeService.CreateAsync`. No inbound Anthropic/AI call on creation.
+- **Per-agent token auth** — a bearer token mapped to a real user (token-hash table + resolution middleware that establishes the acting user before any service call); deliberately NOT ASP.NET Identity / OAuth / SSO.
+- **MCP server** — an in-process MCP server (HTTP/SSE transport, likely the `ModelContextProtocol` C# SDK) exposing the facade as MCP tools.
+- **REST minimal-API** — the first HTTP endpoints in the app (today it is 100% Blazor Server / SignalR with zero controllers), wired into the existing Kestrel host in `Program.cs`.
+
+**Key context:**
+- **Scoped exception to the no-auth invariant:** v1.5 adds per-agent token auth. The trusted-LAN posture is preserved (no Identity/OAuth, no *required* public exposure), but headless write access is a genuinely new threat surface — authz, SSRF, secret handling, and abuse posture need a dedicated security pass.
+- **New HTTP surface:** the app has no controllers/minimal-API endpoints today; v1.5 introduces minimal-API routes plus an MCP transport on the existing host. The SPA/WASM client stays out of scope — only a headless agent-facing surface is added.
+- **Likely the first new NuGet since v1.2** (`ModelContextProtocol`): to be justified during research/planning given the dependency-averse posture. The REST side stays on ASP.NET minimal APIs + System.Text.Json.
+- **Canonical-format guarantees hold:** structured-submit reuses the existing `RecipeDocument` → schema-validate → `ParsedRecipe` → `RecipeService.CreateAsync` path; if the agent wire shape extends the canonical doc, the POCO + parser-DTO + `RecipeService` boundaries must all be updated together or fields silently drop.
+- Numbering continues — v1.5 phases start after **Phase 16**.
+
 ## Shipped Milestone: v1.4 Recipe Data & Interoperability ✅ (2026-06-25, tag `v1.4`; archived → `milestones/v1.4-ROADMAP.md`)
 
 **Goal:** Make recipes richer and portable — extend the canonical v3 schema with the deferred format fields, compute nutrition automatically, export to external standards, and grow photos beyond a single hero — without breaking the v3 round-trip or the trusted-LAN posture.
