@@ -100,37 +100,35 @@ Additive milestone on the stable v1.4 platform. Adds the app's **first stateless
 
 ## Traceability
 
-*(Filled by the roadmapper — every REQ-ID maps to exactly one phase.)*
-
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| AAUTH-01 | TBD | Pending |
-| AAUTH-02 | TBD | Pending |
-| AAUTH-03 | TBD | Pending |
-| AAUTH-04 | TBD | Pending |
-| AAUTH-05 | TBD | Pending |
-| APANTRY-01 | TBD | Pending |
-| APANTRY-02 | TBD | Pending |
-| APANTRY-03 | TBD | Pending |
-| APANTRY-04 | TBD | Pending |
-| APANTRY-05 | TBD | Pending |
-| ARECIPE-01 | TBD | Pending |
-| ARECIPE-02 | TBD | Pending |
-| ARECIPE-03 | TBD | Pending |
-| ARECIPE-04 | TBD | Pending |
-| AREAD-01 | TBD | Pending |
-| AREAD-02 | TBD | Pending |
-| AREAD-03 | TBD | Pending |
-| AMCP-01 | TBD | Pending |
-| AMCP-02 | TBD | Pending |
-| AMCP-03 | TBD | Pending |
-| AMCP-04 | TBD | Pending |
-| AREST-01 | TBD | Pending |
-| AREST-02 | TBD | Pending |
-| AREST-03 | TBD | Pending |
-| ASEC-01 | TBD | Pending |
-| ASEC-02 | TBD | Pending |
-| ASEC-03 | TBD | Pending |
-| ASEC-04 | TBD | Pending |
-| ASEC-05 | TBD | Pending |
-| UATAUTO-03 | TBD | Pending |
+| AAUTH-01 | Phase 17 | Planned |
+| AAUTH-02 | Phase 17 | Planned |
+| AAUTH-03 | Phase 17 | Planned |
+| AAUTH-04 | Phase 22 | Planned |
+| AAUTH-05 | Phase 17 | Planned |
+| APANTRY-01 | Phase 18 | Planned |
+| APANTRY-02 | Phase 18 | Planned |
+| APANTRY-03 | Phase 18 | Planned |
+| APANTRY-04 | Phase 18 | Planned |
+| APANTRY-05 | Phase 18 | Planned |
+| ARECIPE-01 | Phase 19 | Planned |
+| ARECIPE-02 | Phase 19 | Planned |
+| ARECIPE-03 | Phase 19 | Planned |
+| ARECIPE-04 | Phase 19 | Planned |
+| AREAD-01 | Phase 18 | Planned |
+| AREAD-02 | Phase 18 | Planned |
+| AREAD-03 | Phase 18 | Planned |
+| AMCP-01 | Phase 21 | Planned |
+| AMCP-02 | Phase 21 | Planned |
+| AMCP-03 | Phase 21 | Planned |
+| AMCP-04 | Phase 21 | Planned |
+| AREST-01 | Phase 20 | Planned |
+| AREST-02 | Phase 20 | Planned |
+| AREST-03 | Phase 20 | Planned |
+| ASEC-01 | Phase 17 | Planned |
+| ASEC-02 | Phase 18 | Planned |
+| ASEC-03 | Phase 19 | Planned |
+| ASEC-04 | Phase 19 | Planned |
+| ASEC-05 | Phase 17 | Planned |
+| UATAUTO-03 | Phase 22 | Planned |
