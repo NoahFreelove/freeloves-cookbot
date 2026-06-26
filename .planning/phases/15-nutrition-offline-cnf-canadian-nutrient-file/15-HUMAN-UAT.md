@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: complete
 phase: 15-nutrition-offline-cnf-canadian-nutrient-file
 plan: 15-07
 source: [15-07-PLAN.md, 15-UI-SPEC.md]
@@ -10,7 +10,7 @@ automated_harness: tests/uat-harness/tests/test16-integration.mjs
 
 ## Current Test
 
-[UAT complete 2026-06-25 — 14/15 items PASS (items 9 & 12 code-verified; 3, 7, 10, 11, 14 done in a real-browser walkthrough). Item 14 (responsive 2-col) FAILED. 2 issues diagnosed with root causes (see Gaps)]
+[UAT complete 2026-06-25 — 14/15 items PASS; item 14 (responsive 2-col) FAILED then FIXED. Both issues (item 14 + coverage-toggle) fixed and Playwright-verified 2026-06-25 (see Resolution)]
 
 ## Automation note (2026-06-24, Phase 16)
 
@@ -99,7 +99,7 @@ result: PASS — automated 2026-06-24 (test16, assertions A2 + C). Pre-compute t
 
 ### 14. Responsive layout: 2-column macro grid at ≤720px
 expected: Resize the browser to a viewport width of 720px or narrower (or use DevTools device emulation). Confirm the 4-up macro grid collapses to 2 columns (Energy + Protein on row 1; Carbs + Fat on row 2) with gap:8px. The panel remains full-width and readable. The disclaimer, coverage list, and CTA buttons remain accessible.
-result: ISSUE (FAIL) — human-verified 2026-06-25. At ~700px the macro grid stays 4-across in a single row (Energy/Protein/Carbs/Fat just shrink), NOT the spec'd 2×2. Panel is still readable, but the responsive requirement is not met. See Gaps: nutrition-macro-grid-not-responsive.
+result: ISSUE (FAIL) → FIXED 2026-06-25. At ~700px the macro grid stayed 4-across (NOT 2×2). Fixed via the new `.nutrition-macro-grid` class + `@media(max-width:720px)` rule; Playwright-verified 4→2 tracks at 700px. See Resolution.
 
 ### 15. Panel never auto-computes on page load or recipe save
 expected: Load a recipe that has never had nutrition calculated — confirm the panel shows State 1 (CTA only) immediately with no loading spinner or background computation. Save a recipe edit — confirm the save completes instantly with no delay caused by nutrition. No nutrition HTTP requests appear in the Network tab except the explicit CTA click.
@@ -142,6 +142,15 @@ blocked: 0
       issue: "no @media(max-width:720px) rule for the nutrition macro grid"
   missing:
     - "Move the grid columns off the inline style onto a class (e.g. .nutrition-macro-grid { grid-template-columns:repeat(4,1fr) }) and add `@media (max-width:720px){ .nutrition-macro-grid{ grid-template-columns:repeat(2,1fr); gap:8px } }` — so the media query can actually take effect"
+
+## Resolution (2026-06-25 — both issues fixed in this session)
+
+Fixed directly after the UAT walkthrough (user chose "Fix all 6 now"). Build clean (0 errors); harness green; both fixes Playwright-verified against recipe 1.
+
+| Gap | Fix | Verified |
+|-----|-----|----------|
+| nutrition-macro-grid-not-responsive (item 14) | Added `.nutrition-macro-grid` class to cookbot-design.css with `repeat(4,1fr)` + `@media(max-width:720px){ repeat(2,1fr); gap:8px }`; RecipeView.razor uses the class instead of inline columns (so the media query can override) | Playwright: 4 tracks at 1200px → 2 tracks at 700px — PASS |
+| nutrition-coverage-rows-ignore-toggle | Coverage-row kcal now divides by `servings` when "Per serving" is active (RecipeView.razor), so rows track the toggle | Playwright: per-serving rows (flour ≈76) ↔ total (≈455); per-serving rows now sum to the 312 headline — PASS |
 
 
 - **7 items remain** for a real browser or future harness work: 3 (exact 455 kcal anchor — covered by unit tests), 7 (≈ low-confidence + CNF description), 9 (disclaimer in States 3/4/5), 10/11 (stale State 3 + recalc — automatable later by editing the recipe between loads), 12 (error State 5 — needs error injection), 14 (≤720px 2-col responsive — automatable via viewport resize).

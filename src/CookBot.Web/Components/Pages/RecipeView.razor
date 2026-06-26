@@ -401,6 +401,10 @@
                 {
                     @* ── State 2 (IsStale=false) or State 3 (IsStale=true) ────────────── *@
                     var cache = _nutritionCache!;
+                    // Per-ingredient EnergyKcal is a whole-recipe total; divide by servings when
+                    // "Per serving" is active so the coverage rows track the toggle and stay
+                    // consistent with the headline macros (nutrition-coverage-rows-ignore-toggle fix).
+                    var servings = Math.Max(1, _doc.Servings);
                     var matches = ParsePerIngredientMatches(cache.PerIngredientMatchJson);
                     var visibleRows = _showAllMatches
                         ? matches
@@ -456,9 +460,10 @@
                         </div>
                     }
 
-                    @* 2b. Macro stat row (4-up grid; 2-col at <=720px) *@
-                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:16px;
-                                @(cache.IsStale ? "opacity:0.7;" : "")">
+                    @* 2b. Macro stat row (4-up grid; collapses to 2-col at <=720px via the
+                       .nutrition-macro-grid class — the columns MUST live in CSS, not inline,
+                       so the media query can actually override them. nutrition-macro-grid-not-responsive fix. *@
+                    <div class="nutrition-macro-grid" style="margin-top:16px;@(cache.IsStale ? "opacity:0.7;" : "")">
                         @{
                             double energy  = _nutritionPerServing ? cache.PerServingEnergyKcal : cache.TotalEnergyKcal;
                             double protein = _nutritionPerServing ? cache.PerServingProteinG    : cache.TotalProteinG;
@@ -521,11 +526,11 @@
                                 }
                                 else if (row.Confidence == "MEDIUM")
                                 {
-                                    <text>≈@(row.EnergyKcal.HasValue ? row.EnergyKcal.Value.ToString("0") : "--")</text>
+                                    <text>≈@(row.EnergyKcal.HasValue ? (_nutritionPerServing ? row.EnergyKcal.Value / servings : row.EnergyKcal.Value).ToString("0") : "--")</text>
                                 }
                                 else
                                 {
-                                    <text>@(row.EnergyKcal.HasValue ? row.EnergyKcal.Value.ToString("0") : "--")</text>
+                                    <text>@(row.EnergyKcal.HasValue ? (_nutritionPerServing ? row.EnergyKcal.Value / servings : row.EnergyKcal.Value).ToString("0") : "--")</text>
                                 }
                             </div>
                         </div>

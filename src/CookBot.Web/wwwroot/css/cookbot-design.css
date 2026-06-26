@@ -827,3 +827,17 @@ body.dark-mode .cb-dropdown-item:focus-visible {
     flex-wrap: wrap;
     gap: 16px;
 }
+
+/* Phase 15 / NUTR-04 — nutrition macro stat grid on RecipeView. Columns live here
+   (not inline) so the <=720px media query can override them (item 14 fix). */
+.nutrition-macro-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+@media (max-width: 720px) {
+    .nutrition-macro-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+}

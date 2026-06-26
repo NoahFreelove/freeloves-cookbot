@@ -44,7 +44,7 @@ User decisions (2026-06-05):
 - [x] **GALLERY-01**: A recipe supports multiple photos via a `RecipePhoto` entity (ordered, optional caption, one primary); an EF migration backfills the existing `Recipe.PhotoUrl` to a primary `RecipePhoto` row (no data loss).
 - [x] **GALLERY-02**: A user can upload multiple photos, reorder them, set captions, and choose the primary/hero photo from the recipe editor (respecting the v1.3 12 MB / magic-byte / scheme-allowlist safeguards).
 - [x] **GALLERY-03**: The recipe view displays the photo gallery (primary as hero); deleting a photo or recipe removes its file from disk (no orphaned files in the Docker volume).
-- [x] **GALLERY-04**: An optional AI helper (gated by `AiFeaturesEnabled`) describes the dish and suggests photo search terms for free-licensed photo sites; the user pastes a URL that is HEAD-validated before persist. The AI never emits or auto-embeds an image URL.
+- [~] **GALLERY-04** *(RETIRED 2026-06-25 — removed per user UAT feedback: "not useful")*: ~~An optional AI helper (gated by `AiFeaturesEnabled`) describes the dish and suggests photo search terms for free-licensed photo sites~~. The paste-a-URL flow (scheme allowlist + HEAD validation before persist; AI never emits/auto-embeds a URL) is retained and lives under GALLERY-02/03. The AI "Suggest photo search terms" affordance was deleted from `RecipePhotoGalleryManager.razor`; a harness regression guard (test14 item 6) keeps it gone.
 
 ### UAT Automation (UATAUTO) — continues the v1.3 harness
 
@@ -88,7 +88,7 @@ User decisions (2026-06-05):
 | GALLERY-01 | Phase 14 | Complete |
 | GALLERY-02 | Phase 14 | Complete |
 | GALLERY-03 | Phase 14 | Complete |
-| GALLERY-04 | Phase 14 | Complete |
+| GALLERY-04 | Phase 14 | Retired (2026-06-25 — removed per user UAT feedback) |
 | NUTR-01 | Phase 15 | Pending |
 | NUTR-02 | Phase 15 | Pending |
 | NUTR-03 | Phase 15 | Pending |

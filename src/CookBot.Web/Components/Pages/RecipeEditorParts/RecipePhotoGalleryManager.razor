@@ -1,4 +1,5 @@
-@*  RecipePhotoGalleryManager — Phase 14 / Plan 14-04 / GALLERY-02 / GALLERY-04.
+@*  RecipePhotoGalleryManager — Phase 14 / Plan 14-04 / GALLERY-02.
+    (GALLERY-04 "AI photo search-term helper" retired 2026-06-25 — removed per user UAT feedback.)
 
     Multi-photo editor component. Immediate-persist model: every mutation (upload,
     reorder, caption, set-hero, delete, paste-URL) is written through RecipePhotoService
@@ -10,11 +11,7 @@
         keeps every SignalR frame under the 12 MB circuit limit (P14 / D-14-05).
       - Paste-URL: step 1 scheme allowlist (RecipePhotoUrlValidator), step 2 HTTP HEAD
         gate (PhotoUrlHeadValidator). Both must pass before AddPhotoAsync (D-14-10).
-      - AI helper output is rendered as PLAIN TEXT only. Any http(s) URL detected via
-        Uri.TryCreate is stripped before display (P12 / D-14-07).
       - Copyright disclaimer is always visible — never conditional, never a tooltip (D-14-09).
-      - The AI button is NOT RENDERED when _aiOn is false (not just disabled) — matches
-        RecipeEditor.razor:519-521 gate pattern.
       - No MudBlazor, no new NuGet packages. *@
 
 @namespace CookBot.Web.Components.Pages.RecipeEditorParts
@@ -32,9 +29,6 @@
 @inject RecipePhotoUrlValidator UrlValidator
 @inject PhotoUrlHeadValidator HeadValidator
 @inject LocalRecipePhotoStorage PhotoStorage
-@inject IAiService AiService
-@inject AiApiKeyResolutionService AiKeyResolver
-@inject CurrentUserService UserService
 @inject IOptions<CookBotSettings> Settings
 @inject ICbToastService Toast
 @inject ICbDialogService DialogService
@@ -90,8 +84,9 @@
                            maxlength="512"
                            @onchange="@(async (ChangeEventArgs ev) => await SaveCaptionAsync(photo.Id, ev.Value as string))" />
 
-                    @* Action button row *@
-                    <div style="display:flex;gap:8px;align-items:center;">
+                    @* Action button row — flex-wrap so the buttons never overflow the 180px
+                       card and overlap the neighboring card (gallery-trash-overlap fix). *@
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
 
                         @* Move up *@
                         <button type="button"
@@ -199,35 +194,11 @@
         }
     </div>
 
-    @* ── AI search-term helper (gated — NOT rendered when _aiOn is false) ─────── *@
-    @if (_aiOn)
-    {
-        <div style="margin-top:12px;">
-            <CbButton Variant="CbButton.CbButtonVariant.Accent"
-                      StartIcon="@Icon.Names.Spark"
-                      Disabled="@_aiLoading"
-                      OnClick="SuggestSearchTermsAsync">
-                @(_aiLoading ? "Finding search terms…" : "Suggest photo search terms")
-            </CbButton>
-
-            @if (_aiOutput is not null)
-            {
-                <div class="cb-card"
-                     role="region"
-                     aria-label="Photo search suggestions"
-                     style="padding:16px;margin-top:8px;font-size:14px;color:var(--ink-2);line-height:1.5;white-space:pre-wrap;">
-                    @_aiOutput
-                </div>
-            }
-        </div>
-    }
-
     @* ── Copyright disclaimer — always visible, never conditional ────────────── *@
     <div role="note"
          aria-label="Copyright notice"
          style="font-size:11.5px;color:var(--ink-3);line-height:1.4;margin-top:8px;">
-        Only add photos you have the right to use.
-        AI suggestions are search terms only — verify the license at the source.
+        Only add photos you have the right to use — verify the license at the source.
     </div>
 
 </div>
@@ -254,11 +225,6 @@
     private bool _urlValidating;
     private string? _urlError;
 
-    // AI helper
-    private bool _aiOn;
-    private bool _aiLoading;
-    private string? _aiOutput;
-
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
@@ -270,21 +236,6 @@
     {
         // Re-read when RecipeId changes (e.g. create→save flow).
         await LoadPhotosAsync();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender) return;
-
-        // Resolve AI gate — mirrors RecipeEditor.razor:527-530 verbatim:
-        //   host kill-switch AND per-user AiEnabled opt-in (GALLERY-04 / D-14-07).
-        // Done in OnAfterRender (interactive pass only; not needed at prerender).
-        var user = await UserService.GetCurrentUserAsync();
-        var hostOn = Settings.Value.AiFeaturesEnabled;
-        var userOn = user?.Profile?.AiEnabled ?? false;
-        var creds = await AiKeyResolver.ResolveAsync(UserId);
-        _aiOn = hostOn && userOn && creds is not null;
-        StateHasChanged();
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
@@ -318,7 +269,20 @@
 
         using var cts = new CancellationTokenSource();
 
-        foreach (var file in e.GetMultipleFiles(remaining))
+        // Read with max == the actual selection so GetMultipleFiles never throws on an
+        // over-cap pick; then take only the remaining slots and tell the user what was
+        // skipped (gallery-overcap-batch-noop fix — previously GetMultipleFiles(remaining)
+        // threw OUTSIDE the per-file try/catch when selection > remaining, silently dropping
+        // the entire batch with no feedback).
+        var selected = e.GetMultipleFiles(e.FileCount);
+        var toUpload = selected.Take(remaining).ToList();
+        if (selected.Count > toUpload.Count)
+        {
+            var skipped = selected.Count - toUpload.Count;
+            Toast.Show($"Only {remaining} more photo(s) can be added — {skipped} skipped.", CbToastSeverity.Warning);
+        }
+
+        foreach (var file in toUpload)
         {
             // Pre-stream size check — reject before opening stream (P14 / PITFALL H1)
             if (file.Size > 10L * 1024L * 1024L)
@@ -511,6 +475,10 @@
             {
                 await PhotoService.DeleteAsync(RecipeId, photo.Id, UserId);
                 await LoadPhotosAsync();
+                // Deleting frees a slot — clear any stale paste-URL error (e.g. a leftover
+                // "Maximum N photos" message from an at-cap attempt) so the field is usable
+                // again (gallery-stale-urlerror-after-delete fix).
+                _urlError = null;
                 StateHasChanged();
             }
             catch (Exception ex)
@@ -520,105 +488,4 @@
         }
     }
 
-    // ── AI helper ─────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Calls IAiService text path with a URL-forbidding system prompt.
-    /// Output is stripped of any detected http(s) URL before display (P12 / D-14-07).
-    /// Output is component-state only — never persisted.
-    /// </summary>
-    private async Task SuggestSearchTermsAsync()
-    {
-        if (!_aiOn || _aiLoading) return;
-
-        var creds = await AiKeyResolver.ResolveAsync(UserId);
-        if (creds is null)
-        {
-            Toast.Show("No AI API key configured.", CbToastSeverity.Warning);
-            return;
-        }
-
-        _aiLoading = true;
-        _aiOutput = null;
-        StateHasChanged();
-
-        try
-        {
-            // Build a concise recipe description from photos' alt-source: the recipe is identified
-            // by RecipeId only in this component. Use a generic prompt that asks for search terms.
-            // The system prompt explicitly forbids URL emission (P12 / RESEARCH §Pattern 6).
-            const string systemPrompt =
-                "You are a photo research assistant for a cooking app. " +
-                "The user wants to find free-licensed photos for their recipe. " +
-                "Respond with: one line describing the dish visually, then 3-5 suggested photo search phrases " +
-                "(one per line, no bullet markers), then a short list of free-licensed photo sites " +
-                "(e.g. Unsplash, Pexels, Wikimedia Commons — site names only, no URLs). " +
-                "IMPORTANT: Do NOT include any image URLs, hyperlinks, or http/https addresses in your response. " +
-                "Suggest search terms only.";
-
-            // Get the photo count as context
-            var photoCount = _photos.Count;
-            var userMessage = $"I have {photoCount} photo(s) for a recipe (ID {RecipeId}). " +
-                              "Please suggest photo search terms I can use to find free-licensed images " +
-                              "that would complement this recipe.";
-
-            var messages = new List<CookBot.Domain.Interfaces.AiMessage>
-            {
-                new() { Role = "user", Content = userMessage }
-            };
-
-            var raw = await AiService.SendMessageAsync(systemPrompt, messages, creds.ApiKey, creds.ModelId, maxTokens: 512);
-            _aiOutput = StripUrls(raw);
-        }
-        catch (Exception ex)
-        {
-            Toast.Show($"AI suggestion failed: {ex.Message}", CbToastSeverity.Error);
-        }
-        finally
-        {
-            _aiLoading = false;
-            StateHasChanged();
-        }
-    }
-
-    /// <summary>
-    /// Strips any http(s) URL from the AI output and appends the disclaimer suffix (P12).
-    /// Tokenizes on ALL whitespace (spaces, tabs, newlines) so that newline- or
-    /// tab-delimited URLs from the AI are detected and stripped (WR-05 / P12 invariant).
-    /// Uses Uri.TryCreate token-by-token to detect embedded URLs.
-    /// </summary>
-    private static string StripUrls(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return text;
-
-        // Split on all whitespace (null char[] = any whitespace delimiter) so that
-        // tab- or newline-delimited URLs are isolated as their own tokens (WR-05).
-        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var stripped = false;
-        var result = new System.Text.StringBuilder();
-
-        foreach (var word in words)
-        {
-            var trimmed = word.Trim('(', ')', '[', ']', '<', '>', '"', '\'', ',', '.');
-            if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
-                (uri.Scheme == "http" || uri.Scheme == "https"))
-            {
-                stripped = true;
-                // Skip this token (URL removed)
-            }
-            else
-            {
-                if (result.Length > 0) result.Append(' ');
-                result.Append(word);
-            }
-        }
-
-        var output = result.ToString().Trim();
-        if (stripped)
-        {
-            output += "\n(URL removed — AI suggestions are search terms only)";
-        }
-
-        return output;
-    }
 }

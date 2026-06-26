@@ -23,8 +23,8 @@
  *   4. Delete with confirm dialog                — automated
  *   5. Paste-URL reject (scheme)                 — automated; accept lane needs outbound
  *      network → attempted, SKIP if offline
- *   6. AI helper text-only / gate                — gate automated; live AI call SKIP unless
- *      AiFeaturesEnabled + profile AiEnabled + key present in this env
+ *   6. AI photo helper RETIRED (GALLERY-04)      — regression guard: button must stay absent
+ *      (feature removed 2026-06-25 per user UAT feedback)
  *   7. Copyright disclaimer always visible       — automated
  *   8. RecipeView gallery + client-side hero swap (P15) — automated
  *   9. Photo count cap UX                        — automated (fills to MaxPhotosPerRecipe=10)
@@ -377,7 +377,7 @@ export async function runTest14(page, { cookbookId = 1 } = {}) {
       const note = page.locator('[role="note"][aria-label="Copyright notice"]');
       const visible = await note.isVisible().catch(() => false);
       const text = (await note.textContent().catch(() => '')) || '';
-      if (visible && /search terms only/i.test(text)) {
+      if (visible && /right to use/i.test(text)) {
         rec(7, 'Copyright disclaimer always visible', 'passed', 'Disclaimer present and visible (unconditional).');
       } else {
         rec(7, 'Copyright disclaimer always visible', 'failed', `visible=${visible} text="${text.trim().slice(0, 60)}".`);
@@ -434,29 +434,16 @@ export async function runTest14(page, { cookbookId = 1 } = {}) {
       rec(5, 'Paste-URL flows', 'failed', e.message);
     }
 
-    // ── Item 6: AI helper gate / text-only output ───────────────────────────────
+    // ── Item 6: AI photo search-term helper RETIRED (GALLERY-04 removed 2026-06-25) ─
+    // Regression guard: the "Suggest photo search terms" affordance must stay gone.
     try {
       await gotoEdit(page, recipeId);
       const aiBtn = page.getByRole('button', { name: /Suggest photo search terms|Finding search terms/i });
-      const present = (await aiBtn.count()) > 0 && (await aiBtn.first().isVisible().catch(() => false));
-      if (!present) {
-        rec(6, 'AI helper gate / text-only', 'skipped',
-          'AI button not rendered (host kill-switch or per-user AiEnabled off, or no key) — gate is correct; live output not exercised.');
-      } else {
-        await aiBtn.first().click();
-        const region = page.locator('[role="region"][aria-label="Photo search suggestions"]');
-        const got = await region.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
-        if (!got) {
-          rec(6, 'AI helper gate / text-only', 'skipped', 'AI button present but no output returned (API call failed/absent).');
-        } else {
-          const out = (await region.textContent()) || '';
-          const hasUrl = /https?:\/\//i.test(out);
-          rec(6, 'AI helper gate / text-only', hasUrl ? 'failed' : 'passed',
-            hasUrl ? 'AI output contained a URL (should be stripped).' : 'AI output is plain text with no URL.');
-        }
-      }
+      const present = (await aiBtn.count()) > 0;
+      rec(6, 'AI photo helper retired (GALLERY-04)', present ? 'failed' : 'passed',
+        present ? 'The retired "Suggest photo search terms" button is present again.' : 'AI helper absent as expected (feature retired).');
     } catch (e) {
-      rec(6, 'AI helper gate / text-only', 'failed', e.message);
+      rec(6, 'AI photo helper retired (GALLERY-04)', 'failed', e.message);
     }
 
     // ── Item 9: Photo count cap UX ──────────────────────────────────────────────

@@ -123,9 +123,19 @@ Phase 12–15         → Phase 16 (UAT + integration)
 
 ## Session Continuity
 
-Last session: 2026-06-25 (human-driven UAT — /gsd-verify-work)
-Stopped at: Phase 14 + 15 human UAT complete. All 10 Phase-14 items pass; 14/15 Phase-15 items pass (item 14 fail). 6 issues + 1 change request diagnosed (root causes in the two HUMAN-UAT.md files). Awaiting decision on the fix path.
-Resume file: .planning/phases/14-photo-gallery/14-HUMAN-UAT.md (Gaps + Change Requests), .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15-HUMAN-UAT.md (Gaps)
+Last session: 2026-06-25 (human-driven UAT — /gsd-verify-work — then fixed all gaps)
+Stopped at: Phase 14 + 15 human UAT complete AND all 6 issues + the AI-helper removal FIXED this session. Build clean (0 errors); harness green (6 pass / 1 skip / 0 fail); 4 of 6 fixes + AI removal Playwright-verified. v1.4 is functionally clean.
+Resume file: .planning/phases/14-photo-gallery/14-HUMAN-UAT.md (Resolution), .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15-HUMAN-UAT.md (Resolution)
+
+**Fixes applied 2026-06-25 (after the UAT walkthrough — user chose "Fix all 6 now" + "Remove AI helper"):**
+- #1 cookbook-listing-hero → CookbookDetail.razor renders `recipe.PhotoUrl` thumbnail (Home/CookbookList already did). Playwright-verified.
+- #2 gallery-trash-overlap → `flex-wrap:wrap` on the action-button row. Playwright trial-click verified (10/10 clickable).
+- #3 gallery-overcap-batch-noop → `GetMultipleFiles(e.FileCount).Take(remaining)` + skipped-count toast (no throw-out-of-loop).
+- #4 gallery-stale-urlerror-after-delete → clear `_urlError` on delete.
+- #5 nutrition-macro-grid-not-responsive → `.nutrition-macro-grid` class + `@media(max-width:720px)` 2-col. Playwright-verified 4→2 tracks.
+- #6 nutrition-coverage-rows-ignore-toggle → per-serving division on coverage rows. Playwright-verified (rows now sum to headline).
+- AI "Suggest photo search terms" helper removed from RecipePhotoGalleryManager.razor; GALLERY-04 marked Retired in REQUIREMENTS.md; test14 item 6 is now a regression guard.
+- #3 and #4 are interaction-gated (upload/network) — verified by compile + code review, not by the headless harness.
 
 **Session 2026-06-25 (human UAT) did:**
 

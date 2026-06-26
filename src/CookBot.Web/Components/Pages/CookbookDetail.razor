@@ -105,7 +105,19 @@
                              @onclick="() => ViewRecipe(recipeId)"
                              @onkeydown="@(e => OnRowKeyDown(e, recipeId))">
 
-                            <StripedPlaceholder Width="80" Height="80" BorderRadius="8" Label="" />
+                            @* Recipe hero thumbnail when set (Recipe.PhotoUrl is synced from the
+                               gallery primary by RecipePhotoService.SyncPrimaryPhotoUrlAsync);
+                               fall back to the striped placeholder when the recipe has no photo. *@
+                            @if (!string.IsNullOrWhiteSpace(recipe.PhotoUrl))
+                            {
+                                <img src="@recipe.PhotoUrl" alt="@recipe.Name"
+                                     referrerpolicy="no-referrer" loading="lazy"
+                                     style="width:80px;height:80px;object-fit:cover;border-radius:8px;flex-shrink:0;display:block;" />
+                            }
+                            else
+                            {
+                                <StripedPlaceholder Width="80" Height="80" BorderRadius="8" Label="" />
+                            }
 
                             <div style="flex:1;min-width:0;">
                                 <div style="font-size:16px;font-weight:600;letter-spacing:-0.015em;margin-bottom:6px;">@recipe.Name</div>

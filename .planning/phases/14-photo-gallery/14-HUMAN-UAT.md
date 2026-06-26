@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: complete
 phase: 14-photo-gallery
 source: [14-VERIFICATION.md]
 started: 2026-06-07T13:40:00Z
@@ -9,7 +9,7 @@ automated_harness: tests/uat-harness/tests/test14-photo-gallery.mjs
 
 ## Current Test
 
-[UAT complete 2026-06-25 — all 10 enumerated items PASS via real-browser walkthrough; 4 gaps + 1 change request diagnosed with root causes (see Gaps / Change Requests)]
+[UAT complete 2026-06-25 — all 10 items PASS; 4 gaps + 1 change request diagnosed AND FIXED 2026-06-25 (see Resolution)]
 
 ## Automation note (2026-06-07)
 
@@ -143,6 +143,19 @@ blocked: 0
   request: "User: the 'Suggest photo search terms' feature should be deleted — it's not useful."
   scope: "Remove the AI helper UI + wiring from the photo gallery. Touches: RecipePhotoGalleryManager.razor (the `@if (_aiOn)` block ~lines 202-223, `SuggestSearchTermsAsync`, `_aiOn`/`_aiLoading`/`_aiOutput` state, the AI injects), the prompt/service method behind it, the copyright disclaimer's 'AI suggestions are search terms only' clause (lines ~229-231 — reword once AI helper is gone), and any tests asserting it (item 6 / GALLERY-04, harness test14 items 5-6, prompt-snapshot tests). NOTE: this RETIRES requirement GALLERY-04 / Phase 14 item 6 — record as a scope change, not a regression."
   decision_needed: "Confirm before executing — feature removal spanning UI + service + prompt + tests + a requirement retirement. Recommend folding into the end-of-UAT gap-closure plan."
+  resolution: "DONE 2026-06-25 (user confirmed 'Remove it'). Deleted the AI helper UI block, _aiOn/_aiLoading/_aiOutput state, OnAfterRender AI gate, SuggestSearchTermsAsync + StripUrls, and the IAiService/AiApiKeyResolutionService/CurrentUserService injects from RecipePhotoGalleryManager.razor. Reworded the copyright note (dropped the 'AI suggestions are search terms only' clause). test14 item 6 repurposed as a regression guard (button must stay absent) — PASS. GALLERY-04 marked Retired in REQUIREMENTS.md."
+
+## Resolution (2026-06-25 — all gaps fixed in this session)
+
+All four gaps and the change request were fixed directly after the UAT walkthrough (user chose "Fix all 6 now"). Build clean (0 errors); harness green (6 pass / 1 skip / 0 fail).
+
+| Gap | Fix | Verified |
+|-----|-----|----------|
+| cookbook-listing-hero | CookbookDetail.razor renders `recipe.PhotoUrl` as the 80×80 thumbnail (fallback to StripedPlaceholder). Home/CookbookList already did this. | Playwright: hero img present on `/cookbooks/1` — PASS |
+| gallery-trash-overlap | `flex-wrap:wrap` on the action-button row so controls stay inside the 180px card | Playwright trial-click: all 10 trash buttons actionable; row flex-wrap=wrap (80px/2 lines) — PASS |
+| gallery-overcap-batch-noop | Read `GetMultipleFiles(e.FileCount)` then `Take(remaining)` + warning toast for the skipped count (no more throw-out-of-loop) | Code (compiled); interaction-gated — user spot-check optional |
+| gallery-stale-urlerror-after-delete | Clear `_urlError = null` after a delete frees a slot | Code (compiled); interaction-gated — user spot-check optional |
+| CR: AI helper removal | See change-request resolution above | Harness item 6 guard — PASS |
 
 
 - **Photo upload + photo-dependent items (1, 2, 3, 4, 8, 9) and paste-URL accept/WR-04 (5-accept, 10)** cannot be verified by the headless Playwright harness because Blazor Server `<InputFile>` SignalR streaming is unreliable under automation. These need a human in a real browser, OR a future harness that drives uploads another way (e.g. a test-only direct-upload seam).
