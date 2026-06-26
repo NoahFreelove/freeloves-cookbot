@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Freelove's Cookbot — a self-hosted home for the recipes you actually cook</title>
+
+  <meta name="description" content="Cookbot is a private, self-hosted cooking & baking tracker. AI-assisted recipes (or bring your own LLM), step-by-step cooking mode with timers, scaling, pantry, nutrition, and export — no ads, no slop, nothing phones home." />
+  <meta name="theme-color" content="#3c5350" />
+  <link rel="canonical" href="https://cookbot.noahfreelove.com/" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://cookbot.noahfreelove.com/" />
+  <meta property="og:title" content="Freelove's Cookbot" />
+  <meta property="og:description" content="A durable, self-hosted home for the recipes you actually cook. No ads. No slop." />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Freelove's Cookbot" />
+  <meta name="twitter:description" content="A durable, self-hosted home for the recipes you actually cook. No ads. No slop." />
+</head>
+
+<body>
+  <main class="card" aria-labelledby="masthead-title">
+
+    <!-- ── header band ─────────────────────────────────────────────── -->
+    <header class="card__head">
+      <span class="stamp">Recipe</span>
+      <span class="stamp stamp--no">No.&nbsp;001</span>
+    </header>
+    <hr class="rule rule--double" aria-hidden="true" />
+
+    <!-- ── masthead ────────────────────────────────────────────────── -->
+    <section class="masthead">
+      <h1 id="masthead-title" class="title">Freelove&rsquo;s&nbsp;Cookbot</h1>
+      <p class="tagline">A durable home for the recipes you actually cook.</p>
+      <p class="meta">self-hosted&nbsp;&middot;&nbsp;.net&nbsp;+&nbsp;sqlite&nbsp;&middot;&nbsp;no&nbsp;ads&nbsp;&middot;&nbsp;no&nbsp;slop</p>
+    </section>
+
+    <div class="rule rule--dotdash" aria-hidden="true"></div>
+
+    <!-- ── the pitch ───────────────────────────────────────────────── -->
+    <section class="prose">
+      <p>
+        Online recipe sites are two pages of life story and eight video ads before
+        you reach the actual recipe. Cookbot is the opposite: a private kitchen for
+        the recipes you keep &mdash; captured once, in one clean format that round-trips
+        between AI generation, hand editing, cooking mode, and export.
+      </p>
+
+      <div class="cta">
+        <a class="btn btn--primary" href="https://github.com/NoahFreelove/freeloves-cookbot">View&nbsp;on&nbsp;GitHub&nbsp;&rarr;</a>
+        <a class="btn btn--ghost" href="#serve">Self-host&nbsp;it</a>
+      </div>
+    </section>
+
+    <div class="rule rule--dotdash" aria-hidden="true"></div>
+
+    <!-- ── ingredients (features) ──────────────────────────────────── -->
+    <section class="block" aria-labelledby="ingredients-head">
+      <h2 id="ingredients-head" class="block__head">Ingredients</h2>
+      <ul class="checklist">
+        <li>AI recipe generation with Claude &mdash; or a copy-paste prompt for any LLM you like</li>
+        <li>Paste recipes as YAML, plain text, or free-form &mdash; Cookbot parses them</li>
+        <li>Step-by-step cooking mode with countdown timers and browser alerts</li>
+        <li>Scale any recipe up or down; amounts shown as clean fractions</li>
+        <li>Pantry tracking and one-tap shopping lists</li>
+        <li>Shareable cookbooks, multi-user, optional passwords</li>
+        <li>Offline nutrition &mdash; calories and macros, no API, no tracking</li>
+        <li>Export to Schema.org JSON-LD and Cooklang</li>
+        <li>Hate AI in everything? One toggle hides it completely.</li>
+      </ul>
+    </section>
+
+    <div class="rule rule--dotdash" aria-hidden="true"></div>
+
+    <!-- ── method (self-host) ──────────────────────────────────────── -->
+    <section id="serve" class="block" aria-labelledby="method-head">
+      <h2 id="method-head" class="block__head">Method</h2>
+      <ol class="method">
+        <li>
+          <span class="method__step">Clone it.</span>
+          <code class="cmd">git clone https://github.com/NoahFreelove/freeloves-cookbot</code>
+        </li>
+        <li>
+          <span class="method__step">Serve it.</span>
+          <code class="cmd">docker compose up -d</code>
+        </li>
+        <li>
+          <span class="method__step">Open it.</span>
+          <code class="cmd">http://localhost:7000</code> &mdash; and start cooking.
+        </li>
+      </ol>
+      <p class="footnote">
+        Needs Docker. Recipes, photos, and your SQLite database stay on your machine.
+        Nothing phones home; AI is opt-in and uses a key you control.
+      </p>
+    </section>
+
+    <!-- ── stamped aside ───────────────────────────────────────────── -->
+    <aside class="aside" aria-label="A note from the author">
+      <p class="aside__quote">&ldquo;Completely vibecoded with Claude. Useful anyway.&rdquo;</p>
+      <p class="aside__rating" aria-label="five out of five, tested in my kitchen">
+        <span class="aside__stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+        tested in my kitchen
+      </p>
+    </aside>
+
+    <hr class="rule rule--double" aria-hidden="true" />
+
+    <!-- ── footer ──────────────────────────────────────────────────── -->
+    <footer class="card__foot">
+      <p>
+        Filed by <a href="https://noahfreelove.com">Noah&nbsp;Freelove</a>
+        &middot; <a href="https://github.com/NoahFreelove/freeloves-cookbot">source&nbsp;on&nbsp;GitHub</a>
+        &middot; GPL-3.0
+      </p>
+    </footer>
+
+  </main>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Cloudflare Pages config for the Cookbot marketing site (cookbot.noahfreelove.com).
+#
+# This is a no-build static site: `public/` is shipped verbatim, so there is no
+# framework, no adapter, and no server-side code. Deploy with:
+#
+#     npx wrangler pages deploy            # reads pages_build_output_dir below
+#   or
+#     npm run deploy
+#
+# First-time setup (one-off, in the Cloudflare dashboard after the first deploy):
+#   Pages -> cookbot -> Custom domains -> add  cookbot.noahfreelove.com
+#   Cloudflare provisions the CNAME; the GoDaddy record already points the
+#   subdomain here, so the custom domain attaches without extra DNS work.
+
+name = "cookbot"
+compatibility_date = "2026-06-26"
+pages_build_output_dir = "public"

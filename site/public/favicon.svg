@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Cookbot recipe card">
+  <rect width="32" height="32" rx="5" fill="#3c5350"/>
+  <!-- recipe card -->
+  <rect x="6.5" y="5.5" width="19" height="21" rx="2" fill="#f7efdd" stroke="#34291f" stroke-width="1.2"/>
+  <!-- red binding rule -->
+  <line x1="9" y1="10" x2="23" y2="10" stroke="#bd3b27" stroke-width="1.6"/>
+  <!-- typed lines -->
+  <line x1="9" y1="14" x2="23" y2="14" stroke="#6b5a48" stroke-width="1.1"/>
+  <line x1="9" y1="17.5" x2="23" y2="17.5" stroke="#6b5a48" stroke-width="1.1"/>
+  <line x1="9" y1="21" x2="18" y2="21" stroke="#6b5a48" stroke-width="1.1"/>
+</svg>

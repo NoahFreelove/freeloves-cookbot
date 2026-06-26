@@ -1,0 +1,13 @@
+{
+  "name": "cookbot-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static marketing site for Freelove's Cookbot (cookbot.noahfreelove.com).",
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "deploy": "wrangler pages deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

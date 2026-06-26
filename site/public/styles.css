@@ -1,0 +1,324 @@
+/* ============================================================================
+   Freelove's Cookbot — landing page
+   Mid-century recipe card. Cocoa ink on cream, a card resting on a kitchen desk.
+   Zero JS, system fonts only (so the CSP stays tight and nothing phones home).
+   ========================================================================== */
+
+:root {
+  /* palette — restrained, ~5 colors */
+  --desk:        #3c5350;   /* muted teal "counter" behind the card           */
+  --desk-deep:   #324744;
+  --paper:       #f7efdd;   /* cream index card                                */
+  --paper-edge:  #efe3c6;   /* card border / inset                            */
+  --ink:         #34291f;   /* deep cocoa, near-black warm                     */
+  --ink-soft:    #6b5a48;   /* muted brown for secondary text                 */
+  --accent:      #bd3b27;   /* terracotta / tomato — rules, stamps, checks    */
+  --accent-ink:  #fdf6e7;   /* text on accent/ink fills                       */
+  --rule-soft:   #cbb795;   /* faint card rule                                 */
+
+  /* type */
+  --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --mono:  ui-monospace, "Courier New", "Courier", monospace;
+
+  --maxw: 46rem;
+}
+
+/* ── reset-ish ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: clamp(1rem, 4vw, 3.5rem) 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  font-family: var(--serif);
+  color: var(--ink);
+  line-height: 1.6;
+  /* the "desk": a soft warm vignette, no images */
+  background-color: var(--desk);
+  background-image:
+    radial-gradient(120% 90% at 50% -10%, var(--desk) 0%, var(--desk-deep) 100%);
+  background-attachment: fixed;
+}
+
+/* ── the card ───────────────────────────────────────────────────────────── */
+.card {
+  width: 100%;
+  max-width: var(--maxw);
+  background-color: var(--paper);
+  /* faint index-card ruling, very low contrast so it reads as texture */
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc(1.6em - 1px),
+      rgba(189, 59, 39, 0.05) calc(1.6em - 1px),
+      rgba(189, 59, 39, 0.05) 1.6em
+    );
+  padding: clamp(1.5rem, 5vw, 3rem) clamp(1.25rem, 5vw, 3.25rem);
+  border: 1px solid var(--paper-edge);
+  outline: 1px solid rgba(52, 41, 31, 0.12);
+  outline-offset: -7px;            /* the classic double-border index card */
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 22px 50px -18px rgba(0, 0, 0, 0.55),
+    0 6px 16px -8px rgba(0, 0, 0, 0.35);
+  transform: rotate(-0.35deg);     /* casually set down on the counter */
+}
+
+/* ── header band ────────────────────────────────────────────────────────── */
+.card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.stamp {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+.stamp--no { color: var(--ink-soft); letter-spacing: 0.12em; }
+
+/* ── rules / separators ─────────────────────────────────────────────────── */
+.rule { border: 0; margin: 1.4rem 0; }
+
+.rule--double {
+  height: 4px;
+  border-top: 1.5px solid var(--accent);
+  border-bottom: 1.5px solid var(--accent);
+  background: transparent;
+}
+
+/* dash · dot · dash separator (the recipe-card detail) */
+.rule--dotdash {
+  height: 3px;
+  margin: 1.7rem 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--ink-soft) 0 9px,
+    transparent 9px 14px,
+    var(--ink-soft) 14px 17px,
+    transparent 17px 22px
+  );
+  background-size: 22px 2px;
+  background-repeat: repeat-x;
+  background-position: left center;
+  opacity: 0.55;
+}
+
+/* ── masthead ───────────────────────────────────────────────────────────── */
+.masthead { text-align: center; }
+
+.title {
+  margin: 0.7rem 0 0.3rem;
+  font-size: clamp(2.4rem, 8vw, 3.9rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  /* a faint letterpress / printed feel */
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.tagline {
+  margin: 0 auto;
+  max-width: 30ch;
+  font-style: italic;
+  font-size: clamp(1.05rem, 3.5vw, 1.3rem);
+  color: var(--ink);
+}
+
+.meta {
+  margin: 0.9rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--ink-soft);
+}
+
+/* ── prose + CTA ────────────────────────────────────────────────────────── */
+.prose p {
+  margin: 0 0 1.5rem;
+  font-size: 1.08rem;
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.btn {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.8rem;
+  text-decoration: none;
+  padding: 0.7rem 1.2rem;
+  border-radius: 2px;
+  border: 1.5px solid var(--ink);
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+}
+.btn--primary {
+  background: var(--ink);
+  color: var(--accent-ink);
+  box-shadow: 3px 3px 0 0 var(--accent);
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: 3px 3px 0 0 rgba(52, 41, 31, 0.18);
+}
+.btn:hover { transform: translate(1px, 1px); }
+.btn--primary:hover { box-shadow: 2px 2px 0 0 var(--accent); }
+.btn--ghost:hover   { box-shadow: 2px 2px 0 0 rgba(52, 41, 31, 0.18); }
+.btn:active { transform: translate(3px, 3px); box-shadow: none; }
+
+/* ── section blocks ─────────────────────────────────────────────────────── */
+.block__head {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+}
+
+/* ingredients */
+.checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.checklist li {
+  position: relative;
+  padding: 0.32rem 0 0.32rem 1.9rem;
+  font-size: 1.02rem;
+}
+.checklist li::before {
+  content: "\2713";                /* ✓ */
+  position: absolute;
+  left: 0;
+  top: 0.3rem;
+  color: var(--accent);
+  font-weight: 700;
+  font-family: var(--serif);
+}
+
+/* method */
+.method {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.method li {
+  counter-increment: step;
+  position: relative;
+  padding: 0.55rem 0 0.55rem 2.4rem;
+}
+.method li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 50%;
+}
+.method__step { font-weight: 700; margin-right: 0.4rem; }
+
+.cmd {
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  background: rgba(52, 41, 31, 0.06);
+  border: 1px dashed rgba(52, 41, 31, 0.28);
+  border-radius: 2px;
+  padding: 0.12em 0.45em;
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.footnote {
+  margin: 1.2rem 0 0;
+  font-size: 0.9rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+/* ── stamped aside ──────────────────────────────────────────────────────── */
+.aside {
+  margin: 2rem auto 0;
+  max-width: 34ch;
+  text-align: center;
+  padding: 1.1rem 1.25rem;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  transform: rotate(1.4deg);
+  color: var(--accent);
+}
+.aside__quote {
+  margin: 0;
+  font-style: italic;
+  font-size: 1.08rem;
+  color: var(--ink);
+}
+.aside__rating {
+  margin: 0.6rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.aside__stars { letter-spacing: 0.1em; margin-right: 0.4rem; }
+
+/* ── footer ─────────────────────────────────────────────────────────────── */
+.card__foot {
+  margin-top: 0.5rem;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+.card__foot p { margin: 0; }
+
+/* ── links ──────────────────────────────────────────────────────────────── */
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--ink); }
+
+/* ── focus + motion + small screens ─────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (max-width: 30rem) {
+  .card { transform: none; }       /* straighten up when space is tight */
+  .cmd { white-space: normal; word-break: break-all; }
+  .btn { width: 100%; text-align: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+@media print {
+  body { background: #fff; padding: 0; }
+  .card { transform: none; box-shadow: none; border-color: #999; }
+}
