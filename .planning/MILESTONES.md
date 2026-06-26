@@ -1,5 +1,26 @@
 # Milestones — FreelovesCookBot
 
+## v1.4 Recipe Data & Interoperability (Shipped: 2026-06-25)
+
+**Phases completed:** 5 phases (12–16), 18 plans, 19 tasks · **Tag:** `v1.4`
+
+**Key accomplishments:**
+
+- **Richer canonical format → v4** — ingredient substitutions, recipe-level equipment list, per-step doneness cues, and source/provenance added to the canonical POCOs; `Migration_V3_To_V4` upcaster registered in DI (`CurrentVersion` = 4); AI prompt + byte-stable snapshot + schema-presence assertions updated; full round-trip through editor DTOs, parser, and serializer; authored + displayed in RecipeEditor and RecipeView (FORMAT-01..07, Phase 12).
+- **Export & interoperability** — pure display-only Application projectors: a server-rendered Schema.org `Recipe` JSON-LD block (HTML-safe encoder, ISO-8601 durations, HTTPS-only image, tag-derived category/cuisine, no fabricated rating) and a one-way Cooklang `.cook` export (always-braces tokens, prose sanitization). Neither mutates canonical (INTEROP-01..04, Phase 13).
+- **Photo gallery** — `RecipePhoto` entity (ordered, captioned, one primary) with an EF migration backfilling `Recipe.PhotoUrl`; multi-upload/reorder/caption/set-hero editor manager + RecipeView hero+strip with client-side swap; HEAD-validated (SSRF-safe) paste-URL gate; on-delete disk-file cleanup (GALLERY-01..03, Phase 14).
+- **Offline nutrition (Canadian Nutrient File)** — bundled CNF SQLite seed (~5,993 foods, OGL-Canada, values verbatim); `NutritionService` matcher with CNF conversion-factor/density compute and per-recipe cache; 5-state per-serving/total panel with honest coverage indicators (`--` unmatched, `≈` low-confidence + CNF description/FoodId) and a non-dismissable Health Canada attribution disclaimer; `nutrition.calories`+macros wired into JSON-LD (NUTR-01..06, Phase 15).
+- **UAT automation extended for v1.4** — `tests/uat-harness/test16-integration.mjs` drives JSON-LD validity, Cooklang export, and the nutrition panel + coverage + JSON-LD-nutrition hands-free under `npm test` (UATAUTO-02, Phase 16).
+- **Human UAT** — Phase 14 10/10 and Phase 15 14/15 walked in a real browser; all 6 surfaced gaps fixed (commit 44db51c); the GALLERY-04 AI photo-search-term helper was retired after UAT ("not useful").
+
+**Known deferred at close** (see STATE.md Deferred Items):
+
+- UATAUTO-02 partial — "format fields visible" + "gallery primary/reorder" not automated: Blazor `<InputFile>` SignalR upload is not Playwright-drivable without a test-only direct-upload seam.
+- Phase 14/15 `VERIFICATION.md` left at `human_needed` (stale flag — human UAT actually completed 2026-06-25); Phase 03 `03-GOAL-VERIFICATION.md` `gaps_found` is the historical absorbed-into-v1.2 phase, out of scope.
+- Irreducible manual residue: nutrition error-state (needs fault injection), JSON-LD `image` (needs an HTTPS host).
+
+---
+
 ## v1.3 Production-Ready & Format Maturity (Shipped: 2026-06-05)
 
 **Phases completed:** 4 phases (8–11), 39 plans, 59 tasks · **Tag:** `v1.3`
@@ -14,6 +35,7 @@
 - **UAT cleanup + automated UAT harness** — fixed the four Phase-10-UAT-surfaced items (RecipeView inline Edit clip → CLEANUP-01, responsive ≤720px → CLEANUP-02, sidebar Profile clip + body-bg → CLEANUP-03, unit-system display conversion → CLEANUP-04) and shipped a reusable Playwright/chromium browser-UAT harness (`tests/uat-harness/`) that runs Phase 10 UAT Tests 5 & 7 + a conversion check hands-free (Phase 11).
 
 **Known deferred at close:**
+
 - UAT Test 4 (AI validation-fail → RawRecipeEditorDialog) — honest deferral; cannot be triggered while the AI happy-path succeeds (would need fault injection). Harness records it as SKIP, never faked.
 - Phase 03 `03-GOAL-VERIFICATION.md` (`gaps_found`) — historical v1.1 "Editor UX" phase that was **absorbed into v1.2**; out of v1.3 scope, retained as-is for the record.
 
@@ -26,6 +48,8 @@ Historical record of shipped milestones. Each entry summarizes scope, stats, and
 | v1.0 (existing app, pre-GSD) | pre-2026-04-25 | — | — | — (codebase mapped in `.planning/codebase/`) | — | — |
 | v1.1 Canonical Format & AI Conformance | partial (Phases 1+2 only, 2026-04-26) | 2 / 4 (3 absorbed into v1.2; 4 deferred to v1.3+) | 9 / TBD | 30 of 46 (Phases 1+2 reqs) | — (paused, not tagged) | — |
 | **v1.2 UI Redesign** | **2026-04-27** | **3** | **16** | **75 / 75** | **`v1.2`** | [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md) · [requirements](milestones/v1.2-REQUIREMENTS.md) · [audit](milestones/v1.2-MILESTONE-AUDIT.md) |
+| v1.3 Production-Ready & Format Maturity | 2026-06-05 | 8–11 (4) | 39 | all | `v1.3` | [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md) · [requirements](milestones/v1.3-REQUIREMENTS.md) |
+| **v1.4 Recipe Data & Interoperability** | **2026-06-25** | **12–16 (5)** | **18** | **21 / 22** (GALLERY-04 retired; UATAUTO-02 partial) | **`v1.4`** | [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md) · [requirements](milestones/v1.4-REQUIREMENTS.md) |
 
 ---
 

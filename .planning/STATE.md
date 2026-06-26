@@ -2,10 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Recipe Data & Interoperability
-status: executing
-stopped_at: Phase 16 (UAT + Integration) in progress — test16 integration harness added (nutrition panel + JSON-LD nutrition + Cooklang export); 8/15 Phase 15 nutrition UAT items now automated hands-free. Phase 15 shipped (commit b65e856).
-last_updated: "2026-06-24"
-last_activity: 2026-06-24 -- Phase 16 UAT automation: tests/uat-harness/tests/test16-integration.mjs added + wired into npm test
+current_phase: 4
+status: Awaiting next milestone
+stopped_at: Phase 14 + 15 human UAT complete AND all 6 issues + the AI-helper removal FIXED this session. Build clean (0 errors); harness green (6 pass / 1 skip / 0 fail); 4 of 6 fixes + AI removal Playwright-verified. v1.4 is functionally clean.
+last_updated: "2026-06-26T02:23:53.541Z"
+last_activity: 2026-06-26
+last_activity_desc: Milestone v1.4 completed and archived
 progress:
   total_phases: 6
   completed_phases: 4
@@ -26,16 +28,21 @@ See: `.planning/PROJECT.md` (updated 2026-06-05)
 
 ## Current Position
 
-```
-v1.4 ████████████████████████████████████░░░░░░ 85%
-     Phase 12  Phase 13  Phase 14  Phase 15  Phase 16
-     [✓]       [✓]       [✓]       [✓]       [~ UAT auto]
-```
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-26 — Milestone v1.4 completed and archived
 
-Phase: 16 (UAT + Integration) — IN PROGRESS (Tier-A automation done)
-Status: test16 integration harness added — nutrition panel + JSON-LD nutrition + Cooklang export run hands-free under `npm test`
-Next un-started phase: none (Phase 16 is the last v1.4 phase; remaining = a few non-automatable nutrition states + upload-blocked gallery items + optional format-fields-visible extension)
-Last activity: 2026-06-24 -- Phase 16 UAT automation (test16-integration.mjs)
+## Deferred Items
+
+Items acknowledged and deferred at v1.4 milestone close on 2026-06-25:
+
+| Category | Item | Status | Note |
+|----------|------|--------|------|
+| uat | Phase 13 13-HUMAN-UAT.md | passed | 0 pending scenarios — effectively clear; flagged only because the file carries a status. |
+| verification | Phase 03 03-GOAL-VERIFICATION.md | gaps_found | Historical v1.1 "Editor UX" phase, absorbed into v1.2; out of v1.4 scope. Already deferred at v1.3 close. Retained as-is for the record. |
+| verification | Phase 14 14-VERIFICATION.md | human_needed | Stale doc status. Human UAT ran 2026-06-25: all 10 gallery items PASS; 4 gaps fixed in commit 44db51c. VERIFICATION.md status flag not flipped. |
+| verification | Phase 15 15-VERIFICATION.md | human_needed | Stale doc status. Human UAT ran 2026-06-25: 14/15 nutrition items PASS, item 14 (responsive macro grid) fixed; remaining residue is non-automatable (error-state needs fault injection, JSON-LD `image` needs HTTPS host). |
 
 ## Shipped milestones
 
@@ -128,6 +135,7 @@ Stopped at: Phase 14 + 15 human UAT complete AND all 6 issues + the AI-helper re
 Resume file: .planning/phases/14-photo-gallery/14-HUMAN-UAT.md (Resolution), .planning/phases/15-nutrition-offline-cnf-canadian-nutrient-file/15-HUMAN-UAT.md (Resolution)
 
 **Fixes applied 2026-06-25 (after the UAT walkthrough — user chose "Fix all 6 now" + "Remove AI helper"):**
+
 - #1 cookbook-listing-hero → CookbookDetail.razor renders `recipe.PhotoUrl` thumbnail (Home/CookbookList already did). Playwright-verified.
 - #2 gallery-trash-overlap → `flex-wrap:wrap` on the action-button row. Playwright trial-click verified (10/10 clickable).
 - #3 gallery-overcap-batch-noop → `GetMultipleFiles(e.FileCount).Take(remaining)` + skipped-count toast (no throw-out-of-loop).
@@ -168,8 +176,13 @@ Resume file: .planning/phases/14-photo-gallery/14-HUMAN-UAT.md (Resolution), .pl
 - Uncommitted: `tests/uat-harness/run.mjs` + `test14-photo-gallery.mjs`, and `.planning` doc edits (STATE.md, 14-HUMAN-UAT.md).
 
 **Next (after 2026-06-24 session):** Phase 16 Tier-A automation is done. Options to close v1.4:
+
 - (a) **Extend test16** to cover UATAUTO-02's remaining bullets that ARE automatable: "format fields visible" (author equipment/substitutions/doneness/provenance via paste-raw YAML — wire shape known, see `tests/.../upcaster/v3-to-v4-all-present.json` — and assert they render in RecipeView), plus nutrition states 10/11 (stale) and 14 (responsive 2-col).
 - (b) **Build a test-only direct-upload seam** so the harness can drive photo uploads, unblocking the 6 stuck Phase 14 gallery items (the "gallery primary/reorder" UATAUTO-02 bullet). Touches production code — a deliberate design call.
 - (c) Accept the irreducible manual residue (paste-URL accept needs outbound network; error-state injection; HTTPS-only JSON-LD `image`) and `/gsd-verify-work` → ship v1.4.
 
 Carried low-pri hygiene from Phase 13: validate/omit non-http(s) schemes in the Cooklang `>> source:` line. Note: `/gsd:secure-phase` never run for any v1.4 phase (trusted-LAN posture; D-12-08 javascript: defang was human-verified).
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
