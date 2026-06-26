@@ -38,8 +38,9 @@ thing that won't apply is the `_headers` CSP.)
 npm run deploy         # = wrangler pages deploy  (reads public/ from wrangler.toml)
 ```
 
-First deploy creates the `cookbot` Pages project. Then, once, in the Cloudflare
-dashboard: **Pages → cookbot → Custom domains → add `cookbot.noahfreelove.com`**.
+First deploy creates the `freeloves-cookbot` Pages project (the bare `cookbot`
+name was already taken on pages.dev). Then, once, in the Cloudflare dashboard:
+**Pages → freeloves-cookbot → Custom domains → add `cookbot.noahfreelove.com`**.
 The GoDaddy DNS already points the subdomain at Cloudflare, so the custom domain
 attaches with no further DNS changes.
 

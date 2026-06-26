@@ -8,10 +8,13 @@
 #     npm run deploy
 #
 # First-time setup (one-off, in the Cloudflare dashboard after the first deploy):
-#   Pages -> cookbot -> Custom domains -> add  cookbot.noahfreelove.com
+#   Pages -> freeloves-cookbot -> Custom domains -> add  cookbot.noahfreelove.com
 #   Cloudflare provisions the CNAME; the GoDaddy record already points the
 #   subdomain here, so the custom domain attaches without extra DNS work.
 
-name = "cookbot"
+# `cookbot` (-> cookbot.pages.dev) was already taken, so the project is named
+# freeloves-cookbot (-> freeloves-cookbot.pages.dev). Pages project names are
+# immutable: "renaming" = deploy under the new name, then delete the old project.
+name = "freeloves-cookbot"
 compatibility_date = "2026-06-26"
 pages_build_output_dir = "public"

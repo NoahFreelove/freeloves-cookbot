@@ -5,7 +5,7 @@
   "description": "Static marketing site for Freelove's Cookbot (cookbot.noahfreelove.com).",
   "scripts": {
     "dev": "wrangler pages dev public",
-    "deploy": "wrangler pages deploy"
+    "deploy": "wrangler pages deploy --branch main"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
