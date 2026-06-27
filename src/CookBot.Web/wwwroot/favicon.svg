@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="CookBot">
+  <rect width="32" height="32" rx="9" fill="#C2410C"/>
+  <text x="16" y="16" fill="#ffffff"
+        font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="16" font-weight="700" letter-spacing="-0.6"
+        text-anchor="middle" dominant-baseline="central">cb</text>
+</svg>
