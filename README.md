@@ -1,6 +1,6 @@
 # Freelove's Cook bot
 
-*This app is completely vibecoded with Claude Opus 4.6, but it has been useful to me, so I*
+*This app is completely vibecoded with Claude Opus 4.6,7,8, but it has been useful to me, so I*
  *publish it in hopes its useful to someone else too.*
 
 I love cooking and baking, I use LLMs to generate or clean up a lot of my recipes because online recipe websites
