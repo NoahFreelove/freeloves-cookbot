@@ -84,8 +84,8 @@
       <h2 id="method-head" class="block__head">Method</h2>
       <ol class="method">
         <li>
-          <span class="method__step">Clone it.</span>
-          <code class="cmd">git clone https://github.com/NoahFreelove/freeloves-cookbot</code>
+          <span class="method__step">Grab it.</span>
+          <code class="cmd">curl -fsSLO https://github.com/NoahFreelove/freeloves-cookbot/releases/latest/download/docker-compose.yml</code>
         </li>
         <li>
           <span class="method__step">Serve it.</span>
@@ -97,8 +97,9 @@
         </li>
       </ol>
       <p class="footnote">
-        Needs Docker. Recipes, photos, and your SQLite database stay on your machine.
-        AI is opt-in and uses a key you control.
+        Needs Docker &mdash; no clone, build, or .NET SDK required; it pulls the latest
+        released image straight from the registry. Recipes, photos, and your SQLite
+        database stay on your machine. AI is opt-in and uses a key you control.
       </p>
     </section>
 

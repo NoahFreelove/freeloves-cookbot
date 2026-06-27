@@ -121,8 +121,8 @@ Two supported paths: containerized self-host (recommended for sharing the app wi
 Requirements: Docker engine 20.10+, Docker Compose v2+. No source checkout or .NET SDK needed — a prebuilt `linux/amd64` image is published to GitHub Container Registry on every release.
 
 ```bash
-# Grab just the compose file (no git clone needed) and start
-curl -fsSL https://raw.githubusercontent.com/NoahFreelove/freeloves-cookbot/master/docker-compose.yml -o docker-compose.yml
+# Grab the latest release's compose file (no git clone needed) and start
+curl -fsSLO https://github.com/NoahFreelove/freeloves-cookbot/releases/latest/download/docker-compose.yml
 docker compose up -d
 ```
 
