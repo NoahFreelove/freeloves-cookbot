@@ -1,16 +1,15 @@
-# Phase 9 / Plan 09-06 / PROD-02 / PROD-04 / D-43 — single-service compose for FreelovesCookBot.
+# Docker Compose for FreelovesCookBot — one self-hosted container.
 #
-# Two named volumes:
-#   - cookbot_db mounts /data for cookbot.db + WAL sidecars (PITFALL M5).
-#     The DataProtection key ring is colocated in cookbot.db via PersistKeysToDbContext
-#     (Plan 09-04 / PROD-07) — eliminates PITFALL C1 without a third named volume.
-#   - cookbot_uploads mounts /app/wwwroot/uploads (PHOTO-14 + PITFALL C6).
+# Persistent data lives in two named volumes:
+#   - cookbot_db      -> /data : SQLite database (cookbot.db + its WAL files).
+#                        The Data Protection key ring is stored inside cookbot.db,
+#                        so this single volume holds everything worth backing up.
+#   - cookbot_uploads -> /app/wwwroot/uploads : user-uploaded recipe photos.
 #
-# restart: on-failure + healthcheck retries: 3 (D-43 + PITFALL M6) — overrides PROD-02's
-# `unless-stopped`. Container exits visibly after 3 failed boots instead of silently looping.
-#
-# start_period: 30s absorbs first-boot seeder time (migrations + sentinel-prefix re-encryption +
-# 365-day AiUsageLog cleanup all run BEFORE app.Run() per DatabaseSeeder.SeedAsync order).
+# restart: on-failure with healthcheck retries: 3 — the container exits visibly
+# after 3 failed boots instead of silently restart-looping forever.
+# start_period: 30s gives the first boot time to run DB migrations and one-time
+# setup before the healthcheck starts counting failures.
 
 services:
   cookbot:
@@ -27,8 +26,8 @@ services:
       ASPNETCORE_URLS: http://+:7000
       ConnectionStrings__DefaultConnection: "Data Source=/data/cookbot.db"
       COOKBOT_PORT: "7000"
-      # PROD-19 hint: set CookBot__AnthropicApiKey here as a per-host fallback, or leave
-      # empty and rely on per-user keys.
+      # Optional: a host-wide Anthropic API key used as a fallback. Leave it unset
+      # to rely on per-user keys entered in the app's Profile page.
       # CookBot__AnthropicApiKey: ""
     volumes:
       - cookbot_db:/data
