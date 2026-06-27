@@ -10,7 +10,7 @@
 
 @if (_user != null)
 {
-    <div style="max-width:1180px;">
+    <div style="width:100%;">
 
         @* ── Active band: Resume cooking + Active timer (Plan 07-09) ─────────── *@
         @if (_inProgress != null || _activeTimer != null)
@@ -38,11 +38,19 @@
                                  style="font-size:32px;font-weight:600;letter-spacing:-0.03em;font-feature-settings:'tnum';color:#FBF6E7;min-width:88px;text-align:right;">
                                 @FormatTimerRemaining(t.RemainingSeconds)
                             </div>
-                            <CbButton Variant="CbButton.CbButtonVariant.Accent"
-                                      StartIcon="@Icon.Names.Flame"
-                                      OnClick="@(() => GoToCook(t.RecipeId))">
-                                Resume cooking
-                            </CbButton>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <button type="button"
+                                        @onclick="DismissActiveTimer"
+                                        title="Clear this active timer"
+                                        style="background:transparent;border:1px solid rgba(255,255,255,0.25);color:#FBF6E7;border-radius:999px;padding:8px 16px;font-size:13px;cursor:pointer;flex-shrink:0;">
+                                    Dismiss
+                                </button>
+                                <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                                          StartIcon="@Icon.Names.Flame"
+                                          OnClick="@(() => GoToCook(t.RecipeId))">
+                                    Resume cooking
+                                </CbButton>
+                            </div>
                         </div>
                     </CbCard>
                 }
@@ -63,11 +71,18 @@
                                     </span>
                                 </div>
                             </div>
-                            <CbButton Variant="CbButton.CbButtonVariant.Accent"
-                                      StartIcon="@Icon.Names.Flame"
-                                      OnClick="@(() => GoToCook(p.RecipeId))">
-                                Resume
-                            </CbButton>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <CbButton Variant="CbButton.CbButtonVariant.Ghost"
+                                          OnClick="DismissInProgress"
+                                          title="Clear this in-progress status">
+                                    Dismiss
+                                </CbButton>
+                                <CbButton Variant="CbButton.CbButtonVariant.Accent"
+                                          StartIcon="@Icon.Names.Flame"
+                                          OnClick="@(() => GoToCook(p.RecipeId))">
+                                    Resume
+                                </CbButton>
+                            </div>
                         </div>
                     </CbCard>
                 }
@@ -236,10 +251,10 @@
             <CbCard Padding="22">
                 <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;">
                     <h3 style="font-size:16px;margin:0;">Up next</h3>
-                    <span style="font-size:12.5px;color:var(--ink-3);">@(_upNext.Count > 0 ? "scheduled" : "queued")</span>
+                    <span style="font-size:12.5px;color:var(--ink-3);">@(_upNext.Count > 0 ? "scheduled" : "")</span>
                 </div>
                 @* Plan 07-09 Feature 1 — real scheduled recipes via IScheduledRecipeService.
-                   Empty list falls back to placeholder rows so the card shape is preserved. *@
+                   Empty list shows hint text only (no placeholder rows). *@
                 @if (_upNext.Count > 0)
                 {
                     @for (var i = 0; i < _upNext.Count; i++)
@@ -266,23 +281,8 @@
                 }
                 else
                 {
-                    @for (var i = 0; i < _upNextPlaceholders.Length; i++)
-                    {
-                        var q = _upNextPlaceholders[i];
-                        var isLast = i == _upNextPlaceholders.Length - 1;
-                        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:@(isLast ? "none" : "1px solid var(--line)");opacity:0.55;">
-                            <div style="width:32px;height:32px;border-radius:8px;background:var(--cream-2);display:grid;place-items:center;">
-                                <Icon Name="clock" Size="15" />
-                            </div>
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-size:13.5px;font-weight:500;">@q.Name</div>
-                                <div style="font-size:11.5px;color:var(--ink-3);margin-top:1px;">@q.When</div>
-                            </div>
-                            <Icon Name="more" Size="15" />
-                        </div>
-                    }
-                    <div style="font-size:11.5px;color:var(--ink-3);margin-top:10px;text-align:center;">
-                        Schedule a recipe from its detail page to see it here.
+                    <div style="font-size:13px;color:var(--ink-3);padding:12px 0;">
+                        Nothing scheduled — schedule a recipe from its detail page to see it here.
                     </div>
                 }
             </CbCard>

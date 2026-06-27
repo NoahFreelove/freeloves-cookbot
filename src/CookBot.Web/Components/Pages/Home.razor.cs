@@ -77,17 +77,6 @@ public partial class Home : ComponentBase
     private List<HomeUpNext> _upNext = new();
 
     /// <summary>
-    /// Empty-state placeholder rows shown when the user has zero scheduled recipes.
-    /// Keeps the card shape and copy intent from the design handoff.
-    /// </summary>
-    private static readonly (string Name, string When)[] _upNextPlaceholders =
-    {
-        ("Tartine country loaf", "starts 9 PM · autolyse"),
-        ("Slow short rib",       "sat · 6h braise"),
-        ("Citrus tart",          "sun · for hannah"),
-    };
-
-    /// <summary>
     /// Recently cooked tile metadata — closes FUTURE-Recently-Cooked (Plan 07-09 Feature 2).
     /// Reads from IRecipeMadeService.GetRecentForUserAsync; falls back to most-recently-updated
     /// recipes when the user has no logged cooks yet, so the tile still renders something useful.
@@ -415,6 +404,27 @@ public partial class Home : ComponentBase
     private void GoToGrocery() => Navigation.NavigateTo("/grocery-lists");
     private void GoToAi() => Navigation.NavigateTo("/ai");
     private void GoToCook(int recipeId) => Navigation.NavigateTo($"/recipes/{recipeId}/cook");
+
+    /// <summary>
+    /// Clears an abandoned cooking session. Exiting cooking mode preserves the in-progress
+    /// localStorage entry (so it can be resumed), but a cook that's never finished would
+    /// otherwise show "In progress" on Home forever — this is the manual dismiss for it.
+    /// Fail-soft on JS errors (disconnected circuit), matching LoadActiveSessionAsync.
+    /// </summary>
+    private async Task DismissInProgress()
+    {
+        try { await JS.InvokeVoidAsync("CookbotSession.clearInProgress"); } catch { }
+        _inProgress = null;
+        StateHasChanged();
+    }
+
+    /// <summary>Clears a stuck active-timer band (same abandoned-session problem as DismissInProgress).</summary>
+    private async Task DismissActiveTimer()
+    {
+        try { await JS.InvokeVoidAsync("CookbotSession.clearActiveTimer"); } catch { }
+        _activeTimer = null;
+        StateHasChanged();
+    }
 
     /// <summary>
     /// Formats a "started 12m ago" string from an ISO timestamp emitted by the JS
