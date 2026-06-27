@@ -122,6 +122,9 @@ body {
   font-weight: 700;
   line-height: 1.02;
   letter-spacing: -0.01em;
+  /* let the title wrap instead of running off the card at large sizes */
+  text-wrap: balance;
+  overflow-wrap: break-word;
   /* a faint letterpress / printed feel */
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
@@ -256,8 +259,9 @@ body {
   border: 1px dashed rgba(52, 41, 31, 0.28);
   border-radius: 2px;
   padding: 0.12em 0.45em;
-  white-space: nowrap;
-  overflow-x: auto;
+  /* wrap long commands (e.g. the git clone URL) instead of overflowing the card */
+  white-space: normal;
+  overflow-wrap: anywhere;
   max-width: 100%;
 }
 
@@ -401,6 +405,17 @@ a:hover { color: var(--ink); }
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* Bigger, easier-to-read type on desktop. The layout is entirely rem-based, so
+   bumping the root font scales the whole card together — type, spacing, rules.
+   --maxw is trimmed so line length stays comfortable at the larger size.
+   Tune the font-size % below to taste (200% ≈ "100% larger"). */
+@media (min-width: 64rem) {
+  :root {
+    font-size: 200%;
+    --maxw: 44rem;   /* wider card so the larger type has room to breathe */
+  }
 }
 
 @media (max-width: 30rem) {
