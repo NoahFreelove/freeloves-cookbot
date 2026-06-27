@@ -21,11 +21,13 @@ public sealed class PantryMatchOptions
     public double RecencyHalfLifeDays { get; set; } = 7.0;
 
     /// <summary>
-    /// Minimum pantry-coverage ratio (matched ingredients / total ingredients)
-    /// a recipe must meet to appear in results. Recipes below this ratio are
-    /// excluded before scoring.
+    /// Maximum number of missing ingredients (total − matched) a recipe may have and still
+    /// appear in "Tonight from your pantry". Recipes missing more than this are excluded before
+    /// scoring. Higher = more permissive — e.g. 6 surfaces a recipe you have 4 of 10 ingredients
+    /// for. Results are still ranked by coverage and capped at <see cref="ResultCount"/>, so the
+    /// best matches always show first.
     /// </summary>
-    public double MinCoverageRatio { get; set; } = 0.6;
+    public int MaxMissingIngredients { get; set; } = 6;
 
     /// <summary>
     /// Maximum number of ranked results returned by

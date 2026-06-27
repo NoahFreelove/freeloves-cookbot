@@ -158,8 +158,11 @@ public class PantryMatchService : IPantryMatchService
             var matched = ris.Count(ri => pantryIngredientIds.Contains(ri.IngredientId));
             var coverage = (double)matched / total;
 
-            // Drop recipes below the minimum coverage ratio
-            if (coverage < _opts.MinCoverageRatio)
+            // Drop recipes missing more than the configured number of ingredients (QOL — replaces
+            // the old coverage-ratio gate so partially-stocked recipes still surface; e.g. with the
+            // default 6, a recipe you have 4 of 10 ingredients for still appears). Ranking by
+            // coverage below keeps the best matches at the top.
+            if (total - matched > _opts.MaxMissingIngredients)
                 continue;
 
             // Recency penalty (D-44 formula):
