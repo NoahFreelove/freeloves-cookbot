@@ -14,8 +14,12 @@
 
 services:
   cookbot:
-    build: .
-    image: freelovescookbot:latest
+    # Pulls the prebuilt image published by .github/workflows/docker-publish.yml.
+    # No source checkout or .NET SDK needed — `docker compose up -d` just works.
+    # To build from local source instead, uncomment `build: .` below (and run
+    # `docker compose up -d --build`).
+    image: ghcr.io/noahfreelove/freeloves-cookbot:latest
+    # build: .
     container_name: cookbot
     ports:
       - "${COOKBOT_PORT:-7000}:7000"

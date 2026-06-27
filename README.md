@@ -118,15 +118,15 @@ Two supported paths: containerized self-host (recommended for sharing the app wi
 
 ### Option A — Docker (recommended for self-hosters)
 
-Requirements: Docker engine 20.10+, Docker Compose v2+.
+Requirements: Docker engine 20.10+, Docker Compose v2+. No source checkout or .NET SDK needed — a prebuilt `linux/amd64` image is published to GitHub Container Registry on every release.
 
 ```bash
-git clone https://github.com/<your-fork>/freeloves-cookbot.git
-cd freeloves-cookbot
-docker compose up -d --build
+# Grab just the compose file (no git clone needed) and start
+curl -fsSL https://raw.githubusercontent.com/NoahFreelove/freeloves-cookbot/master/docker-compose.yml -o docker-compose.yml
+docker compose up -d
 ```
 
-First boot takes ~30 seconds while the .NET SDK image builds and the seeder runs migrations + creates the Data Protection key ring. The healthcheck reports `(healthy)` once the app responds on `/healthz`:
+This pulls `ghcr.io/noahfreelove/freeloves-cookbot:latest` (the newest tagged release) and starts it. First boot takes ~30 seconds while the seeder runs migrations + creates the Data Protection key ring. The healthcheck reports `(healthy)` once the app responds on `/healthz`:
 
 ```bash
 docker ps                             # status column shows "Up X seconds (healthy)" when ready
@@ -136,6 +136,8 @@ curl -fsS http://localhost:7000/healthz
 Open `http://localhost:7000/` in a browser on the same LAN. First-run UX: no AI key is required to start. Recipe management works offline; AI assistant features gracefully degrade until a user enters a personal Anthropic API key in **Profile → AI**.
 
 Port override: set `COOKBOT_PORT` before `docker compose up` to bind a different host port (compose maps `${COOKBOT_PORT:-7000}:7000`).
+
+Build from source instead of pulling: uncomment `build: .` in `docker-compose.yml` (after a `git clone`) and run `docker compose up -d --build`.
 
 ### Option B — Local dev mode (./run.sh)
 
@@ -248,9 +250,11 @@ No UI backup/restore button is shipped in v1.3 — volumes + docs only. A UI bac
 ## Upgrade
 
 ```bash
-docker compose pull        # if you're tracking a published image; skip if you build locally
-docker compose up -d --build
+docker compose pull        # fetch the newest published image (:latest tracks the newest release)
+docker compose up -d
 ```
+
+If you build from source instead, run `docker compose up -d --build` after `git pull`.
 
 Migrations auto-apply at container start via `DatabaseSeeder.SeedAsync` → `MigrateAsync()`. Before each migration runs, `IDatabaseBackupService` writes a `cookbot.db.pre-{MigrationName}.bak` snapshot alongside `cookbot.db` — useful as a rollback point if a migration produces unexpected results. The retention count is controlled by `CookBot:DatabaseBackupRetention` (default 3, clamped [1, 10]).
 
