@@ -99,8 +99,10 @@
             </p>
             <div style="display:flex;flex-direction:column;gap:8px;">
                 <CbRadio TValue="string" GroupName="accent" Value="@("orange")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Default" />
-                <CbRadio TValue="string" GroupName="accent" Value="@("terracotta")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Terracotta" />
                 <CbRadio TValue="string" GroupName="accent" Value="@("sage")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Sage" />
+                <CbRadio TValue="string" GroupName="accent" Value="@("rose")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Rose" />
+                <CbRadio TValue="string" GroupName="accent" Value="@("purple")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Purple" />
+                <CbRadio TValue="string" GroupName="accent" Value="@("blue")" CurrentValue="@_accent" CurrentValueChanged="OnAccentChanged" Label="Blue" />
             </div>
         </CbCard>
 
@@ -535,7 +537,7 @@
             try
             {
                 _accent = await JS.InvokeAsync<string?>("localStorage.getItem", "cookbot_accent") ?? "orange";
-                if (_accent != "orange" && _accent != "terracotta" && _accent != "sage") _accent = "orange";
+                if (_accent is not ("orange" or "sage" or "rose" or "purple" or "blue")) _accent = "orange";
                 StateHasChanged();
             }
             catch { _accent = "orange"; }

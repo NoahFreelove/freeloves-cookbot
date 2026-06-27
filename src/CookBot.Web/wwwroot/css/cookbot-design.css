@@ -56,15 +56,25 @@
   --gap: 12px;
 }
 
-[data-accent="terracotta"] {
-  --accent: #A0502E;
-  --accent-soft: #F2E0D2;
-  --accent-ink: #5C2C16;
-}
 [data-accent="sage"] {
   --accent: #4A6B3F;
   --accent-soft: #E2EAD9;
   --accent-ink: #243818;
+}
+[data-accent="rose"] {
+  --accent: #C2185B;
+  --accent-soft: #FBE0EC;
+  --accent-ink: #6B0F33;
+}
+[data-accent="purple"] {
+  --accent: #6D28D9;
+  --accent-soft: #ECE3FB;
+  --accent-ink: #3B1A78;
+}
+[data-accent="blue"] {
+  --accent: #1D4ED8;
+  --accent-soft: #DCE6FB;
+  --accent-ink: #14306B;
 }
 
 * { box-sizing: border-box; }
@@ -311,6 +321,32 @@ body.dark-mode {
   --green-soft: rgba(102, 187, 106, 0.18);
   --warn: #D97706;
   --warn-soft: rgba(217, 119, 6, 0.18);
+}
+
+/* Per-accent dark-mode overrides — brighter accents tuned for dark surfaces.
+   data-accent lives on <html>; the dark-mode class lives on <body>. The base
+   `body.dark-mode` block above forces --accent to orange for everyone, so these
+   target body via `html[data-accent=…] body.dark-mode` (specificity 0,2,2 beats
+   the base 0,1,1) to restore the chosen accent in dark mode. */
+html[data-accent="sage"] body.dark-mode {
+  --accent: #9CCC8A;
+  --accent-soft: rgba(156, 204, 138, 0.18);
+  --accent-ink: #DDEFD4;
+}
+html[data-accent="rose"] body.dark-mode {
+  --accent: #FF7FA8;
+  --accent-soft: rgba(255, 127, 168, 0.18);
+  --accent-ink: #FFD4E2;
+}
+html[data-accent="purple"] body.dark-mode {
+  --accent: #B794F6;
+  --accent-soft: rgba(183, 148, 246, 0.18);
+  --accent-ink: #E5D9FB;
+}
+html[data-accent="blue"] body.dark-mode {
+  --accent: #7FA8FF;
+  --accent-soft: rgba(127, 168, 255, 0.18);
+  --accent-ink: #D2E0FF;
 }
 body.dark-mode .cb { background: var(--cream); color: var(--ink); }
 body.dark-mode .cb-card,

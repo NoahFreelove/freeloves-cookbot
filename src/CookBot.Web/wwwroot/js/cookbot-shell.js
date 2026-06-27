@@ -8,8 +8,8 @@
 window.cookbot = window.cookbot || {};
 
 window.cookbot.setAccent = function (name) {
-  // Allowed: "orange" | "terracotta" | "sage". Unknown values default to orange.
-  var allowed = ["orange", "terracotta", "sage"];
+  // Allowed: "orange" | "sage" | "rose" | "purple" | "blue". Unknown values default to orange.
+  var allowed = ["orange", "sage", "rose", "purple", "blue"];
   var v = allowed.indexOf(name) >= 0 ? name : "orange";
   document.documentElement.setAttribute("data-accent", v);
 };
@@ -41,7 +41,7 @@ window.cookbot.applyDefaults = function () {
     var accent = "orange";
     try {
       var stored = localStorage.getItem("cookbot_accent");
-      if (stored === "orange" || stored === "terracotta" || stored === "sage") accent = stored;
+      if (["orange", "sage", "rose", "purple", "blue"].indexOf(stored) >= 0) accent = stored;
     } catch (e) { /* ignore — privacy mode / prerender */ }
     document.documentElement.setAttribute("data-accent", accent);
   }
