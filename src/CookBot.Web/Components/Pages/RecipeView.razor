@@ -609,6 +609,11 @@ else if (_loaded)
             <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Download"
                       OnClick="ExportCooklang"
                       title="Export only · one-way (no re-import)">Export as .cook</CbButton>
+            @* Compares the recipe against your pantry and starts a shopping list of what you're missing
+               (GroceryListService.GenerateFromRecipeAsync via the /grocery-lists/from-recipe route). *@
+            <CbButton Variant="CbButton.CbButtonVariant.Ghost" StartIcon="@Icon.Names.Cart"
+                      OnClick="@(() => Navigation.NavigateTo($"/grocery-lists/from-recipe/{RecipeId}"))"
+                      title="Compare against your pantry and add what's missing to a grocery list">What do I need?</CbButton>
             <CbButton Variant="CbButton.CbButtonVariant.Accent" StartIcon="@Icon.Names.Flame" OnClick="StartCooking">Cook this</CbButton>
         </text>;
         // D-57 (revised by 999.1): SetRightSlot stamps the current URL; CbTopBarService's

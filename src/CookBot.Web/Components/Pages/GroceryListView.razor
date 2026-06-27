@@ -317,7 +317,20 @@
     private async Task TogglePurchased(GroceryListItem item)
     {
         item.IsPurchased = !item.IsPurchased;
+        // Persist the checkbox state first — DeductAsync below early-returns when the item
+        // isn't in the pantry, which would otherwise leave this flag unsaved.
         await DbContext.SaveChangesAsync();
+
+        // Two-way pantry sync: checking an item stocks it into the personal pantry;
+        // unchecking deducts the same amount back out (mirrors MarkPurchased's bulk add).
+        if (UserService.CurrentUserId is int uid)
+        {
+            var personalPantry = await PantryService.EnsurePersonalPantryAsync(uid);
+            if (item.IsPurchased)
+                await PantryService.AddOrUpdateAsync(personalPantry.Id, item.IngredientId, item.Amount, item.Unit, null);
+            else
+                await PantryService.DeductAsync(personalPantry.Id, item.IngredientId, item.Amount, item.Unit);
+        }
     }
 
     private async Task MarkPurchased(GroceryList list)
