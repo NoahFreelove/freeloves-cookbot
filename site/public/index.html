@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Freelove's Cookbot — a self-hosted home for the recipes you actually cook</title>
+  <title>Freelove's Cookbot</title>
 
   <meta name="description" content="Cookbot is a private, self-hosted cooking & baking tracker. AI-assisted recipes (or bring your own LLM), step-by-step cooking mode with timers, scaling, pantry, nutrition, and export — no ads, no slop, nothing phones home." />
   <meta name="theme-color" content="#3c5350" />
@@ -15,10 +15,10 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://cookbot.noahfreelove.com/" />
   <meta property="og:title" content="Freelove's Cookbot" />
-  <meta property="og:description" content="A durable, self-hosted home for the recipes you actually cook. No ads. No slop." />
+  <meta property="og:description" content="An organized home for the recipes you cook." />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Freelove's Cookbot" />
-  <meta name="twitter:description" content="A durable, self-hosted home for the recipes you actually cook. No ads. No slop." />
+  <meta name="twitter:description" content="An organized home for the recipes you cook." />
 </head>
 
 <body>
@@ -27,15 +27,14 @@
     <!-- ── header band ─────────────────────────────────────────────── -->
     <header class="card__head">
       <span class="stamp">Recipe</span>
-      <span class="stamp stamp--no">No.&nbsp;001</span>
     </header>
     <hr class="rule rule--double" aria-hidden="true" />
 
     <!-- ── masthead ────────────────────────────────────────────────── -->
     <section class="masthead">
       <h1 id="masthead-title" class="title">Freelove&rsquo;s&nbsp;Cookbot</h1>
-      <p class="tagline">A durable home for the recipes you actually cook.</p>
-      <p class="meta">self-hosted&nbsp;&middot;&nbsp;.net&nbsp;+&nbsp;sqlite&nbsp;&middot;&nbsp;no&nbsp;ads&nbsp;&middot;&nbsp;no&nbsp;slop</p>
+      <p class="tagline">An organized home for the recipes you cook.</p>
+      <p class="meta">self-hosted&nbsp;&middot;&nbsp;.net&nbsp;+&nbsp;sqlite&nbsp;&middot;&nbsp;optional&nbsp;AI slop</p>
     </section>
 
     <div class="rule rule--dotdash" aria-hidden="true"></div>
@@ -45,9 +44,14 @@
       <p>
         Online recipe sites are two pages of life story and eight video ads before
         you reach the actual recipe. Cookbot is the opposite: a private kitchen for
-        the recipes you keep &mdash; captured once, in one clean format that round-trips
-        between AI generation, hand editing, cooking mode, and export.
+        the recipes you keep; captured once, in one clean format. Cookbot has support
+        for multiple users, and is a great self-hosted recipe library.
       </p>
+
+      <b>Cookbot has an AI toggle that lets you completely hide all AI features and references to AI
+        in the application. All AI tooling is COMPLTELY optional, and I wanted to respect your choice
+        to avoid all of this modern AI funny business.
+      </b>
 
       <div class="cta">
         <a class="btn btn--primary" href="https://github.com/NoahFreelove/freeloves-cookbot">View&nbsp;on&nbsp;GitHub&nbsp;&rarr;</a>
@@ -94,7 +98,83 @@
       </ol>
       <p class="footnote">
         Needs Docker. Recipes, photos, and your SQLite database stay on your machine.
-        Nothing phones home; AI is opt-in and uses a key you control.
+        AI is opt-in and uses a key you control.
+      </p>
+    </section>
+
+    <div class="rule rule--dotdash" aria-hidden="true"></div>
+
+    <!-- ── gallery (CSS-only carousel) ─────────────────────────────── -->
+    <section id="gallery" class="block gallery" aria-labelledby="gallery-head">
+      <h2 id="gallery-head" class="block__head">A look inside</h2>
+      <p class="gallery__lead">A quick tour &mdash; scroll or swipe through the kitchen.</p>
+
+      <div class="carousel" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Cookbot screenshots">
+        <figure class="slide" id="shot-home">
+          <img src="/screenshots/home.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Home dashboard showing recipes that match the pantry, recently cooked meals, and upcoming planned cooks." />
+          <figcaption>Home &mdash; tonight&rsquo;s pantry matches, recent cooks &amp; what&rsquo;s next</figcaption>
+        </figure>
+        <figure class="slide" id="shot-cookbook">
+          <img src="/screenshots/cookbook.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Inside a cookbook listing recipes with prep time, cook time, and servings." />
+          <figcaption>Cookbooks &mdash; your recipes, organized and shareable</figcaption>
+        </figure>
+        <figure class="slide" id="shot-recipe">
+          <img src="/screenshots/recipe.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="A recipe page with scalable ingredients, substitutions, step timers, and doneness cues." />
+          <figcaption>A recipe &mdash; scalable amounts, timers &amp; step cues</figcaption>
+        </figure>
+        <figure class="slide" id="shot-cook">
+          <img src="/screenshots/cook-mode.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Step-by-step cooking mode highlighting the current step, ingredients, and a countdown timer." />
+          <figcaption>Cooking mode &mdash; one step at a time, with timers &amp; alerts</figcaption>
+        </figure>
+        <figure class="slide" id="shot-nutrition">
+          <img src="/screenshots/nutrition.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Estimated nutrition panel showing calories and macros per serving from offline data." />
+          <figcaption>Estimated nutrition &mdash; offline calories &amp; macros</figcaption>
+        </figure>
+        <figure class="slide" id="shot-pantry">
+          <img src="/screenshots/pantry.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Pantry view tracking items in stock, running low, and expiring this week." />
+          <figcaption>Pantry &mdash; track what&rsquo;s in stock and what&rsquo;s expiring</figcaption>
+        </figure>
+        <figure class="slide" id="shot-grocery">
+          <img src="/screenshots/grocery-lists.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Grocery lists with progress bars; checking an item adds it straight to the pantry." />
+          <figcaption>Grocery lists &mdash; check items off straight into your pantry</figcaption>
+        </figure>
+        <figure class="slide" id="shot-ai">
+          <img src="/screenshots/ai-assistant.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="AI assistant generating a full recipe from a one-line prompt, shown beside the raw JSON." />
+          <figcaption>AI assistant &mdash; generate a recipe from a sentence</figcaption>
+        </figure>
+        <figure class="slide" id="shot-settings">
+          <img src="/screenshots/ai-settings.webp" width="1400" height="967" loading="lazy" decoding="async"
+               alt="Profile AI settings: bring-your-own Anthropic key, model picker, and a master AI on/off toggle." />
+          <figcaption>AI settings &mdash; bring your own key, or switch AI off entirely</figcaption>
+        </figure>
+      </div>
+
+      <nav class="carousel__nav" aria-label="Jump to a screenshot">
+        <a href="#shot-home">Home</a>
+        <a href="#shot-cookbook">Cookbooks</a>
+        <a href="#shot-recipe">Recipe</a>
+        <a href="#shot-cook">Cook&nbsp;mode</a>
+        <a href="#shot-nutrition">Nutrition</a>
+        <a href="#shot-pantry">Pantry</a>
+        <a href="#shot-grocery">Grocery</a>
+        <a href="#shot-ai">AI&nbsp;assistant</a>
+        <a href="#shot-settings">AI&nbsp;settings</a>
+      </nav>
+
+      <p class="disclaimer" role="note">
+        <b>Heads up &mdash;</b> Cookbot is a work in progress. A few features
+        &mdash; notably the offline <strong>nutrition</strong> estimates and automatic
+        <strong>unit conversions</strong> &mdash; are still rough around the edges and may
+        not always behave. You may find it easier to manually update your pantry than use some 
+        of the automated grocery list features, but they will get better very soon in future updates.
       </p>
     </section>
 
@@ -107,12 +187,14 @@
       </p>
     </aside>
 
+    <img class="center" width="100" height="100" src="merlin_cooking.gif"/>
+
     <hr class="rule rule--double" aria-hidden="true" />
 
     <!-- ── footer ──────────────────────────────────────────────────── -->
     <footer class="card__foot">
       <p>
-        Filed by <a href="https://noahfreelove.com">Noah&nbsp;Freelove</a>
+        Created by <a href="https://noahfreelove.com">Noah&nbsp;Freelove</a> and Claude &lt;3
         &middot; <a href="https://github.com/NoahFreelove/freeloves-cookbot">source&nbsp;on&nbsp;GitHub</a>
         &middot; GPL-3.0
       </p>

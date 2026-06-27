@@ -128,7 +128,7 @@ body {
 
 .tagline {
   margin: 0 auto;
-  max-width: 30ch;
+  max-width: 50ch;
   font-style: italic;
   font-size: clamp(1.05rem, 3.5vw, 1.3rem);
   color: var(--ink);
@@ -213,6 +213,13 @@ body {
   font-family: var(--serif);
 }
 
+ .center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 25px;
+}
+
 /* method */
 .method {
   margin: 0;
@@ -260,6 +267,94 @@ body {
   font-style: italic;
   color: var(--ink-soft);
 }
+
+/* ── gallery / carousel (CSS-only, scroll-snap — no JS, CSP-safe) ────────── */
+.gallery__lead {
+  margin: -0.25rem 0 1.1rem;
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.carousel {
+  display: flex;
+  gap: clamp(0.75rem, 3vw, 1.25rem);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scroll-padding-inline: 0.5rem;
+  padding: 0.25rem 0.25rem 1rem;
+  margin-inline: -0.25rem;
+  scrollbar-color: var(--accent) var(--paper-edge);
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.carousel:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.carousel::-webkit-scrollbar { height: 8px; }
+.carousel::-webkit-scrollbar-track { background: var(--paper-edge); border-radius: 4px; }
+.carousel::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+
+.slide {
+  flex: 0 0 min(88%, 38rem);
+  scroll-snap-align: center;
+  scroll-margin-block: 5rem;
+  margin: 0;
+}
+.slide img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1977 / 1365;
+  background: #fff;
+  border: 1px solid var(--paper-edge);
+  border-radius: 4px;
+  box-shadow: 0 10px 24px -14px rgba(0, 0, 0, 0.5);
+}
+.slide figcaption {
+  margin-top: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.carousel__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+.carousel__nav a {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.66rem;
+  text-decoration: none;
+  color: var(--ink-soft);
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  transition: background 0.06s ease, color 0.06s ease, border-color 0.06s ease;
+}
+.carousel__nav a:hover,
+.carousel__nav a:focus-visible {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.disclaimer {
+  margin: 1.6rem 0 0;
+  padding: 0.85rem 1rem;
+  font-size: 0.94rem;
+  color: var(--ink);
+  background: rgba(189, 59, 39, 0.06);
+  border: 1px dashed var(--accent);
+  border-radius: 3px;
+}
+.disclaimer b { font-variant: small-caps; letter-spacing: 0.03em; color: var(--accent); }
 
 /* ── stamped aside ──────────────────────────────────────────────────────── */
 .aside {
@@ -316,6 +411,7 @@ a:hover { color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+  html, .carousel { scroll-behavior: auto; }
 }
 
 @media print {
