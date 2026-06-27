@@ -1,13 +1,12 @@
 name: Publish Docker image & release
 
-# Push to master      -> build + push ghcr.io/.../freeloves-cookbot:master and :sha-<short>
-# Push a tag vX.Y.Z   -> build + push :X.Y.Z, :X.Y, :latest, and cut a GitHub Release
-# Manual dispatch     -> build + push for the selected ref (no release)
+# Runs ONLY when a vX.Y.Z tag is pushed:
+#   build + push ghcr.io/.../freeloves-cookbot :X.Y.Z, :X.Y, :latest, :sha-<short>
+#   and cut a GitHub Release (auto notes, docker-compose.yml attached).
+# Tag creation is restricted to repo admins via a ruleset, so only the owner can ship.
 on:
   push:
-    branches: [master]
     tags: ['v*']
-  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -41,8 +40,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=ref,event=branch
+            type=raw,value=latest
             type=sha,format=short
 
       - name: Build and push image
