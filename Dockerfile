@@ -1,8 +1,15 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build for FreelovesCookBot.
 # Build stage uses the .NET 10 SDK; the runtime stage uses the smaller ASP.NET 10 base.
+#
+# Multi-arch (linux/amd64 + linux/arm64, the latter also serving Apple Silicon Macs):
+# the build stage is pinned to $BUILDPLATFORM so the heavy restore/publish runs
+# natively instead of under QEMU emulation. The publish is framework-dependent and
+# portable (UseAppHost=false => architecture-neutral IL, plus native assets for every
+# RID resolved at runtime), so the single build output drops into both arch runtime
+# images. Only the small target-arch runtime stage (apt-get) is emulated when needed.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy project files first to maximize layer cache hits on dotnet restore.
