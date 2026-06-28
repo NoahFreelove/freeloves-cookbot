@@ -410,10 +410,10 @@ a:hover { color: var(--ink); }
 /* Bigger, easier-to-read type on desktop. The layout is entirely rem-based, so
    bumping the root font scales the whole card together — type, spacing, rules.
    --maxw is trimmed so line length stays comfortable at the larger size.
-   Tune the font-size % below to taste (200% ≈ "100% larger"). */
+   Tune the font-size % below to taste (150% ≈ "50% larger"). */
 @media (min-width: 64rem) {
   :root {
-    font-size: 200%;
+    font-size: 150%;
     --maxw: 44rem;   /* wider card so the larger type has room to breathe */
   }
 }
